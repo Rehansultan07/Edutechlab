@@ -1,0 +1,1 @@
+export const appConfig={name:"EduTechLab",tagline:"Education Management Platform"} as const;
