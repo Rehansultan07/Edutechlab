@@ -21,7 +21,20 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  await supabase.auth.getClaims()
+  const { data: claims } = await supabase.auth.getClaims()
+  const pathname = request.nextUrl.pathname
+
+  if (!claims?.claims?.sub && pathname !== "/login") {
+    const url = request.nextUrl.clone()
+    url.pathname = "/login"
+    return NextResponse.redirect(url)
+  }
+
+  if (claims?.claims?.sub && pathname === "/login") {
+    const url = request.nextUrl.clone()
+    url.pathname = "/"
+    return NextResponse.redirect(url)
+  }
 
   return response
 }
