@@ -21,7 +21,7 @@ export default function FeeReceipt({params}:{params:Promise<{paymentId:string}>}
   if(st?.class_id){const {data:c}=await s.from("classes").select("name").eq("id",st.class_id).single();className=c?.name||""}
   if(st?.section_id){const {data:sec}=await s.from("sections").select("name").eq("id",st.section_id).single();sectionName=sec?.name||""}
   setData({pay,st,org,settings,logo,className,sectionName});
- })()},[paymentId]);
+ })()},[]);
  if(error)return <main className="p-8 text-center text-red-600">{error}</main>;
  if(!data)return <main className="p-8 text-center text-slate-500">Loading receipt...</main>;
  const {pay,st,org,settings,logo,className,sectionName}=data;
