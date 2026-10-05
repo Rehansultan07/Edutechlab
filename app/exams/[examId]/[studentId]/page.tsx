@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Printer } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-type Mark = { subject: string; marks: number; max_marks: number };
+type Mark = { subject: string; marks: number | null; max_marks: number; status?: "marked" | "absent" | "fail" | "pass" };
 type GradeRow = { min: number; grade: string; remark: string };
 
 const DEFAULT_SCALE: GradeRow[] = [
@@ -64,7 +64,7 @@ export default function Marksheet({ params }: { params: Promise<{ examId: string
       const [studentRes, examRes, marksRes, orgRes, settingsRes] = await Promise.all([
         supabase.from("students").select("admission_no,first_name,last_name,father_name,mother_name,guardian_name,gender,date_of_birth,photo_url").eq("id", ids.studentId).eq("organization_id", profile.organization_id).single(),
         supabase.from("exams").select("name,exam_date").eq("id", ids.examId).eq("organization_id", profile.organization_id).single(),
-        supabase.from("exam_marks").select("subject,marks,max_marks").eq("exam_id", ids.examId).eq("student_id", ids.studentId).eq("organization_id", profile.organization_id).order("subject"),
+        supabase.from("exam_marks").select("subject,marks,max_marks,status").eq("exam_id", ids.examId).eq("student_id", ids.studentId).eq("organization_id", profile.organization_id).order("subject"),
         supabase.from("organizations").select("name").eq("id", profile.organization_id).single(),
         supabase.from("organization_settings").select("address,phone,email,authorized_signatory,logo_url,primary_color,secondary_color,marksheet_title,grading_scale").eq("organization_id", profile.organization_id).single(),
       ]);
