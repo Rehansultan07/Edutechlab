@@ -3,12 +3,12 @@ import {useEffect,useState} from "react";
 import {createClient} from "@/lib/supabase/client";
 import {Printer,ArrowLeft} from "lucide-react";
 
-export default function FeeReceipt({params}:{params:{paymentId:string}}){
+export default async function FeeReceipt({params}:{params:Promise<{paymentId:string}>}){\n const {paymentId}=await params;
  const s=createClient(); const [data,setData]=useState<any>(null); const [error,setError]=useState("");
  useEffect(()=>{(async()=>{
   const {data:{user}}=await s.auth.getUser(); if(!user){setError("Please sign in.");return}
   const {data:p}=await s.from("profiles").select("organization_id").eq("id",user.id).single(); if(!p){setError("Organization not found.");return}
-  const {data:pay,error:pe}=await s.from("fee_payments").select("id,student_id,amount,paid_on,method,reference,note,receipt_no,fee_month,created_at").eq("id",params.paymentId).eq("organization_id",p.organization_id).single();
+  const {data:pay,error:pe}=await s.from("fee_payments").select("id,student_id,amount,paid_on,method,reference,note,receipt_no,fee_month,created_at").eq("id",paymentId).eq("organization_id",p.organization_id).single();
   if(pe||!pay){setError("Receipt not found.");return}
   const [{data:st},{data:org},{data:settings}]=await Promise.all([
    s.from("students").select("id,admission_no,first_name,last_name,class_id,section_id").eq("id",pay.student_id).eq("organization_id",p.organization_id).single(),
@@ -20,7 +20,7 @@ export default function FeeReceipt({params}:{params:{paymentId:string}}){
   if(st?.class_id){const {data:c}=await s.from("classes").select("name").eq("id",st.class_id).single();className=c?.name||""}
   if(st?.section_id){const {data:sec}=await s.from("sections").select("name").eq("id",st.section_id).single();sectionName=sec?.name||""}
   setData({pay,st,org,settings,logo,className,sectionName});
- })()},[params.paymentId]);
+ })()},[paymentId]);
  if(error)return <main className="p-8 text-center text-red-600">{error}</main>;
  if(!data)return <main className="p-8 text-center text-slate-500">Loading receipt...</main>;
  const {pay,st,org,settings,logo,className,sectionName}=data;
