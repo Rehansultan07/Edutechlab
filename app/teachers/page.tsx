@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useMemo,useState} from "react"; import {Plus,Search,Trash2,X,Pencil} from "lucide-react"; import {createClient} from "@/lib/supabase/client";
+import {useEffect,useMemo,useState} from "react"; import {Plus,Search,Trash2,X,Pencil,ArrowLeft} from "lucide-react"; import {createClient} from "@/lib/supabase/client";
 type Teacher={id:string;full_name:string;phone:string|null;email:string|null};
 export default function Teachers(){const s=createClient();const[org,setOrg]=useState("");const[rows,setRows]=useState<Teacher[]>([]);const[q,setQ]=useState("");const[open,setOpen]=useState(false);const[edit,setEdit]=useState<Teacher|null>(null);const[form,setForm]=useState({full_name:"",phone:"",email:""});const[error,setError]=useState("");
 const load=async()=>{const{data:{user}}=await s.auth.getUser();if(!user)return;const{data:p}=await s.from("profiles").select("organization_id").eq("id",user.id).single();if(!p)return;setOrg(p.organization_id);const{data,error}=await s.from("teachers").select("id,full_name,phone,email").eq("organization_id",p.organization_id).order("created_at",{ascending:false});if(error)setError(error.message);else setRows(data||[])};useEffect(()=>{load()},[]);
