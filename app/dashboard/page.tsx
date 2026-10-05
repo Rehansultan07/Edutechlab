@@ -38,7 +38,7 @@ export default function Dashboard(){
   const today=new Date().toISOString().slice(0,10), monthStart=new Date(); monthStart.setDate(1);
   const monthDate=monthStart.toISOString().slice(0,10);
   const can=(code:string)=>isAdmin||granted.has(code);
-  const canAny=(codes:string[])=>isAdmin||codes.some(code=>granted.has(code));
+  const canAny=(codes:readonly string[])=>isAdmin||codes.some(code=>granted.has(code));
   const [students,teachers,attendance,fees]=await Promise.all([
    canAny(["students.view","students.manage","admissions.manage"])?supabase.from("students").select("id",{count:"exact",head:true}).eq("organization_id",orgId).eq("status","active"):Promise.resolve({count:0}),
    canAny(["teachers.view","teachers.manage"])?supabase.from("teachers").select("id",{count:"exact",head:true}).eq("organization_id",orgId):Promise.resolve({count:0}),
@@ -50,7 +50,7 @@ export default function Dashboard(){
   setLoading(false);
  })()},[]);
  const can=(code:string)=>profile?.role==="owner"||profile?.role==="admin"||permissions.has(code);
- const canAny=(codes:string[])=>profile?.role==="owner"||profile?.role==="admin"||codes.some(code=>permissions.has(code));
+ const canAny=(codes:readonly string[])=>profile?.role==="owner"||profile?.role==="admin"||codes.some(code=>permissions.has(code));
  const visibleNav=nav.filter(([,href,,required])=>href==="/dashboard"||canAny(required));
  const instituteName=profile?.organizations?.name||"Your Institute",firstName=profile?.full_name?.trim()?.split(/\\s+/)[0]||"Admin",initials=(profile?.full_name||"A").split(/\\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase();
  const statCards:any[]=[can("students.view")?["Total Students",loading?"—":String(stats.students),"Active students"]:null,can("teachers.view")?["Teachers",loading?"—":String(stats.teachers),"Staff records"]:null,can("attendance.view")?["Attendance Today",loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%","Based on today’s marked attendance"]:null,can("fees.view")?["Fees This Month",loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),"Recorded payments"]:null].filter(Boolean);
