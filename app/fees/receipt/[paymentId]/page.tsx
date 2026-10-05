@@ -5,7 +5,8 @@ import {Printer,ArrowLeft} from "lucide-react";
 
 export default function FeeReceipt({params}:{params:Promise<{paymentId:string}>}){
  const s=createClient(); const [data,setData]=useState<any>(null); const [error,setError]=useState("");
- useEffect(()=>{(async()=>{\n  const {paymentId}=await params;
+ useEffect(()=>{(async()=>{
+  const {paymentId}=await params;
   const {data:{user}}=await s.auth.getUser(); if(!user){setError("Please sign in.");return}
   const {data:p}=await s.from("profiles").select("organization_id").eq("id",user.id).single(); if(!p){setError("Organization not found.");return}
   const {data:pay,error:pe}=await s.from("fee_payments").select("id,student_id,amount,paid_on,method,reference,note,receipt_no,fee_month,created_at").eq("id",paymentId).eq("organization_id",p.organization_id).single();
