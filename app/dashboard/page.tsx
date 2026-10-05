@@ -6,17 +6,17 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 const nav = [
- ["Dashboard","/dashboard",LayoutDashboard,null],
- ["Students","/students",Users,"students.view"],
- ["Teachers","/teachers",GraduationCap,"teachers.view"],
- ["Attendance","/attendance",ClipboardCheck,"attendance.view"],
- ["Fees","/fees",WalletCards,"fees.view"],
- ["Exams & Results","/exams",FileText,"exams.view"],
- ["Notices","/notices",Bell,"notices.manage"],
- ["Staff & Permissions","/staff",ShieldCheck,"staff.manage"],
- ["Settings","/settings",Settings,"settings.manage"]
+ ["Dashboard","/dashboard",LayoutDashboard,[]],
+ ["Students","/students",Users,["students.view","students.manage","admissions.manage"]],
+ ["Teachers","/teachers",GraduationCap,["teachers.view","teachers.manage"]],
+ ["Attendance","/attendance",ClipboardCheck,["attendance.view","attendance.manage"]],
+ ["Fees","/fees",WalletCards,["fees.view","fees.manage","fees.receipts"]],
+ ["Exams & Results","/exams",FileText,["exams.view","exams.manage","results.manage"]],
+ ["Notices","/notices",Bell,["notices.manage"]],
+ ["Staff & Permissions","/staff",ShieldCheck,["staff.manage"]],
+ ["Settings","/settings",Settings,["settings.manage"]]
 ] as const;
-type PermissionCode=typeof nav[number][3];
+type PermissionCode=string;
 type Stats={students:number;teachers:number;attendance:number|null;fees:number};
 type Profile={full_name:string;login_id:string|null;organization_id:string;role:string;organizations:{name:string}|null};
 
@@ -30,7 +30,7 @@ export default function Dashboard(){
   setProfile(p as unknown as Profile); const orgId=p.organization_id;
   const isAdmin=p.role==="owner"||p.role==="admin";
   let granted=new Set<string>();
-  if(isAdmin){granted=new Set(nav.flatMap(x=>x[3]? [x[3]]:[]))}else{
+  if(isAdmin){granted=new Set(nav.flatMap(x=>x[3]))}else{
    const {data:grants}=await supabase.from("staff_permissions").select("permissions(code)").eq("staff_id",user.id).eq("organization_id",orgId).eq("enabled",true);
    granted=new Set((grants??[]).map((g:any)=>g.permissions?.code).filter(Boolean));
   }
@@ -38,18 +38,20 @@ export default function Dashboard(){
   const today=new Date().toISOString().slice(0,10), monthStart=new Date(); monthStart.setDate(1);
   const monthDate=monthStart.toISOString().slice(0,10);
   const can=(code:string)=>isAdmin||granted.has(code);
+  const canAny=(codes:string[])=>isAdmin||codes.some(code=>granted.has(code));
   const [students,teachers,attendance,fees]=await Promise.all([
-   can("students.view")?supabase.from("students").select("id",{count:"exact",head:true}).eq("organization_id",orgId).eq("status","active"):Promise.resolve({count:0}),
-   can("teachers.view")?supabase.from("teachers").select("id",{count:"exact",head:true}).eq("organization_id",orgId):Promise.resolve({count:0}),
-   can("attendance.view")?supabase.from("attendance").select("status").eq("organization_id",orgId).eq("attendance_date",today):Promise.resolve({data:[]}),
-   can("fees.view")?supabase.from("fee_payments").select("amount").eq("organization_id",orgId).gte("paid_on",monthDate):Promise.resolve({data:[]})
+   canAny(["students.view","students.manage","admissions.manage"])?supabase.from("students").select("id",{count:"exact",head:true}).eq("organization_id",orgId).eq("status","active"):Promise.resolve({count:0}),
+   canAny(["teachers.view","teachers.manage"])?supabase.from("teachers").select("id",{count:"exact",head:true}).eq("organization_id",orgId):Promise.resolve({count:0}),
+   canAny(["attendance.view","attendance.manage"])?supabase.from("attendance").select("status").eq("organization_id",orgId).eq("attendance_date",today):Promise.resolve({data:[]}),
+   canAny(["fees.view","fees.manage","fees.receipts"])?supabase.from("fee_payments").select("amount").eq("organization_id",orgId).gte("paid_on",monthDate):Promise.resolve({data:[]})
   ]);
   const present=attendance.data?.filter((x:{status:string})=>x.status==="present").length??0,marked=attendance.data?.filter((x:{status:string})=>x.status==="present"||x.status==="absent").length??0;
   setStats({students:students.count??0,teachers:teachers.count??0,attendance:marked?Math.round(present/marked*1000)/10:null,fees:(fees.data??[]).reduce((s,r)=>s+Number(r.amount??0),0)});
   setLoading(false);
  })()},[]);
  const can=(code:string)=>profile?.role==="owner"||profile?.role==="admin"||permissions.has(code);
- const visibleNav=nav.filter(([,href,,permission])=>href==="/dashboard"||!permission||can(permission));
+ const canAny=(codes:string[])=>profile?.role==="owner"||profile?.role==="admin"||codes.some(code=>permissions.has(code));
+ const visibleNav=nav.filter(([,href,,required])=>href==="/dashboard"||canAny(required));
  const instituteName=profile?.organizations?.name||"Your Institute",firstName=profile?.full_name?.trim()?.split(/\\s+/)[0]||"Admin",initials=(profile?.full_name||"A").split(/\\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase();
  const statCards:any[]=[can("students.view")?["Total Students",loading?"—":String(stats.students),"Active students"]:null,can("teachers.view")?["Teachers",loading?"—":String(stats.teachers),"Staff records"]:null,can("attendance.view")?["Attendance Today",loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%","Based on today’s marked attendance"]:null,can("fees.view")?["Fees This Month",loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),"Recorded payments"]:null].filter(Boolean);
  const quickActions:any[]=[can("students.manage")?["Add student","/students"]:null,can("attendance.manage")?["Mark attendance","/attendance"]:null,can("fees.manage")?["Record fee payment","/fees"]:null,can("notices.manage")?["Create notice","/notices"]:null].filter(Boolean);
