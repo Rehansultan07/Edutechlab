@@ -12,32 +12,17 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: cors });
 
 function makeBaseLoginId(instituteName: string) {
-  const words = instituteName
-    .trim()
-    .replace(/[^a-zA-Z0-9\s]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-
+  const words = instituteName.trim().replace(/[^a-zA-Z0-9\s]+/g, " ").split(/\s+/).filter(Boolean);
   const initials = words.map((word) => word[0]).join("").toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const year = new Date().getFullYear();
-  return "EDU-" + (initials || "INST").slice(0, 12) + year;
+  return "EDU-" + (initials || "INST").slice(0, 12) + new Date().getFullYear();
 }
 
 async function makeUniqueLoginId(admin: ReturnType<typeof createClient>, instituteName: string) {
   const base = makeBaseLoginId(instituteName);
-  const { data, error } = await admin
-    .from("profiles")
-    .select("login_id")
-    .like("login_id", base + "%");
-
+  const { data, error } = await admin.from("profiles").select("login_id").like("login_id", base + "%");
   if (error) throw error;
 
-  const used = new Set(
-    (data ?? [])
-      .map((row) => String(row.login_id ?? "").toUpperCase())
-      .filter(Boolean),
-  );
-
+  const used = new Set((data ?? []).map((row) => String(row.login_id ?? "").toUpperCase()).filter(Boolean));
   if (!used.has(base)) return base;
 
   let number = 2;
@@ -83,10 +68,12 @@ Deno.serve(async (req) => {
     }
 
     const userId = userData.user.id;
+    const slugBase = instituteName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "institute";
+    const slug = slugBase + "-" + loginId.replace(/^EDU-/, "").toLowerCase();
 
     const { data: org, error: orgError } = await admin
       .from("organizations")
-      .insert({ name: instituteName, slug: instituteName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "institute" })
+      .insert({ name: instituteName, slug })
       .select("id")
       .single();
 
@@ -95,7 +82,7 @@ Deno.serve(async (req) => {
       return json({ error: orgError?.message ?? "Could not create the institute workspace." }, 400);
     }
 
-    let profileError: { message: string } | null = null;
+    let profileError: { message: string; code?: string } | null = null;
     for (let attempt = 0; attempt < 5; attempt++) {
       const result = await admin.from("profiles").insert({
         id: userId,
@@ -108,8 +95,6 @@ Deno.serve(async (req) => {
       profileError = result.error;
       if (!profileError) break;
 
-      // A concurrent registration can select the same readable ID.
-      // Recalculate the next available suffix instead of failing the signup.
       if (profileError.code !== "23505" || !profileError.message.includes("login_id")) break;
       loginId = await makeUniqueLoginId(admin, instituteName);
     }
