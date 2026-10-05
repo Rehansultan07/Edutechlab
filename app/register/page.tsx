@@ -25,7 +25,13 @@ export default function RegisterPage(){
    instituteName:form.name,instituteType:form.type,address:form.address,phone:form.phone,
    instituteEmail:form.email,adminName:form.adminName,adminEmail:form.adminEmail,password:form.password
   }})
-  if(error){setError(error.message||"Registration failed. Please try again.");setLoading(false);return}
+  if(error){
+   let message="Registration could not be completed. Please try again.";
+   const context=(error as any).context;
+   try{if(context?.json){const body=await context.json();if(body?.error) message=body.error;}}catch{}
+   if(message==="Registration could not be completed. Please try again." && error.message) message=error.message;
+   setError(message);setLoading(false);return
+  }
   if(!data?.loginId){setError(data?.error||"Registration could not be completed.");setLoading(false);return}
   setLoginId(data.loginId);setStep(4);setLoading(false)
  }
