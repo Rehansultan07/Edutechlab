@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, Printer } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-type Mark = { subject: string; marks: number | null; max_marks: number; status?: "marked" | "absent" | "fail" | "pass" };
+type Mark = { subject: string; marks: number | null; max_marks: number; pass_percentage: number; status?: "marked" | "absent" | "fail" | "pass" };
 type GradeRow = { min: number; grade: string; remark: string };
 
 const DEFAULT_SCALE: GradeRow[] = [
@@ -61,10 +61,11 @@ export default function Marksheet({ params }: { params: Promise<{ examId: string
       if (!user) return;
       const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).single();
       if (!profile?.organization_id) return;
-      const [studentRes, examRes, marksRes, orgRes, settingsRes] = await Promise.all([
+      const [studentRes, examRes, subjectRes, marksRes, orgRes, settingsRes] = await Promise.all([
         supabase.from("students").select("admission_no,first_name,last_name,father_name,mother_name,guardian_name,gender,date_of_birth,photo_url").eq("id", ids.studentId).eq("organization_id", profile.organization_id).single(),
         supabase.from("exams").select("name,exam_date").eq("id", ids.examId).eq("organization_id", profile.organization_id).single(),
-        supabase.from("exam_marks").select("subject,marks,max_marks,status").eq("exam_id", ids.examId).eq("student_id", ids.studentId).eq("organization_id", profile.organization_id).order("subject"),
+        supabase.from("exam_subjects").select("subject,max_marks,pass_percentage,sort_order").eq("exam_id", ids.examId).eq("organization_id", profile.organization_id).order("sort_order"),
+        supabase.from("exam_marks").select("subject,marks,max_marks,pass_percentage,status").eq("exam_id", ids.examId).eq("student_id", ids.studentId).eq("organization_id", profile.organization_id).order("subject"),
         supabase.from("organizations").select("name").eq("id", profile.organization_id).single(),
         supabase.from("organization_settings").select("address,phone,email,authorized_signatory,logo_url,primary_color,secondary_color,marksheet_title,grading_scale").eq("organization_id", profile.organization_id).single(),
       ]);
@@ -80,7 +81,9 @@ export default function Marksheet({ params }: { params: Promise<{ examId: string
       }
       setStudent({ ...studentRes.data, photo_signed: studentPhoto });
       setExam(examRes.data);
-      setMarks((marksRes.data as Mark[]) ?? []);
+      const saved = new Map(((marksRes.data as any[]) ?? []).map((row) => [row.subject, row]));
+      const configured = ((subjectRes.data as any[]) ?? []).map((row) => ({ subject: row.subject, max_marks: Number(row.max_marks || 100), pass_percentage: Number(row.pass_percentage ?? 30), ...(saved.get(row.subject) ?? { marks: null, status: undefined }) }));
+      setMarks(configured as Mark[]);
       setOrg(orgRes.data);
       setSettings({ ...settingsRes.data, logo_signed: instituteLogo });
     })();
@@ -88,13 +91,16 @@ export default function Marksheet({ params }: { params: Promise<{ examId: string
 
   const scale = useMemo(() => parseScale(settings?.grading_scale), [settings?.grading_scale]);
   const totals = useMemo(() => {
-    const total = marks.reduce((sum, row) => sum + Number(row.marks || 0), 0);
+    const total = marks.reduce((sum, row) => sum + Number(row.marks ?? 0), 0);
     const max = marks.reduce((sum, row) => sum + Number(row.max_marks || 0), 0);
     const percentage = max ? (total / max) * 100 : 0;
     const overall = getGrade(percentage, scale);
     const passed = marks.length > 0 && marks.every((row) => {
+      if (row.status === "absent" || row.status === "fail") return false;
+      if (row.status === "pass" && row.marks == null) return true;
       const rowMax = Number(row.max_marks || 0);
-      return rowMax ? (Number(row.marks || 0) / rowMax) * 100 >= 33 : false;
+      const passPct = Number(row.pass_percentage ?? 30);
+      return rowMax ? (Number(row.marks ?? 0) / rowMax) * 100 >= passPct : false;
     });
     return { total, max, percentage, overall, passed };
   }, [marks, scale]);
@@ -168,7 +174,7 @@ export default function Marksheet({ params }: { params: Promise<{ examId: string
               <table className="w-full border-collapse text-[11px] sm:text-[12px]">
                 <thead><tr style={{ backgroundColor: primary, color: "#fff" }}><th className="w-10 border-r border-white/20 p-2.5 text-center">S.No.</th><th className="p-2.5 text-left">Subject</th><th className="w-20 border-l border-white/20 p-2.5 text-center">Maximum</th><th className="w-20 border-l border-white/20 p-2.5 text-center">Obtained</th><th className="w-16 border-l border-white/20 p-2.5 text-center">Grade</th><th className="hidden w-28 border-l border-white/20 p-2.5 text-center sm:table-cell">Remarks</th></tr></thead>
                 <tbody>
-                  {marks.map((row, index) => { const rowMax = Number(row.max_marks || 0); const rowPercent = rowMax ? (Number(row.marks || 0) / rowMax) * 100 : 0; const rowGrade = getGrade(rowPercent, scale); return <tr key={`${row.subject}-${index}`} className={index % 2 ? "bg-white" : "bg-[#f4f4ee]"}><td className="border-b p-2.5 text-center text-slate-500">{index + 1}</td><td className="border-b p-2.5 font-semibold">{row.subject}</td><td className="border-b border-l p-2.5 text-center">{row.max_marks}</td><td className="border-b border-l p-2.5 text-center font-black" style={{ color: primary }}>{row.marks}</td><td className="border-b border-l p-2.5 text-center font-black" style={{ color: primary }}>{rowGrade.grade}</td><td className="hidden border-b border-l p-2.5 text-center text-[10px] text-slate-500 sm:table-cell">{rowGrade.remark}</td></tr>; })}
+                  {marks.map((row, index) => { const rowMax = Number(row.max_marks || 0); const rowPercent = rowMax ? (Number(row.marks ?? 0) / rowMax) * 100 : 0; const rowGrade = getGrade(rowPercent, scale); const displayValue = row.marks == null ? (row.status || "—").toUpperCase() : row.marks; const displayGrade = row.marks == null ? (row.status === "pass" ? "P" : row.status === "absent" ? "AB" : row.status === "fail" ? "F" : "—") : rowGrade.grade; return <tr key={`${row.subject}-${index}`} className={index % 2 ? "bg-white" : "bg-[#f4f4ee]"}><td className="border-b p-2.5 text-center text-slate-500">{index + 1}</td><td className="border-b p-2.5 font-semibold">{row.subject}</td><td className="border-b border-l p-2.5 text-center">{row.max_marks}</td><td className="border-b border-l p-2.5 text-center font-black" style={{ color: row.status === "fail" || row.status === "absent" ? "#b91c1c" : primary }}>{displayValue}</td><td className="border-b border-l p-2.5 text-center font-black" style={{ color: row.status === "fail" || row.status === "absent" ? "#b91c1c" : primary }}>{displayGrade}</td><td className="hidden border-b border-l p-2.5 text-center text-[10px] text-slate-500 sm:table-cell">{rowGrade.remark}</td></tr>; })}
                   <tr style={{ backgroundColor: `${accent}28` }}><td colSpan={2} className="p-3 text-right font-black uppercase tracking-wide" style={{ color: primary }}>Grand Total</td><td className="border-l p-3 text-center font-black">{totals.max}</td><td className="border-l p-3 text-center text-[14px] font-black" style={{ color: primary }}>{totals.total}</td><td colSpan={2} className="border-l p-3 text-center font-black" style={{ color: primary }}>{totals.overall.grade}</td></tr>
                 </tbody>
               </table>
