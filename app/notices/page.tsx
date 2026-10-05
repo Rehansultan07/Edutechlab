@@ -1,5 +1,5 @@
 "use client";
-import{ArrowLeft,useEffect,useState}from"react";import{Plus,Bell,Trash2,X}from"lucide-react";import{createClient}from"@/lib/supabase/client";
+import{useEffect,useState}from"react";import{Plus,Bell,Trash2,X}from"lucide-react";import{createClient}from"@/lib/supabase/client";
 type N={id:string;title:string;body:string;published_at:string|null};
 export default function Notices(){const s=createClient();const[org,setOrg]=useState("");const[rows,setRows]=useState<N[]>([]);const[open,setOpen]=useState(false);const[form,setForm]=useState({title:"",body:""});const[error,setError]=useState("");
 const load=async()=>{const{data:{user}}=await s.auth.getUser();if(!user)return;const{data:p}=await s.from("profiles").select("organization_id").eq("id",user.id).single();if(!p)return;setOrg(p.organization_id);const{data,error}=await s.from("notices").select("id,title,body,published_at").eq("organization_id",p.organization_id).order("created_at",{ascending:false});if(error)setError(error.message);else setRows(data||[])};useEffect(()=>{load()},[]);
