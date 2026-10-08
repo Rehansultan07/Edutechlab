@@ -29,6 +29,7 @@ export default function Dashboard(){
   if(pError||!p){setError("We couldn't load your institute workspace.");setLoading(false);return;}
   setProfile(p as unknown as Profile); const orgId=p.organization_id;
   const role=String(p.role||"").trim().toLowerCase(); const isAdmin=role==="owner"||role==="admin";
+  if(!isAdmin){window.location.replace("/staff-dashboard");return;}
   let granted=new Set<string>();
   if(isAdmin){granted=new Set(nav.flatMap(x=>x[3]))}else{
    const {data:grants}=await supabase.from("staff_permissions").select("permissions(code)").eq("staff_id",user.id).eq("organization_id",orgId).eq("enabled",true);
