@@ -28,7 +28,7 @@ export default function Dashboard(){
   const {data:p,error:pError}=await supabase.from("profiles").select("full_name,login_id,organization_id,role,organizations(name)").eq("id",user.id).single();
   if(pError||!p){setError("We couldn't load your institute workspace.");setLoading(false);return;}
   setProfile(p as unknown as Profile); const orgId=p.organization_id;
-  const isAdmin=p.role==="owner"||p.role==="admin";
+  const role=String(p.role||"").trim().toLowerCase(); const isAdmin=role==="owner"||role==="admin";
   let granted=new Set<string>();
   if(isAdmin){granted=new Set(nav.flatMap(x=>x[3]))}else{
    const {data:grants}=await supabase.from("staff_permissions").select("permissions(code)").eq("staff_id",user.id).eq("organization_id",orgId).eq("enabled",true);
@@ -49,11 +49,11 @@ export default function Dashboard(){
   setStats({students:students.count??0,teachers:teachers.count??0,attendance:marked?Math.round(present/marked*1000)/10:null,fees:(fees.data??[]).reduce((s,r)=>s+Number(r.amount??0),0)});
   setLoading(false);
  })()},[]);
- const can=(code:string)=>profile?.role==="owner"||profile?.role==="admin"||permissions.has(code);
- const canAny=(codes:readonly string[])=>profile?.role==="owner"||profile?.role==="admin"||codes.some(code=>permissions.has(code));
+ const can=(code:string)=>{const role=String(profile?.role||"").trim().toLowerCase(); return (role==="owner"||role==="admin")||permissions.has(code)};
+ const canAny=(codes:readonly string[])=>{const role=String(profile?.role||"").trim().toLowerCase(); return (role==="owner"||role==="admin")||codes.some(code=>permissions.has(code))};
  const visibleNav=nav.filter(([,href,,required])=>href==="/dashboard"||canAny(required));
  const instituteName=profile?.organizations?.name||"Your Institute",firstName=profile?.full_name?.trim()?.split(/\\s+/)[0]||"Admin",initials=(profile?.full_name||"A").split(/\\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase();
- const statCards:any[]=[can("students.view")?["Total Students",loading?"—":String(stats.students),"Active students"]:null,can("teachers.view")?["Teachers",loading?"—":String(stats.teachers),"Staff records"]:null,can("attendance.view")?["Attendance Today",loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%","Based on today’s marked attendance"]:null,can("fees.view")?["Fees This Month",loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),"Recorded payments"]:null].filter(Boolean);
+ const statCards:any[]=[canAny(["students.view","students.manage","admissions.manage"])?["Total Students",loading?"—":String(stats.students),"Active students"]:null,canAny(["teachers.view","teachers.manage"])?["Teachers",loading?"—":String(stats.teachers),"Staff records"]:null,canAny(["attendance.view","attendance.manage"])?["Attendance Today",loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%","Based on today’s marked attendance"]:null,canAny(["fees.view","fees.manage","fees.receipts"])?["Fees This Month",loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),"Recorded payments"]:null].filter(Boolean);
  const quickActions:any[]=[can("students.manage")?["Add student","/students"]:null,can("attendance.manage")?["Mark attendance","/attendance"]:null,can("fees.manage")?["Record fee payment","/fees"]:null,can("notices.manage")?["Create notice","/notices"]:null].filter(Boolean);
  return <div className="min-h-screen bg-slate-50">
   <aside className={`fixed inset-y-0 left-0 z-30 w-64 border-r bg-white p-5 transition-transform lg:translate-x-0 ${open?"translate-x-0":"-translate-x-full"}`}>
