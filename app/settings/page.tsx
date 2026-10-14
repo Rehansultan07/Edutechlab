@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, LogOut, Upload, KeyRound, Palette, BookOpen } from "lucide-react";
+import { ArrowLeft, LogOut, Upload, KeyRound, Palette, BookOpen, ShieldAlert, ArrowUpRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
@@ -38,6 +38,7 @@ export default function Settings() {
   const [saved, setSaved] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   const canManage = can("settings.manage");
 
@@ -49,11 +50,20 @@ export default function Settings() {
       if (!user) return;
       setUserEmail(user.email || "");
 
-      const { data: p } = await s
-        .from("profiles")
-        .select("organization_id,full_name,login_id")
-        .eq("id", user.id)
-        .single();
+      const [{ data: p }, { data: pa }] = await Promise.all([
+        s
+          .from("profiles")
+          .select("organization_id,full_name,login_id")
+          .eq("id", user.id)
+          .single(),
+        s
+          .from("platform_admins")
+          .select("role")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+      ]);
+
+      if (pa) setIsPlatformAdmin(true);
       if (!p) return;
       setAdminName(p.full_name || "");
       setLoginId(p.login_id || "");
@@ -214,6 +224,30 @@ export default function Settings() {
           Manage Classes & Sessions
         </Link>
       </div>
+
+      {isPlatformAdmin && (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-purple-200 bg-purple-50 p-5 shadow-sm">
+          <div>
+            <span className="rounded-md bg-purple-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-800">
+              Platform Super Admin
+            </span>
+            <h3 className="mt-1 text-base font-bold text-purple-950">
+              EduTechLab Platform Console
+            </h3>
+            <p className="mt-0.5 text-xs text-purple-700">
+              You are signed in with platform owner permissions. View all registered institutions, platform metrics, and manage tenant lifecycles.
+            </p>
+          </div>
+          <Link
+            href="/super-admin"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-purple-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-800"
+          >
+            <ShieldAlert size={16} />
+            Open Platform Console
+            <ArrowUpRight size={15} />
+          </Link>
+        </div>
+      )}
 
       <section className="mt-6 rounded-2xl border bg-white p-5 shadow-sm">
         <h2 className="font-semibold text-slate-900">Institute profile</h2>

@@ -33,7 +33,7 @@ export function useUserAccess(requiredCodes: string[] = []) {
 
       const { data: p, error: pErr } = await supabase
         .from("profiles")
-        .select("id, organization_id, role, full_name, login_id, is_active")
+        .select("id, organization_id, role, full_name, login_id, is_active, organizations(name, is_active, status)")
         .eq("id", user.id)
         .single();
 
@@ -46,6 +46,13 @@ export function useUserAccess(requiredCodes: string[] = []) {
       if (p.is_active === false) {
         await supabase.auth.signOut();
         window.location.href = "/login";
+        return;
+      }
+
+      const orgData = (p as any).organizations;
+      if (orgData && (orgData.is_active === false || orgData.status === "suspended")) {
+        setError("This institution has been suspended by the platform administrator.");
+        setLoading(false);
         return;
       }
 

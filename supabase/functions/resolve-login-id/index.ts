@@ -22,9 +22,13 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,{auth:{autoRefreshToken:false,persistSession:false}});
-    const {data:profile,error} = await admin.from("profiles").select("id, full_name, is_active").eq("login_id",normalized).maybeSingle();
+    const {data:profile,error} = await admin.from("profiles").select("id, full_name, is_active, organization_id, organizations(is_active, status)").eq("login_id",normalized).maybeSingle();
     if (error || !profile) return json({error: isStaff ? "Staff ID or password is incorrect." : "Institute ID or password is incorrect."},401);
-    if (profile.is_active === false) return json({error: "This staff account has been deactivated. Please contact your institute administrator."}, 403);
+    if (profile.is_active === false) return json({error: "This account has been deactivated. Please contact your administrator."}, 403);
+    const org = (profile as any)?.organizations;
+    if (org && (org.is_active === false || org.status === "suspended")) {
+      return json({error: "This institution has been suspended by the platform administrator. Please contact EduTechLab support."}, 403);
+    }
 
     const {data:userData,error:userError} = await admin.auth.admin.getUserById(profile.id);
     if (userError || !userData.user?.email) return json({error: isStaff ? "Staff account could not be found." : "Institute account could not be found."},401);
