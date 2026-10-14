@@ -159,6 +159,9 @@ as $$
 $$;
 
 -- 1. Atomic Fee Payment Recording
+drop function if exists public.record_fee_payment(uuid, numeric, text, text, text, date, uuid[], text);
+drop function if exists public.record_fee_payment(uuid, numeric, text, text, text, date, uuid[]);
+drop function if exists public.record_fee_payment;
 create or replace function public.record_fee_payment(
   p_student_id uuid,
   p_amount numeric,
@@ -257,6 +260,8 @@ end;
 $$;
 
 -- 2. Atomic Fee Payment Reversal / Cancellation
+drop function if exists public.reverse_fee_payment(uuid);
+drop function if exists public.reverse_fee_payment;
 create or replace function public.reverse_fee_payment(
   p_payment_id uuid
 ) returns boolean
@@ -316,6 +321,8 @@ end;
 $$;
 
 -- 3. Set Staff Permissions
+drop function if exists public.set_staff_permissions(uuid, uuid[]);
+drop function if exists public.set_staff_permissions;
 create or replace function public.set_staff_permissions(
   p_staff_id uuid,
   p_permission_ids uuid[]
@@ -353,6 +360,8 @@ end;
 $$;
 
 -- 4. Platform Overview Stats (Super Admin Only)
+drop function if exists public.get_platform_overview();
+drop function if exists public.get_platform_overview;
 create or replace function public.get_platform_overview()
 returns jsonb
 language plpgsql
@@ -382,6 +391,8 @@ end;
 $$;
 
 -- 5. List Institutions for Platform (Super Admin Only)
+drop function if exists public.list_institutions_for_platform();
+drop function if exists public.list_institutions_for_platform;
 create or replace function public.list_institutions_for_platform()
 returns table (
   id uuid,
@@ -444,6 +455,8 @@ end;
 $$;
 
 -- 6. Update Institution Lifecycle (Super Admin Only)
+drop function if exists public.update_institution_lifecycle(uuid, text, boolean);
+drop function if exists public.update_institution_lifecycle;
 create or replace function public.update_institution_lifecycle(
   p_org_id uuid,
   p_status text,
@@ -477,6 +490,8 @@ end;
 $$;
 
 -- 7. Parent Portal Lookup RPC
+drop function if exists public.get_student_parent_portal(text, text);
+drop function if exists public.get_student_parent_portal;
 create or replace function public.get_student_parent_portal(
   p_admission_no text,
   p_phone_or_dob text
