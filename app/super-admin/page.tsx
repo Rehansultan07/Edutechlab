@@ -69,14 +69,16 @@ export default function SuperAdminPage() {
         return;
       }
 
-      // Check if user is in platform_admins table
-      const { data: adminRecord, error: adminErr } = await supabase
-        .from("platform_admins")
-        .select("role")
-        .eq("user_id", user.id)
-        .single();
+      // Check if user is in platform_admins or is owner
+      const [{ data: isSuper }, { data: adminRecord }, { data: pRecord }] = await Promise.all([
+        supabase.rpc("is_platform_admin"),
+        supabase.from("platform_admins").select("role").eq("user_id", user.id).maybeSingle(),
+        supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+      ]);
 
-      if (adminErr || !adminRecord) {
+      const isAllowed = isSuper === true || !!adminRecord || pRecord?.role === "owner";
+
+      if (!isAllowed) {
         setIsSuperAdmin(false);
         setLoading(false);
         return;

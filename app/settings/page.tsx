@@ -50,10 +50,10 @@ export default function Settings() {
       if (!user) return;
       setUserEmail(user.email || "");
 
-      const [{ data: p }, { data: pa }] = await Promise.all([
+      const [{ data: p }, { data: pa }, { data: isSuper }] = await Promise.all([
         s
           .from("profiles")
-          .select("organization_id,full_name,login_id")
+          .select("organization_id,full_name,login_id,role")
           .eq("id", user.id)
           .single(),
         s
@@ -61,9 +61,10 @@ export default function Settings() {
           .select("role")
           .eq("user_id", user.id)
           .maybeSingle(),
+        s.rpc("is_platform_admin"),
       ]);
 
-      if (pa) setIsPlatformAdmin(true);
+      if (pa || isSuper === true || p?.role === "owner") setIsPlatformAdmin(true);
       if (!p) return;
       setAdminName(p.full_name || "");
       setLoginId(p.login_id || "");
