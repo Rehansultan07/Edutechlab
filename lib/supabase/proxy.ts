@@ -18,13 +18,12 @@ export async function updateSession(request: NextRequest) {
     },
   )
 
-  const { data: claims } = await supabase.auth.getClaims()
+  const { data: { user } } = await supabase.auth.getUser()
   const pathname = request.nextUrl.pathname
   const isPublic = pathname === "/" || pathname === "/login" || pathname === "/register" || pathname.startsWith("/auth/")
 
-  // Public entry points must always remain reachable. In particular, an existing
-  // session must not silently send the user from Register/Sign in to the demo dashboard.
-  if (!claims?.claims?.sub && !isPublic) {
+  // Public entry points must always remain reachable.
+  if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     return NextResponse.redirect(url)

@@ -1,15 +1,716 @@
 "use client";
-import{useEffect,useMemo,useRef,useState}from"react";import{ArrowLeft,Plus,Search,Trash2,X,Receipt,ChevronRight,CalendarDays}from"lucide-react";import{createClient}from"@/lib/supabase/client";
-type S={id:string;admission_no:string;first_name:string;last_name:string|null};type M={id:string;student_id:string;fee_month:string;amount_due:number;amount_paid:number;status:string;paid_on:string|null};
-export default function Fees(){const s=createClient();const[org,setOrg]=useState("");const[students,setStudents]=useState<S[]>([]);const[months,setMonths]=useState<M[]>([]);const[q,setQ]=useState("");const[tab,setTab]=useState<"dues"|"payments">("dues");const[planOpen,setPlanOpen]=useState(false);const[selected,setSelected]=useState<S|null>(null);const[payOpen,setPayOpen]=useState<M|null>(null);const[error,setError]=useState("");const[plan,setPlan]=useState({student_id:"",monthly_amount:"",applied_from:new Date().toISOString().slice(0,10),note:""});const[payment,setPayment]=useState({amount:"",paid_on:new Date().toISOString().slice(0,10),method:"cash",reference:""});const[paymentKey,setPaymentKey]=useState<string|null>(null);const paymentLock=useRef(false);
-const load=async()=>{const{data:{user}}=await s.auth.getUser();if(!user)return;const{data:p}=await s.from("profiles").select("organization_id").eq("id",user.id).single();if(!p)return;setOrg(p.organization_id);const{data:st}=await s.from("students").select("id,admission_no,first_name,last_name").eq("organization_id",p.organization_id).eq("status","active").order("first_name");setStudents(st||[]);const{data:plans}=await s.from("student_fee_plans").select("id,student_id,monthly_amount,applied_from").eq("organization_id",p.organization_id).eq("active",true);for(const x of plans||[]){const start=new Date(x.applied_from+"T00:00:00");const end=new Date();end.setMonth(end.getMonth()+1,1);const rows=[];for(let d=new Date(start.getFullYear(),start.getMonth(),1);d<end;d.setMonth(d.getMonth()+1))rows.push({organization_id:p.organization_id,student_id:x.student_id,fee_plan_id:x.id,fee_month:d.toISOString().slice(0,10),amount_due:x.monthly_amount});if(rows.length)await s.from("student_fee_months").upsert(rows,{onConflict:"student_id,fee_month",ignoreDuplicates:true})}const{data:ms}=await s.from("student_fee_months").select("id,student_id,fee_month,amount_due,amount_paid,status,paid_on").eq("organization_id",p.organization_id).order("fee_month",{ascending:false});setMonths(ms||[])};
-useEffect(()=>{load()},[]);
-const map=useMemo(()=>Object.fromEntries(students.map(x=>[x.id,x])),[students]);const grouped=useMemo(()=>{const out:any={};months.forEach(m=>{const st=map[m.student_id];if(!st)return;const key=m.student_id;if(!out[key])out[key]={student:st,rows:[],due:0,months:0};const balance=Math.max(0,Number(m.amount_due)-Number(m.amount_paid));out[key].rows.push(m);if(balance>0){out[key].due+=balance;out[key].months++}});return Object.values(out).filter((g:any)=>(g.student.first_name+" "+(g.student.last_name||"")+" "+g.student.admission_no).toLowerCase().includes(q.toLowerCase())).sort((a:any,b:any)=>b.due-a.due)},[months,map,q]);const totalDue:number=grouped.reduce((a:number,g:any)=>a+Number(g.due),0);
-const savePlan=async()=>{setError("");if(!plan.student_id||!plan.monthly_amount){setError("Student and monthly fee are required.");return}const r=await s.from("student_fee_plans").insert({organization_id:org,student_id:plan.student_id,monthly_amount:Number(plan.monthly_amount),applied_from:plan.applied_from,note:plan.note||null});if(r.error)setError(r.error.message);else{setPlanOpen(false);setPlan({student_id:"",monthly_amount:"",applied_from:new Date().toISOString().slice(0,10),note:""});load()}};
-const savePayment=async()=>{if(!payOpen||paymentLock.current)return;setError("");paymentLock.current=true;try{const amount=Number(payment.amount);const outstanding=Math.max(0,Number(payOpen.amount_due)-Number(payOpen.amount_paid));if(!amount||amount<=0){setError("Payment amount must be greater than zero.");return}if(amount>outstanding){setError("Payment cannot exceed the outstanding balance.");return}const key=paymentKey||crypto.randomUUID();const{error:e}=await s.rpc("record_fee_payment",{p_organization_id:org,p_student_id:payOpen.student_id,p_fee_month_id:payOpen.id,p_amount:amount,p_paid_on:payment.paid_on,p_method:payment.method,p_reference:payment.reference||null,p_idempotency_key:key});if(e){setError(e.message);return}setPayOpen(null);setPaymentKey(null);setPayment({amount:"",paid_on:new Date().toISOString().slice(0,10),method:"cash",reference:""});await load()}finally{paymentLock.current=false}};
-return <main className="mx-auto max-w-7xl p-5 sm:p-8"><button onClick={()=>window.history.back()} className="mb-5 inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm"><ArrowLeft size={16}/>Back</button><div className="flex flex-col justify-between gap-4 sm:flex-row"><div><p className="text-sm text-slate-500">Finance</p><h1 className="text-3xl font-bold">Fees</h1><p className="mt-2 text-sm text-slate-500">Students are shown as one summary. Open a student to see every month.</p></div><button onClick={()=>setPlanOpen(true)} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white"><Plus size={17} className="mr-1 inline"/>Set monthly fee</button></div><div className="mt-6 grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Total outstanding</p><p className="mt-2 text-2xl font-bold">₹{totalDue.toLocaleString("en-IN")}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Students with dues</p><p className="mt-2 text-2xl font-bold">{grouped.filter((g:any)=>g.due>0).length}</p></div></div>{error&&<div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}<div className="mt-6 flex gap-2"><button onClick={()=>setTab("dues")} className={tab==="dues"?"rounded-xl bg-slate-900 px-4 py-2 text-sm text-white":"rounded-xl border px-4 py-2 text-sm"}>Fee dues</button><button onClick={()=>setTab("payments")} className={tab==="payments"?"rounded-xl bg-slate-900 px-4 py-2 text-sm text-white":"rounded-xl border px-4 py-2 text-sm"}>Payment history</button></div><div className="mt-4 flex items-center gap-2 rounded-xl border bg-white px-3 py-2"><Search size={17}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search student..." className="w-full outline-none text-sm"/></div>{tab==="dues"?<div className="mt-4 overflow-hidden rounded-2xl border bg-white"><div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500"><span>Student</span><span>Months due</span><span>Outstanding</span><span></span></div>{grouped.map((g:any)=><button key={g.student.id} onClick={()=>setSelected(g.student)} className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-4 border-t px-5 py-4 text-left transition hover:bg-slate-50"><span><span className="font-semibold">{g.student.first_name} {g.student.last_name||""}</span><span className="ml-2 text-xs text-slate-400">{g.student.admission_no}</span></span><span className={g.months?"font-semibold text-amber-700":"text-slate-400"}>{g.months} month{g.months===1?"":"s"}</span><span className="font-bold">₹{g.due.toLocaleString("en-IN")}</span><ChevronRight size={18} className="text-slate-400"/></button>)}{!grouped.length&&<div className="p-10 text-center text-sm text-slate-500">No students found.</div>}</div>:<PaymentHistory s={s} org={org} students={students} q={q} onRefresh={load}/>}
-{selected&&<StudentLedger student={selected} months={months.filter(m=>m.student_id===selected.id)} onClose={()=>setSelected(null)} onPay={m=>{setPayOpen(m);setPaymentKey(crypto.randomUUID());setPayment({...payment,amount:String(Number(m.amount_due)-Number(m.amount_paid))})}} onDeletePlan={async()=>{await s.from("student_fee_plans").update({active:false}).eq("student_id",selected.id).eq("organization_id",org);setSelected(null);load()}}/>}
-{planOpen&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="w-full max-w-lg rounded-2xl bg-white p-6"><div className="flex justify-between"><h2 className="text-xl font-bold">Set monthly fee</h2><button onClick={()=>setPlanOpen(false)}><X/></button></div><div className="mt-5 space-y-3"><select value={plan.student_id} onChange={e=>setPlan({...plan,student_id:e.target.value})} className="w-full rounded-xl border px-3 py-2.5"><option value="">Select student</option>{students.map(x=><option key={x.id} value={x.id}>{x.admission_no} — {x.first_name} {x.last_name||""}</option>)}</select><input type="number" min="0" value={plan.monthly_amount} onChange={e=>setPlan({...plan,monthly_amount:e.target.value})} placeholder="Monthly fee" className="w-full rounded-xl border px-3 py-2.5"/><label className="text-sm">Apply from<input type="date" value={plan.applied_from} onChange={e=>setPlan({...plan,applied_from:e.target.value})} className="mt-1 w-full rounded-xl border px-3 py-2.5"/></label><input value={plan.note} onChange={e=>setPlan({...plan,note:e.target.value})} placeholder="Note (optional)" className="w-full rounded-xl border px-3 py-2.5"/></div><button onClick={savePlan} className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white">Apply monthly fee</button></div></div>}
-{payOpen&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="w-full max-w-lg rounded-2xl bg-white p-6"><div className="flex justify-between"><h2 className="text-xl font-bold">Receive payment</h2><button onClick={()=>setPayOpen(null)}><X/></button></div><p className="mt-2 text-sm text-slate-500">{map[payOpen.student_id]?.first_name} · {payOpen.fee_month.slice(0,7)} · Outstanding ₹{(Number(payOpen.amount_due)-Number(payOpen.amount_paid)).toLocaleString("en-IN")}</p><div className="mt-5 space-y-3"><input type="number" min="0" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} className="w-full rounded-xl border px-3 py-2.5" placeholder="Amount"/><input type="date" value={payment.paid_on} onChange={e=>setPayment({...payment,paid_on:e.target.value})} className="w-full rounded-xl border px-3 py-2.5"/><select value={payment.method} onChange={e=>setPayment({...payment,method:e.target.value})} className="w-full rounded-xl border px-3 py-2.5"><option>cash</option><option>upi</option><option>bank</option><option>card</option></select><input value={payment.reference} onChange={e=>setPayment({...payment,reference:e.target.value})} placeholder="Reference / transaction ID" className="w-full rounded-xl border px-3 py-2.5"/></div><button onClick={savePayment} className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white"><Receipt className="mr-2 inline" size={16}/>Save payment & receipt</button></div></div>}</main>}
-function StudentLedger({student,months,onClose,onPay,onDeletePlan}:{student:S;months:M[];onClose:()=>void;onPay:(m:M)=>void;onDeletePlan:()=>void}){const due=months.reduce((a,m)=>a+Math.max(0,Number(m.amount_due)-Number(m.amount_paid)),0);return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white"><div className="sticky top-0 flex items-center justify-between border-b bg-white p-5"><div><h2 className="text-xl font-bold">{student.first_name} {student.last_name||""}</h2><p className="text-sm text-slate-500">{student.admission_no} · Outstanding ₹{due.toLocaleString("en-IN")}</p></div><button onClick={onClose}><X/></button></div><div className="p-5"><div className="grid grid-cols-3 gap-3"><div className="rounded-xl border p-3"><small className="text-slate-500">Months</small><b className="mt-1 block">{months.length}</b></div><div className="rounded-xl border p-3"><small className="text-slate-500">Due</small><b className="mt-1 block">₹{due.toLocaleString("en-IN")}</b></div><div className="rounded-xl border p-3"><small className="text-slate-500">Paid</small><b className="mt-1 block">₹{months.reduce((a,m)=>a+Number(m.amount_paid),0).toLocaleString("en-IN")}</b></div></div><div className="mt-5 overflow-hidden rounded-xl border"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="p-3 text-left">Month</th><th className="p-3">Due</th><th className="p-3">Paid</th><th className="p-3">Balance</th><th className="p-3"></th></tr></thead><tbody>{months.map(m=><tr key={m.id} className="border-t"><td className="p-3 font-medium">{new Date(m.fee_month+"T00:00:00").toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</td><td className="p-3 text-center">₹{Number(m.amount_due).toLocaleString("en-IN")}</td><td className="p-3 text-center">₹{Number(m.amount_paid).toLocaleString("en-IN")}</td><td className="p-3 text-center font-semibold">₹{Math.max(0,Number(m.amount_due)-Number(m.amount_paid)).toLocaleString("en-IN")}</td><td className="p-3 text-right">{m.status!=="paid"&&<button onClick={()=>onPay(m)} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white">Receive</button>}</td></tr>)}</tbody></table></div><button onClick={onDeletePlan} className="mt-4 rounded-lg border px-3 py-2 text-xs font-semibold text-red-700"><Trash2 size={14} className="mr-1 inline"/>Deactivate fee plan</button></div></div></div>}
-function PaymentHistory({s,org,students,q,onRefresh}:{s:any;org:string;students:S[];q:string;onRefresh:()=>void}){const[rows,setRows]=useState<any[]>([]);const[busy,setBusy]=useState<string>("");useEffect(()=>{(async()=>{const{data}=await s.from("fee_payments").select("id,student_id,amount,paid_on,method,reference,receipt_no,fee_month,fee_month_id").eq("organization_id",org).order("paid_on",{ascending:false});setRows(data||[])})()},[org]);const map=Object.fromEntries(students.map(x=>[x.id,x]));const del=async(r:any)=>{if(!confirm("Delete this payment? The month's paid amount will be reversed."))return;setBusy(r.id);const{data:m}=await s.from("student_fee_months").select("amount_paid").eq("id",r.fee_month_id).single();if(m){const paid=Math.max(0,Number(m.amount_paid)-Number(r.amount));const month=await s.from("student_fee_months").update({amount_paid:paid,status:paid===0?"due":paid>=Number(m.amount_due)?"paid":"partial",paid_on:paid===0?null:r.paid_on}).eq("id",r.fee_month_id);if(month.error){setBusy("");return}}await s.from("fee_payments").delete().eq("id",r.id);setRows(v=>v.filter(x=>x.id!==r.id));setBusy("");onRefresh()};return <div className="mt-4 overflow-x-auto rounded-2xl border bg-white"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="p-4 text-left">Student</th><th className="p-4 text-left">Month</th><th className="p-4 text-left">Amount</th><th className="p-4 text-left">Date</th><th className="p-4 text-left">Method</th><th className="p-4 text-right">Receipt</th><th></th></tr></thead><tbody>{rows.filter(r=>(map[r.student_id]?.first_name+" "+(map[r.student_id]?.last_name||"")).toLowerCase().includes(q.toLowerCase())).map(r=><tr key={r.id} className="border-t"><td className="p-4">{map[r.student_id]?.first_name} {map[r.student_id]?.last_name||""}</td><td className="p-4">{r.fee_month||"—"}</td><td className="p-4">₹{Number(r.amount).toLocaleString("en-IN")}</td><td className="p-4">{r.paid_on}</td><td className="p-4">{r.method}</td><td className="p-4 text-right font-medium">{r.receipt_no?<a href={`/fees/receipt/${r.id}`} target="_blank" className="text-indigo-700 hover:underline">{r.receipt_no}</a>:"—"}</td><td className="p-4 text-right"><button disabled={busy===r.id} onClick={()=>del(r)} className="rounded-lg p-2 text-red-600 hover:bg-red-50"><Trash2 size={15}/></button></td></tr>)}</tbody></table></div>}
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Plus, Search, Trash2, X, Receipt, ChevronRight, Lock } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { useUserAccess } from "@/lib/auth/permissions";
+import AccessDenied from "@/components/auth/AccessDenied";
+
+type S = { id: string; admission_no: string; first_name: string; last_name: string | null };
+type M = {
+  id: string;
+  student_id: string;
+  fee_month: string;
+  amount_due: number;
+  amount_paid: number;
+  status: string;
+  paid_on: string | null;
+};
+
+export default function Fees() {
+  const s = createClient();
+  const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
+    "fees.view",
+    "fees.manage",
+    "fees.receipts",
+  ]);
+
+  const [students, setStudents] = useState<S[]>([]);
+  const [months, setMonths] = useState<M[]>([]);
+  const [q, setQ] = useState("");
+  const [tab, setTab] = useState<"dues" | "payments">("dues");
+  const [planOpen, setPlanOpen] = useState(false);
+  const [selected, setSelected] = useState<S | null>(null);
+  const [payOpen, setPayOpen] = useState<M | null>(null);
+  const [error, setError] = useState("");
+  const [plan, setPlan] = useState({
+    student_id: "",
+    monthly_amount: "",
+    applied_from: new Date().toISOString().slice(0, 10),
+    note: "",
+  });
+  const [payment, setPayment] = useState({
+    amount: "",
+    paid_on: new Date().toISOString().slice(0, 10),
+    method: "cash",
+    reference: "",
+  });
+  const [paymentKey, setPaymentKey] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const paymentLock = useRef(false);
+
+  const canManage = can("fees.manage");
+
+  const load = async () => {
+    if (!org) return;
+    const { data: st } = await s
+      .from("students")
+      .select("id,admission_no,first_name,last_name")
+      .eq("organization_id", org)
+      .eq("status", "active")
+      .order("first_name");
+    setStudents(st || []);
+
+    const { data: plans } = await s
+      .from("student_fee_plans")
+      .select("id,student_id,monthly_amount,applied_from")
+      .eq("organization_id", org)
+      .eq("active", true);
+
+    for (const x of plans || []) {
+      const start = new Date(x.applied_from + "T00:00:00");
+      const end = new Date();
+      end.setMonth(end.getMonth() + 1, 1);
+      const rows = [];
+      for (let d = new Date(start.getFullYear(), start.getMonth(), 1); d < end; d.setMonth(d.getMonth() + 1)) {
+        rows.push({
+          organization_id: org,
+          student_id: x.student_id,
+          fee_plan_id: x.id,
+          fee_month: d.toISOString().slice(0, 10),
+          amount_due: x.monthly_amount,
+        });
+      }
+      if (rows.length) {
+        await s.from("student_fee_months").upsert(rows, {
+          onConflict: "student_id,fee_month",
+          ignoreDuplicates: true,
+        });
+      }
+    }
+
+    const { data: ms } = await s
+      .from("student_fee_months")
+      .select("id,student_id,fee_month,amount_due,amount_paid,status,paid_on")
+      .eq("organization_id", org)
+      .order("fee_month", { ascending: false });
+    setMonths(ms || []);
+  };
+
+  useEffect(() => {
+    if (org && hasAccess) {
+      load();
+    }
+  }, [org, hasAccess]);
+
+  const map = useMemo(() => Object.fromEntries(students.map((x) => [x.id, x])), [students]);
+  const grouped = useMemo(() => {
+    const out: any = {};
+    months.forEach((m) => {
+      const st = map[m.student_id];
+      if (!st) return;
+      const key = m.student_id;
+      if (!out[key]) out[key] = { student: st, rows: [], due: 0, months: 0 };
+      const balance = Math.max(0, Number(m.amount_due) - Number(m.amount_paid));
+      out[key].rows.push(m);
+      if (balance > 0) {
+        out[key].due += balance;
+        out[key].months++;
+      }
+    });
+    return Object.values(out)
+      .filter((g: any) =>
+        (g.student.first_name + " " + (g.student.last_name || "") + " " + g.student.admission_no)
+          .toLowerCase()
+          .includes(q.toLowerCase())
+      )
+      .sort((a: any, b: any) => b.due - a.due);
+  }, [months, map, q]);
+
+  const totalDue: number = grouped.reduce((a: number, g: any) => a + Number(g.due), 0);
+
+  const savePlan = async () => {
+    if (!canManage) {
+      setError("You do not have permission to configure fee plans.");
+      return;
+    }
+    setError("");
+    if (!plan.student_id || !plan.monthly_amount) {
+      setError("Student and monthly fee are required.");
+      return;
+    }
+    const r = await s.from("student_fee_plans").insert({
+      organization_id: org,
+      student_id: plan.student_id,
+      monthly_amount: Number(plan.monthly_amount),
+      applied_from: plan.applied_from,
+      note: plan.note || null,
+    });
+    if (r.error) setError(r.error.message);
+    else {
+      setPlanOpen(false);
+      setPlan({ student_id: "", monthly_amount: "", applied_from: new Date().toISOString().slice(0, 10), note: "" });
+      load();
+    }
+  };
+
+  const savePayment = async () => {
+    if (!payOpen || paymentLock.current) return;
+    if (!canManage) {
+      setError("You do not have permission to record fee payments.");
+      return;
+    }
+    setError("");
+    paymentLock.current = true;
+    setIsSubmitting(true);
+
+    try {
+      const amount = Number(payment.amount);
+      const outstanding = Math.max(0, Number(payOpen.amount_due) - Number(payOpen.amount_paid));
+      if (!amount || amount <= 0) {
+        setError("Payment amount must be greater than zero.");
+        return;
+      }
+      if (amount > outstanding) {
+        setError("Payment cannot exceed the outstanding balance.");
+        return;
+      }
+
+      // Re-use existing key on retry, or generate once and lock
+      const key = paymentKey || crypto.randomUUID();
+      if (!paymentKey) setPaymentKey(key);
+
+      const { error: e } = await s.rpc("record_fee_payment", {
+        p_organization_id: org,
+        p_student_id: payOpen.student_id,
+        p_fee_month_id: payOpen.id,
+        p_amount: amount,
+        p_paid_on: payment.paid_on,
+        p_method: payment.method,
+        p_reference: payment.reference || null,
+        p_idempotency_key: key,
+      });
+
+      if (e) {
+        setError(e.message);
+        return;
+      }
+
+      setPayOpen(null);
+      setPaymentKey(null);
+      setPayment({ amount: "", paid_on: new Date().toISOString().slice(0, 10), method: "cash", reference: "" });
+      await load();
+    } finally {
+      paymentLock.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <main className="mx-auto max-w-7xl p-8 text-center text-sm text-slate-500">
+        Verifying permissions...
+      </main>
+    );
+  }
+
+  if (!hasAccess) {
+    return <AccessDenied moduleName="Fees & Accounts" />;
+  }
+
+  return (
+    <main className="mx-auto max-w-7xl p-5 sm:p-8">
+      <button
+        onClick={() => window.history.back()}
+        className="mb-5 inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+      >
+        <ArrowLeft size={16} />
+        Back
+      </button>
+
+      <div className="flex flex-col justify-between gap-4 sm:flex-row">
+        <div>
+          <p className="text-sm text-slate-500">Finance</p>
+          <h1 className="text-3xl font-bold">Fees</h1>
+          <p className="mt-2 text-sm text-slate-500">
+            Students are shown as one summary. Open a student to see every month.
+          </p>
+        </div>
+        {canManage && (
+          <button
+            onClick={() => setPlanOpen(true)}
+            className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+          >
+            <Plus size={17} className="mr-1 inline" />
+            Set monthly fee
+          </button>
+        )}
+      </div>
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Total outstanding</p>
+          <p className="mt-2 text-2xl font-bold">₹{totalDue.toLocaleString("en-IN")}</p>
+        </div>
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Students with dues</p>
+          <p className="mt-2 text-2xl font-bold">
+            {grouped.filter((g: any) => g.due > 0).length}
+          </p>
+        </div>
+      </div>
+
+      {error && <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+
+      <div className="mt-6 flex gap-2">
+        <button
+          onClick={() => setTab("dues")}
+          className={
+            tab === "dues"
+              ? "rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
+              : "rounded-xl border bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          }
+        >
+          Fee dues
+        </button>
+        <button
+          onClick={() => setTab("payments")}
+          className={
+            tab === "payments"
+              ? "rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
+              : "rounded-xl border bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          }
+        >
+          Payment history
+        </button>
+      </div>
+
+      <div className="mt-4 flex items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm">
+        <Search size={17} className="text-slate-400" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search student..."
+          className="w-full text-sm outline-none"
+        />
+      </div>
+
+      {tab === "dues" ? (
+        <div className="mt-4 overflow-hidden rounded-2xl border bg-white shadow-sm">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500">
+            <span>Student</span>
+            <span>Months due</span>
+            <span>Outstanding</span>
+            <span></span>
+          </div>
+          {grouped.map((g: any) => (
+            <button
+              key={g.student.id}
+              onClick={() => setSelected(g.student)}
+              className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-4 border-t px-5 py-4 text-left transition hover:bg-slate-50"
+            >
+              <span>
+                <span className="font-semibold">
+                  {g.student.first_name} {g.student.last_name || ""}
+                </span>
+                <span className="ml-2 text-xs text-slate-400">{g.student.admission_no}</span>
+              </span>
+              <span className={g.months ? "font-semibold text-amber-700" : "text-slate-400"}>
+                {g.months} month{g.months === 1 ? "" : "s"}
+              </span>
+              <span className="font-bold">₹{g.due.toLocaleString("en-IN")}</span>
+              <ChevronRight size={18} className="text-slate-400" />
+            </button>
+          ))}
+          {!grouped.length && (
+            <div className="p-10 text-center text-sm text-slate-500">No students found.</div>
+          )}
+        </div>
+      ) : (
+        <PaymentHistory
+          s={s}
+          org={org}
+          students={students}
+          q={q}
+          canManage={canManage}
+          onRefresh={load}
+        />
+      )}
+
+      {selected && (
+        <StudentLedger
+          student={selected}
+          months={months.filter((m) => m.student_id === selected.id)}
+          canManage={canManage}
+          onClose={() => setSelected(null)}
+          onPay={(m) => {
+            setPayOpen(m);
+            setPaymentKey(crypto.randomUUID());
+            setPayment({ ...payment, amount: String(Number(m.amount_due) - Number(m.amount_paid)) });
+          }}
+          onDeletePlan={async () => {
+            if (!canManage) return;
+            await s
+              .from("student_fee_plans")
+              .update({ active: false })
+              .eq("student_id", selected.id)
+              .eq("organization_id", org);
+            setSelected(null);
+            load();
+          }}
+        />
+      )}
+
+      {planOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex justify-between">
+              <h2 className="text-xl font-bold">Set monthly fee</h2>
+              <button onClick={() => setPlanOpen(false)}>
+                <X />
+              </button>
+            </div>
+            <div className="mt-5 space-y-3">
+              <select
+                value={plan.student_id}
+                onChange={(e) => setPlan({ ...plan, student_id: e.target.value })}
+                className="w-full rounded-xl border px-3 py-2.5 text-sm"
+              >
+                <option value="">Select student</option>
+                {students.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.admission_no} — {x.first_name} {x.last_name || ""}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="0"
+                value={plan.monthly_amount}
+                onChange={(e) => setPlan({ ...plan, monthly_amount: e.target.value })}
+                placeholder="Monthly fee"
+                className="w-full rounded-xl border px-3 py-2.5 text-sm"
+              />
+              <label className="block text-sm">
+                Apply from
+                <input
+                  type="date"
+                  value={plan.applied_from}
+                  onChange={(e) => setPlan({ ...plan, applied_from: e.target.value })}
+                  className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm"
+                />
+              </label>
+              <input
+                value={plan.note}
+                onChange={(e) => setPlan({ ...plan, note: e.target.value })}
+                placeholder="Note (optional)"
+                className="w-full rounded-xl border px-3 py-2.5 text-sm"
+              />
+            </div>
+            <button
+              onClick={savePlan}
+              className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+            >
+              Apply monthly fee
+            </button>
+          </div>
+        </div>
+      )}
+
+      {payOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex justify-between">
+              <h2 className="text-xl font-bold">Receive payment</h2>
+              <button onClick={() => setPayOpen(null)}>
+                <X />
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-slate-500">
+              {map[payOpen.student_id]?.first_name} · {payOpen.fee_month.slice(0, 7)} · Outstanding ₹
+              {(Number(payOpen.amount_due) - Number(payOpen.amount_paid)).toLocaleString("en-IN")}
+            </p>
+            <div className="mt-5 space-y-3">
+              <input
+                type="number"
+                min="0"
+                value={payment.amount}
+                onChange={(e) => setPayment({ ...payment, amount: e.target.value })}
+                className="w-full rounded-xl border px-3 py-2.5 text-sm"
+                placeholder="Amount"
+              />
+              <input
+                type="date"
+                value={payment.paid_on}
+                onChange={(e) => setPayment({ ...payment, paid_on: e.target.value })}
+                className="w-full rounded-xl border px-3 py-2.5 text-sm"
+              />
+              <select
+                value={payment.method}
+                onChange={(e) => setPayment({ ...payment, method: e.target.value })}
+                className="w-full rounded-xl border px-3 py-2.5 text-sm"
+              >
+                <option value="cash">cash</option>
+                <option value="upi">upi</option>
+                <option value="bank">bank</option>
+                <option value="card">card</option>
+              </select>
+              <input
+                value={payment.reference}
+                onChange={(e) => setPayment({ ...payment, reference: e.target.value })}
+                placeholder="Reference / transaction ID"
+                className="w-full rounded-xl border px-3 py-2.5 text-sm"
+              />
+            </div>
+            <button
+              disabled={isSubmitting}
+              onClick={savePayment}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
+            >
+              <Receipt size={16} />
+              {isSubmitting ? "Processing payment..." : "Save payment & receipt"}
+            </button>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function StudentLedger({
+  student,
+  months,
+  canManage,
+  onClose,
+  onPay,
+  onDeletePlan,
+}: {
+  student: S;
+  months: M[];
+  canManage: boolean;
+  onClose: () => void;
+  onPay: (m: M) => void;
+  onDeletePlan: () => void;
+}) {
+  const due = months.reduce(
+    (a, m) => a + Math.max(0, Number(m.amount_due) - Number(m.amount_paid)),
+    0
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between border-b bg-white p-5">
+          <div>
+            <h2 className="text-xl font-bold">
+              {student.first_name} {student.last_name || ""}
+            </h2>
+            <p className="text-sm text-slate-500">
+              {student.admission_no} · Outstanding ₹{due.toLocaleString("en-IN")}
+            </p>
+          </div>
+          <button onClick={onClose}>
+            <X />
+          </button>
+        </div>
+        <div className="p-5">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl border p-3">
+              <small className="text-slate-500">Months</small>
+              <b className="mt-1 block">{months.length}</b>
+            </div>
+            <div className="rounded-xl border p-3">
+              <small className="text-slate-500">Due</small>
+              <b className="mt-1 block">₹{due.toLocaleString("en-IN")}</b>
+            </div>
+            <div className="rounded-xl border p-3">
+              <small className="text-slate-500">Paid</small>
+              <b className="mt-1 block">
+                ₹{months.reduce((a, m) => a + Number(m.amount_paid), 0).toLocaleString("en-IN")}
+              </b>
+            </div>
+          </div>
+          <div className="mt-5 overflow-hidden rounded-xl border">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="p-3 text-left">Month</th>
+                  <th className="p-3">Due</th>
+                  <th className="p-3">Paid</th>
+                  <th className="p-3">Balance</th>
+                  <th className="p-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {months.map((m) => (
+                  <tr key={m.id} className="border-t">
+                    <td className="p-3 font-medium">
+                      {new Date(m.fee_month + "T00:00:00").toLocaleDateString("en-IN", {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </td>
+                    <td className="p-3 text-center">₹{Number(m.amount_due).toLocaleString("en-IN")}</td>
+                    <td className="p-3 text-center">₹{Number(m.amount_paid).toLocaleString("en-IN")}</td>
+                    <td className="p-3 text-center font-semibold">
+                      ₹{Math.max(0, Number(m.amount_due) - Number(m.amount_paid)).toLocaleString("en-IN")}
+                    </td>
+                    <td className="p-3 text-right">
+                      {m.status !== "paid" && canManage && (
+                        <button
+                          onClick={() => onPay(m)}
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white hover:bg-slate-800"
+                        >
+                          Receive
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {canManage && (
+            <button
+              onClick={onDeletePlan}
+              className="mt-4 rounded-lg border px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+            >
+              <Trash2 size={14} className="mr-1 inline" />
+              Deactivate fee plan
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentHistory({
+  s,
+  org,
+  students,
+  q,
+  canManage,
+  onRefresh,
+}: {
+  s: any;
+  org: string;
+  students: S[];
+  q: string;
+  canManage: boolean;
+  onRefresh: () => void;
+}) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [busy, setBusy] = useState<string>("");
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await s
+        .from("fee_payments")
+        .select("id,student_id,amount,paid_on,method,reference,receipt_no,fee_month,fee_month_id")
+        .eq("organization_id", org)
+        .order("paid_on", { ascending: false });
+      setRows(data || []);
+    })();
+  }, [org]);
+
+  const map = Object.fromEntries(students.map((x) => [x.id, x]));
+
+  const del = async (r: any) => {
+    if (!canManage) return;
+    if (!confirm("Delete this payment? The month's paid amount will be reversed.")) return;
+    setBusy(r.id);
+
+    try {
+      // 1. Try atomic reverse_fee_payment RPC
+      const { error: rpcErr } = await s.rpc("reverse_fee_payment", { p_payment_id: r.id });
+      if (rpcErr) {
+        // Fallback for transitional DB state
+        const { data: m } = await s
+          .from("student_fee_months")
+          .select("amount_paid, amount_due")
+          .eq("id", r.fee_month_id)
+          .single();
+
+        if (m) {
+          const paid = Math.max(0, Number(m.amount_paid) - Number(r.amount));
+          await s
+            .from("student_fee_months")
+            .update({
+              amount_paid: paid,
+              status: paid === 0 ? "due" : paid >= Number(m.amount_due) ? "paid" : "partial",
+              paid_on: paid === 0 ? null : r.paid_on,
+            })
+            .eq("id", r.fee_month_id);
+        }
+        await s.from("fee_payments").delete().eq("id", r.id);
+      }
+      setRows((v) => v.filter((x) => x.id !== r.id));
+      onRefresh();
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <div className="mt-4 overflow-x-auto rounded-2xl border bg-white shadow-sm">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-xs text-slate-500">
+          <tr>
+            <th className="p-4 text-left">Student</th>
+            <th className="p-4 text-left">Month</th>
+            <th className="p-4 text-left">Amount</th>
+            <th className="p-4 text-left">Date</th>
+            <th className="p-4 text-left">Method</th>
+            <th className="p-4 text-right">Receipt</th>
+            {canManage && <th className="p-4"></th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows
+            .filter((r) =>
+              (map[r.student_id]?.first_name + " " + (map[r.student_id]?.last_name || ""))
+                .toLowerCase()
+                .includes(q.toLowerCase())
+            )
+            .map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="p-4 font-medium">
+                  {map[r.student_id]?.first_name} {map[r.student_id]?.last_name || ""}
+                </td>
+                <td className="p-4 text-slate-600">{r.fee_month || "—"}</td>
+                <td className="p-4 font-semibold">₹{Number(r.amount).toLocaleString("en-IN")}</td>
+                <td className="p-4 text-slate-600">{r.paid_on}</td>
+                <td className="p-4 capitalize text-slate-600">{r.method}</td>
+                <td className="p-4 text-right font-medium">
+                  {r.receipt_no ? (
+                    <a
+                      href={`/fees/receipt/${r.id}`}
+                      target="_blank"
+                      className="text-indigo-700 hover:underline"
+                    >
+                      {r.receipt_no}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                {canManage && (
+                  <td className="p-4 text-right">
+                    <button
+                      disabled={busy === r.id}
+                      onClick={() => del(r)}
+                      className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      title="Reverse and delete payment"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

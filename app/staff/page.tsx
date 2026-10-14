@@ -1,7 +1,67 @@
-"use client";import{useEffect,useMemo,useState}from"react";import{ArrowLeft,Plus,ShieldCheck,X,Power,Trash2}from"lucide-react";import{createClient}from"@/lib/supabase/client";
-type Staff={id:string;full_name:string;role:string;login_id:string|null;is_active:boolean;phone:string|null};type Permission={id:string;code:string;name:string;module:string};const rn=(r:string)=>r.split("_").map(x=>x[0]?.toUpperCase()+x.slice(1)).join(" ");
-export default function StaffPage(){const s=createClient();const[org,setOrg]=useState(""),[staff,setStaff]=useState<Staff[]>([]),[perms,setPerms]=useState<Permission[]>([]),[selected,setSelected]=useState<Staff|null>(null),[grants,setGrants]=useState<string[]>([]),[createOpen,setCreateOpen]=useState(false),[form,setForm]=useState({fullName:"",email:"",password:"",role:"teacher"}),[busy,setBusy]=useState(false),[error,setError]=useState(""),[saved,setSaved]=useState("");
-const load=async()=>{setError("");const{data:{user}}=await s.auth.getUser();if(!user)return;const{data:p,error:pe}=await s.from("profiles").select("organization_id,role").eq("id",user.id).single();if(pe||!p){setError("Could not load staff workspace.");return}if(!["owner","admin"].includes(p.role)){setError("Only Admin/Owner can manage staff.");return}setOrg(p.organization_id);const[a,b]=await Promise.all([s.from("profiles").select("id,full_name,role,login_id,is_active,phone").eq("organization_id",p.organization_id).order("created_at",{ascending:false}),s.from("permissions").select("id,code,name,module").order("module").order("name")]);if(a.error||b.error)setError((a.error||b.error)?.message||"Could not load staff.");else{setStaff(a.data||[]);setPerms(b.data||[])}};useEffect(()=>{load()},[]);
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { ArrowLeft, Plus, ShieldCheck, Power, Trash2, X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import AccessDenied from "@/components/auth/AccessDenied";
+type Staff = { id: string; full_name: string; role: string; login_id: string | null; is_active: boolean; phone: string | null };
+type Permission = { id: string; code: string; name: string; module: string };
+const rn = (r: string) => r.split("_").map((x) => x[0]?.toUpperCase() + x.slice(1)).join(" ");
+
+export default function StaffPage() {
+  const s = createClient();
+  const [org, setOrg] = useState("");
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [perms, setPerms] = useState<Permission[]>([]);
+  const [selected, setSelected] = useState<Staff | null>(null);
+  const [grants, setGrants] = useState<string[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [form, setForm] = useState({ fullName: "", email: "", password: "", role: "teacher" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+  const [isDenied, setIsDenied] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setError("");
+    const { data: { user } } = await s.auth.getUser();
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+    const { data: p, error: pe } = await s.from("profiles").select("organization_id,role").eq("id", user.id).single();
+    if (pe || !p) {
+      setError("Could not load staff workspace.");
+      setLoading(false);
+      return;
+    }
+    if (!["owner", "admin"].includes(p.role)) {
+      setIsDenied(true);
+      setLoading(false);
+      return;
+    }
+    setOrg(p.organization_id);
+    const [a, b] = await Promise.all([
+      s.from("profiles").select("id,full_name,role,login_id,is_active,phone").eq("organization_id", p.organization_id).order("created_at", { ascending: false }),
+      s.from("permissions").select("id,code,name,module").order("module").order("name"),
+    ]);
+    if (a.error || b.error) setError((a.error || b.error)?.message || "Could not load staff.");
+    else {
+      setStaff(a.data || []);
+      setPerms(b.data || []);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  if (loading) {
+    return <main className="mx-auto max-w-7xl p-8 text-center text-sm text-slate-500">Loading staff workspace...</main>;
+  }
+
+  if (isDenied) {
+    return <AccessDenied moduleName="Staff & Permissions" />;
+  }
 const grouped=useMemo(()=>perms.reduce<Record<string,Permission[]>>((a,p)=>{(a[p.module]??=[]).push(p);return a},{}),[perms]);
 const access=async(r:Staff)=>{setSelected(r);setSaved("");setError("");const{data,error:e}=await s.from("staff_permissions").select("permission_id").eq("organization_id",org).eq("staff_id",r.id).eq("enabled",true);if(e)setError(e.message);else setGrants((data||[]).map(x=>x.permission_id))};
 const toggle=(id:string)=>setGrants(x=>x.includes(id)?x.filter(v=>v!==id):[...x,id]);

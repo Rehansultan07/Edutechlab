@@ -10,14 +10,24 @@ Deno.serve(async (req) => {
   try {
     const {loginId} = await req.json();
     const normalized = String(loginId ?? "").trim().toUpperCase();
-    if (!/^EDU-[A-Z0-9]{1,12}[0-9]{4}(?:-[2-9][0-9]*)?$/.test(normalized)) return json({error:"Invalid institute ID."},400);
+    const isStaff = normalized.startsWith("STAFF-");
+    const isEdu = normalized.startsWith("EDU-");
+    if (!isStaff && !isEdu) return json({error: "Invalid login ID format."}, 400);
+
+    if (isEdu && !/^EDU-[A-Z0-9]{1,12}[0-9]{4}(?:-[2-9][0-9]*)?$/.test(normalized)) {
+      return json({error:"Invalid institute ID."},400);
+    }
+    if (isStaff && !/^STAFF-[A-Z0-9_-]{4,32}$/.test(normalized)) {
+      return json({error:"Invalid staff ID format."},400);
+    }
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,{auth:{autoRefreshToken:false,persistSession:false}});
-    const {data:profile,error} = await admin.from("profiles").select("id, full_name").eq("login_id",normalized).maybeSingle();
-    if (error || !profile) return json({error:"Institute ID or password is incorrect."},401);
+    const {data:profile,error} = await admin.from("profiles").select("id, full_name, is_active").eq("login_id",normalized).maybeSingle();
+    if (error || !profile) return json({error: isStaff ? "Staff ID or password is incorrect." : "Institute ID or password is incorrect."},401);
+    if (profile.is_active === false) return json({error: "This staff account has been deactivated. Please contact your institute administrator."}, 403);
 
     const {data:userData,error:userError} = await admin.auth.admin.getUserById(profile.id);
-    if (userError || !userData.user?.email) return json({error:"Institute account could not be found."},401);
+    if (userError || !userData.user?.email) return json({error: isStaff ? "Staff account could not be found." : "Institute account could not be found."},401);
     return json({email:userData.user.email});
   } catch { return json({error:"Unable to sign in right now."},500); }
 });
