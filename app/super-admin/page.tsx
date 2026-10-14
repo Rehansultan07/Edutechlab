@@ -17,6 +17,7 @@ import {
   Power,
   Settings,
   AlertTriangle,
+  LogOut,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -209,10 +210,16 @@ export default function SuperAdminPage() {
             This area is restricted to EduTechLab platform super administrators. Your account does
             not have platform owner privileges.
           </p>
-          <div className="mt-6 flex justify-center gap-3">
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/super-admin/login"
+              className="rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-purple-500"
+            >
+              Sign In to Super Admin Console
+            </Link>
             <Link
               href="/dashboard"
-              className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+              className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               Return to Institute Dashboard
             </Link>
@@ -246,13 +253,25 @@ export default function SuperAdminPage() {
           </div>
         </div>
 
-        <button
-          onClick={checkAndLoad}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <RefreshCw size={15} />
-          Refresh Data
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={checkAndLoad}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            <RefreshCw size={15} />
+            Refresh Data
+          </button>
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+              window.location.href = "/super-admin/login";
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50"
+          >
+            <LogOut size={15} />
+            Sign Out
+          </button>
+        </div>
       </div>
 
       {/* Alerts */}
