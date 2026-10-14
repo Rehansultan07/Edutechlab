@@ -20,7 +20,14 @@ export async function updateSession(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
   const pathname = request.nextUrl.pathname
-  const isPublic = pathname === "/" || pathname === "/login" || pathname === "/register" || pathname.startsWith("/auth/")
+  const isPublic =
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/parent-portal") ||
+    pathname.startsWith("/platform-gateway") ||
+    pathname.startsWith("/super-admin");
 
   // Public entry points must always remain reachable.
   if (!user && !isPublic) {

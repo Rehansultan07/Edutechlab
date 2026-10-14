@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import {
   ShieldAlert,
   Building2,
@@ -59,6 +60,22 @@ export default function SuperAdminPage() {
     try {
       setLoading(true);
       setError("");
+
+      // Master Gatekeeper Check: Access only allowed if gate was unlocked
+      let gateUnlocked = false;
+      try {
+        gateUnlocked =
+          sessionStorage.getItem("edutechlab_master_gate_unlocked") === "true" ||
+          document.cookie.includes("edutechlab_master_gate_unlocked=true");
+      } catch {
+        gateUnlocked = false;
+      }
+
+      if (!gateUnlocked) {
+        setIsSuperAdmin(false);
+        setLoading(false);
+        return;
+      }
 
       const {
         data: { user },
@@ -201,32 +218,7 @@ export default function SuperAdminPage() {
   }
 
   if (!isSuperAdmin) {
-    return (
-      <main className="mx-auto max-w-xl p-8 text-center">
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-8">
-          <ShieldAlert size={48} className="mx-auto text-red-500" />
-          <h1 className="mt-4 text-2xl font-bold text-red-900">Platform Access Restricted</h1>
-          <p className="mt-2 text-sm leading-6 text-red-700">
-            This area is restricted to EduTechLab platform super administrators. Your account does
-            not have platform owner privileges.
-          </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link
-              href="/super-admin/login"
-              className="rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-purple-500"
-            >
-              Sign In to Super Admin Console
-            </Link>
-            <Link
-              href="/dashboard"
-              className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Return to Institute Dashboard
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
+    notFound();
   }
 
   return (
@@ -263,8 +255,12 @@ export default function SuperAdminPage() {
           </button>
           <button
             onClick={async () => {
+              try {
+                sessionStorage.removeItem("edutechlab_master_gate_unlocked");
+                document.cookie = "edutechlab_master_gate_unlocked=; path=/; max-age=0";
+              } catch {}
               await supabase.auth.signOut();
-              window.location.href = "/super-admin/login";
+              window.location.href = "/";
             }}
             className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50"
           >

@@ -226,29 +226,6 @@ export default function Settings() {
         </Link>
       </div>
 
-      {isPlatformAdmin && (
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-purple-200 bg-purple-50 p-5 shadow-sm">
-          <div>
-            <span className="rounded-md bg-purple-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-800">
-              Platform Super Admin
-            </span>
-            <h3 className="mt-1 text-base font-bold text-purple-950">
-              EduTechLab Platform Console
-            </h3>
-            <p className="mt-0.5 text-xs text-purple-700">
-              You are signed in with platform owner permissions. View all registered institutions, platform metrics, and manage tenant lifecycles.
-            </p>
-          </div>
-          <Link
-            href="/super-admin"
-            className="inline-flex items-center gap-1.5 rounded-xl bg-purple-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-purple-800"
-          >
-            <ShieldAlert size={16} />
-            Open Platform Console
-            <ArrowUpRight size={15} />
-          </Link>
-        </div>
-      )}
 
       <section className="mt-6 rounded-2xl border bg-white p-5 shadow-sm">
         <h2 className="font-semibold text-slate-900">Institute profile</h2>
