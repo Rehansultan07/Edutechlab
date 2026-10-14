@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, LogOut, Upload, KeyRound, Palette } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, LogOut, Upload, KeyRound, Palette, BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
@@ -200,7 +201,21 @@ export default function Settings() {
       {error && <div className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       {saved && <div className="mt-5 rounded-xl bg-green-50 p-3 text-sm text-green-700">{saved}</div>}
 
-      <section className="mt-7 rounded-2xl border bg-white p-5 shadow-sm">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Academic Structure</h3>
+          <p className="mt-0.5 text-xs text-slate-500">Configure Classes, Sections, and Academic Years/Sessions for your institute.</p>
+        </div>
+        <Link
+          href="/academics"
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+        >
+          <BookOpen size={16} />
+          Manage Classes & Sessions
+        </Link>
+      </div>
+
+      <section className="mt-6 rounded-2xl border bg-white p-5 shadow-sm">
         <h2 className="font-semibold text-slate-900">Institute profile</h2>
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           {[

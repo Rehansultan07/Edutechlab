@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, FileText, Bell, Settings, Menu, X, ChevronRight, Search, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, FileText, Bell, Settings, Menu, X, ChevronRight, Search, ShieldCheck, BookOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 const nav = [
  ["Dashboard","/staff-dashboard",LayoutDashboard,[]],
  ["Students","/students",Users,["students.view","students.manage","admissions.manage"]],
+ ["Academics","/academics",BookOpen,["settings.manage","students.manage"]],
  ["Teachers","/teachers",GraduationCap,["teachers.view","teachers.manage"]],
  ["Attendance","/attendance",ClipboardCheck,["attendance.view","attendance.manage"]],
  ["Fees","/fees",WalletCards,["fees.view","fees.manage","fees.receipts"]],

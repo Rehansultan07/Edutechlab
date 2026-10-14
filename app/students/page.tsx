@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Plus, Search, Trash2, X, Pencil, ArrowLeft, Upload, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
@@ -432,7 +433,14 @@ export default function Students() {
                 />
               </label>
               <label className="text-sm font-medium">
-                Class
+                <span className="flex items-center justify-between">
+                  <span>Class</span>
+                  {classes.length === 0 && (
+                    <Link href="/academics" className="text-xs font-normal text-indigo-600 hover:underline">
+                      + Configure classes
+                    </Link>
+                  )}
+                </span>
                 <select
                   value={form.class_id}
                   onChange={(e) => setForm({ ...form, class_id: e.target.value, section_id: "" })}
