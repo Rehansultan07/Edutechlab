@@ -8,10 +8,8 @@ import {
   EyeOff,
   GraduationCap,
   ShieldCheck,
-  Lock,
   KeyRound,
   X,
-  Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -27,7 +25,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Secret 5-Tap Gesture & Modal for Super Admin
+  // Exclusive Secret Method: 5-Tap Gesture on EduTechLab Logo
   const [secretTaps, setSecretTaps] = useState(0);
   const [showSecretModal, setShowSecretModal] = useState(false);
   const [secretAccessCode, setSecretAccessCode] = useState("");
@@ -104,7 +102,7 @@ export default function LoginPage() {
     };
   }, []);
 
-  // 2. Secret 5-Tap Gesture on Logo
+  // 2. Secret 5-Tap Gesture on Logo (Only way to trigger Super Admin Gateway)
   const handleLogoTap = () => {
     setSecretTaps((prev) => {
       const next = prev + 1;
@@ -121,72 +119,13 @@ export default function LoginPage() {
     }, 3000);
   };
 
-  // 3. Regular & Secret Form Submit
+  // 3. Regular Institute / Staff Form Submit (Strictly Normal Login)
   async function submit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
 
-    const rawInput = loginId.trim();
-    const isMasterCode = rawInput === MASTER_ACCESS_CODE;
-    const isSuperEmail =
-      rawInput.toLowerCase() === "edutechlab@gmail.com" ||
-      rawInput.toLowerCase() === "edutechlabb@gmail.com" ||
-      rawInput.toLowerCase() === "admin@edutechlab.com";
-
-    // Secret entry directly from input field!
-    if (isMasterCode || isSuperEmail) {
-      try {
-        const email = isSuperEmail ? rawInput.toLowerCase() : "edutechlab@gmail.com";
-        const { data: authData, error: authErr } =
-          await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
-
-        if (authErr || !authData.user) {
-          throw new Error("Master Access Code or password is incorrect.");
-        }
-
-        const [{ data: isSuper }, { data: adminRecord }] = await Promise.all([
-          supabase.rpc("is_platform_admin"),
-          supabase
-            .from("platform_admins")
-            .select("role")
-            .eq("user_id", authData.user.id)
-            .maybeSingle(),
-        ]);
-
-        const isKnown =
-          !!authData.user.email &&
-          ([
-            "edutechlab@gmail.com",
-            "edutechlabb@gmail.com",
-            "rehanedutechlab@gmail.com",
-            "admin@edutechlab.com",
-          ].includes(authData.user.email.toLowerCase()) ||
-            authData.user.email.toLowerCase().includes("edutechlab"));
-
-        if (!isSuper && !adminRecord && !isKnown) {
-          await supabase.auth.signOut();
-          throw new Error("Access Denied: This account is not a platform super administrator.");
-        }
-
-        localStorage.setItem("edutechlab_master_gate_unlocked", "true");
-        sessionStorage.setItem("edutechlab_master_gate_unlocked", "true");
-        document.cookie =
-          "edutechlab_master_gate_unlocked=true; path=/; max-age=31536000; SameSite=Lax";
-        window.location.href = "/super-admin";
-        return;
-      } catch (err: any) {
-        setError(err.message || "Master authentication failed.");
-        setLoading(false);
-        return;
-      }
-    }
-
-    // Normal Institute / Staff ID Authentication
-    const normalized = rawInput.toUpperCase();
+    const normalized = loginId.trim().toUpperCase();
     const expectedPrefix = mode === "staff" ? "STAFF-" : "EDU-";
     if (!normalized.startsWith(expectedPrefix)) {
       setError(
@@ -236,7 +175,7 @@ export default function LoginPage() {
       role === "owner" || role === "admin" ? "/dashboard" : "/staff-dashboard";
   }
 
-  // 4. Secret Modal Submit (5-Tap Trigger)
+  // 4. Secret Modal Submit (Triggered ONLY via 5-Tap Gesture)
   async function handleSecretSubmit(e: FormEvent) {
     e.preventDefault();
     setSecretLoading(true);
@@ -306,10 +245,6 @@ export default function LoginPage() {
       </main>
     );
   }
-
-  const isMasterCodeTyped =
-    loginId.trim() === MASTER_ACCESS_CODE ||
-    loginId.trim().toLowerCase() === "edutechlab@gmail.com";
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-5 py-8 sm:px-8">
@@ -386,72 +321,52 @@ export default function LoginPage() {
                 Welcome back
               </p>
               <h2 className="mt-3 text-3xl font-semibold tracking-[-.05em] text-slate-900">
-                {isMasterCodeTyped
-                  ? "Platform Master Console"
-                  : mode === "staff"
-                  ? "Staff sign in"
-                  : "Admin sign in"}
+                {mode === "staff" ? "Staff sign in" : "Admin sign in"}
               </h2>
 
               <p className="mt-3 text-sm leading-6 text-slate-500">
-                {isMasterCodeTyped
-                  ? "Master security key detected. Enter your super admin password to proceed."
-                  : mode === "staff"
+                {mode === "staff"
                   ? "Use the Staff ID and password given to you by your institute administrator."
                   : "Use the Institute ID and password you received when you registered."}
               </p>
 
               {/* Institute / Staff Toggle */}
-              {!isMasterCodeTyped && (
-                <div className="mt-6 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode("admin");
-                      setLoginId("");
-                      setError("");
-                    }}
-                    className={`rounded-lg px-3 py-2.5 text-sm font-bold transition ${
-                      mode === "admin"
-                        ? "bg-white text-slate-900 shadow-sm"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    Admin / Institute
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode("staff");
-                      setLoginId("");
-                      setError("");
-                    }}
-                    className={`rounded-lg px-3 py-2.5 text-sm font-bold transition ${
-                      mode === "staff"
-                        ? "bg-white text-slate-900 shadow-sm"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    Staff
-                  </button>
-                </div>
-              )}
-
-              {/* Master Code Indicator if recognized */}
-              {isMasterCodeTyped && (
-                <div className="mt-6 flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 p-3 text-xs font-semibold text-purple-900 animate-in fade-in">
-                  <Sparkles size={16} className="text-purple-600 shrink-0" />
-                  <span>Master Key Active: Authorizing Super Admin console.</span>
-                </div>
-              )}
+              <div className="mt-6 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("admin");
+                    setLoginId("");
+                    setError("");
+                  }}
+                  className={`rounded-lg px-3 py-2.5 text-sm font-bold transition ${
+                    mode === "admin"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500"
+                  }`}
+                >
+                  Admin / Institute
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("staff");
+                    setLoginId("");
+                    setError("");
+                  }}
+                  className={`rounded-lg px-3 py-2.5 text-sm font-bold transition ${
+                    mode === "staff"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500"
+                  }`}
+                >
+                  Staff
+                </button>
+              </div>
 
               <form onSubmit={submit} className="mt-8 space-y-5">
                 <label className="block text-sm font-semibold text-slate-700">
-                  {isMasterCodeTyped
-                    ? "Master Security Key / ID"
-                    : mode === "staff"
-                    ? "Staff ID"
-                    : "Institute ID"}
+                  {mode === "staff" ? "Staff ID" : "Institute ID"}
                   <input
                     className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3.5 font-mono uppercase tracking-[.08em] outline-none focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10"
                     value={loginId}
@@ -464,7 +379,7 @@ export default function LoginPage() {
                 </label>
 
                 <label className="block text-sm font-semibold text-slate-700">
-                  {isMasterCodeTyped ? "Super Admin Password" : "Password"}
+                  Password
                   <div className="relative mt-2">
                     <input
                       className="w-full rounded-xl border border-slate-300 px-4 py-3.5 pr-12 outline-none focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10"
@@ -496,8 +411,6 @@ export default function LoginPage() {
                 >
                   {loading
                     ? "Signing in..."
-                    : isMasterCodeTyped
-                    ? "Unlock Master Console"
                     : mode === "staff"
                     ? "Sign in to staff panel"
                     : "Sign in to admin panel"}
@@ -527,24 +440,15 @@ export default function LoginPage() {
                 </Link>
               </div>
 
-              <div className="mt-5 flex items-center justify-center gap-1 text-center text-[11px] text-slate-400">
-                <span>Keep your login ID and password private. Staff access is controlled by your institute administrator.</span>
-                <button
-                  type="button"
-                  onClick={() => setShowSecretModal(true)}
-                  className="inline-block text-slate-300 hover:text-slate-500 transition p-0.5"
-                  title="Platform"
-                  aria-label="Platform"
-                >
-                  <Lock size={10} />
-                </button>
-              </div>
+              <p className="mt-5 text-center text-[11px] text-slate-400">
+                Keep your login ID and password private. Staff access is controlled by your institute administrator.
+              </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Secret Modal: Master Super Admin Access (Triggered by 5-Tap or Secret Lock) */}
+      {/* Exclusive Secret Modal: Master Super Admin Access (Triggered ONLY by 5-Tap Gesture on Logo) */}
       {showSecretModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-slate-800 bg-[#12111d] p-6 text-white shadow-2xl">
