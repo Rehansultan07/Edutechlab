@@ -227,7 +227,7 @@ begin
     foreach v_mid in array p_month_ids loop
       exit when v_remaining <= 0;
 
-      select due_amount, paid_amount into v_due, v_paid
+      select amount_due, amount_paid into v_due, v_paid
       from public.student_fee_months
       where id = v_mid and organization_id = v_org_id
       for update;
@@ -237,9 +237,9 @@ begin
         if v_to_apply > 0 then
           update public.student_fee_months
           set
-            paid_amount = paid_amount + v_to_apply,
+            amount_paid = amount_paid + v_to_apply,
             status = case
-              when (paid_amount + v_to_apply) >= due_amount then 'paid'
+              when (amount_paid + v_to_apply) >= amount_due then 'paid'
               else 'partial'
             end
           where id = v_mid;
@@ -293,21 +293,21 @@ begin
   v_remaining := v_amount;
 
   for v_row in
-    select id, due_amount, paid_amount
+    select id, amount_due, amount_paid
     from public.student_fee_months
-    where student_id = v_student_id and organization_id = v_org_id and paid_amount > 0
-    order by year desc, month_number desc
+    where student_id = v_student_id and organization_id = v_org_id and amount_paid > 0
+    order by fee_month desc
     for update
   loop
     exit when v_remaining <= 0;
 
-    v_deduct := least(v_remaining, v_row.paid_amount);
+    v_deduct := least(v_remaining, v_row.amount_paid);
     update public.student_fee_months
     set
-      paid_amount = paid_amount - v_deduct,
+      amount_paid = amount_paid - v_deduct,
       status = case
-        when (paid_amount - v_deduct) <= 0 then 'unpaid'
-        when (paid_amount - v_deduct) < due_amount then 'partial'
+        when (amount_paid - v_deduct) <= 0 then 'unpaid'
+        when (amount_paid - v_deduct) < amount_due then 'partial'
         else 'paid'
       end
     where id = v_row.id;
@@ -444,10 +444,10 @@ begin
     group by organization_id
   ) tch on tch.organization_id = o.id
   left join lateral (
-    select full_name, login_id
-    from public.profiles
-    where organization_id = o.id and role in ('owner', 'admin')
-    order by created_at asc
+    select pf.full_name, pf.login_id
+    from public.profiles pf
+    where pf.organization_id = o.id and pf.role in ('owner', 'admin')
+    order by pf.created_at asc
     limit 1
   ) p on true
   order by o.created_at desc;
@@ -599,10 +599,10 @@ begin
   where student_id = v_student.id;
 
   -- Fee dues from student_fee_months
-  select coalesce(sum(due_amount), 0)
+  select coalesce(sum(amount_due - amount_paid), 0)
   into v_total_due
   from public.student_fee_months
-  where student_id = v_student.id;
+  where student_id = v_student.id and status != 'paid';
 
   -- Exam Marks & Results
   select coalesce(jsonb_agg(jsonb_build_object(
