@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowRight, ArrowUpRight, BarChart3, Bell, Check, ChevronRight, ClipboardCheck, GraduationCap, MessageCircle, ShieldCheck, Sparkles, Users, WalletCards } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 const modules=[
  {id:"01",name:"Student lifecycle",title:"From first enquiry to final result.",copy:"Admissions, profiles, classes, attendance, exams and records connected around one student.",icon:GraduationCap},
@@ -50,6 +51,73 @@ function AppPreview(){
 export default function Home(){
  const [active,setActive]=useState(0);
  const m=modules[active];
+
+ useEffect(() => {
+   (async () => {
+     try {
+       const supabase = createClient();
+       const {
+         data: { user },
+       } = await supabase.auth.getUser();
+
+       if (user) {
+         const isKnownSuperEmail =
+           !!user.email &&
+           ([
+             "edutechlab@gmail.com",
+             "edutechlabb@gmail.com",
+             "rehanedutechlab@gmail.com",
+             "admin@edutechlab.com",
+           ].includes(user.email.toLowerCase()) ||
+             user.email.toLowerCase().includes("edutechlab"));
+
+         const [{ data: isSuper }, { data: adminRecord }] = await Promise.all([
+           supabase.rpc("is_platform_admin"),
+           supabase
+             .from("platform_admins")
+             .select("role")
+             .eq("user_id", user.id)
+             .maybeSingle(),
+         ]);
+
+         if (isSuper === true || !!adminRecord || isKnownSuperEmail) {
+           localStorage.setItem("edutechlab_master_gate_unlocked", "true");
+           sessionStorage.setItem("edutechlab_master_gate_unlocked", "true");
+           document.cookie =
+             "edutechlab_master_gate_unlocked=true; path=/; max-age=31536000; SameSite=Lax";
+           window.location.replace("/super-admin");
+           return;
+         }
+
+         const { data: profile } = await supabase
+           .from("profiles")
+           .select("role")
+           .eq("id", user.id)
+           .maybeSingle();
+
+         const role = String(profile?.role || "").trim().toLowerCase();
+         window.location.replace(
+           role === "owner" || role === "admin"
+             ? "/dashboard"
+             : "/staff-dashboard"
+         );
+         return;
+       }
+
+       // If running in installed mobile app mode (standalone) and not logged in:
+       const isStandalone =
+         window.matchMedia("(display-mode: standalone)").matches ||
+         (window.navigator as any).standalone === true ||
+         document.referrer.includes("android-app://");
+
+       if (isStandalone) {
+         window.location.replace("/login");
+       }
+     } catch {
+       // Continue rendering landing page
+     }
+   })();
+ }, []);
  return <main className="min-h-screen overflow-hidden bg-[#f7f7f4] text-[#171625]">
   <section className="relative bg-[#f7f7f4]">
    <div className="absolute inset-0 bg-[radial-gradient(circle_at_82%_8%,rgba(105,87,235,.13),transparent_25%),radial-gradient(circle_at_12%_55%,rgba(36,205,183,.10),transparent_23%)]"/>
