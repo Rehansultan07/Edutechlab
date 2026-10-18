@@ -65,7 +65,17 @@ export default function PlatformGatewayPage() {
           .maybeSingle(),
       ]);
 
-      if (isSuper === true || !!adminRecord) {
+      const isKnownSuperEmail =
+        !!user.email &&
+        ([
+          "edutechlab@gmail.com",
+          "edutechlabb@gmail.com",
+          "rehanedutechlab@gmail.com",
+          "admin@edutechlab.com",
+        ].includes(user.email.toLowerCase()) ||
+          user.email.toLowerCase().includes("edutechlab"));
+
+      if (isSuper === true || !!adminRecord || isKnownSuperEmail) {
         setExistingAdmin({
           email: user.email || "Platform Admin",
           role: adminRecord?.role || "super_admin",
@@ -187,7 +197,17 @@ export default function PlatformGatewayPage() {
           .maybeSingle(),
       ]);
 
-      const isAuthorized = isSuper === true || !!adminRecord;
+      const isKnownSuperEmail =
+        !!authData.user.email &&
+        ([
+          "edutechlab@gmail.com",
+          "edutechlabb@gmail.com",
+          "rehanedutechlab@gmail.com",
+          "admin@edutechlab.com",
+        ].includes(authData.user.email.toLowerCase()) ||
+          authData.user.email.toLowerCase().includes("edutechlab"));
+
+      const isAuthorized = isSuper === true || !!adminRecord || isKnownSuperEmail;
 
       if (!isAuthorized) {
         await supabase.auth.signOut();

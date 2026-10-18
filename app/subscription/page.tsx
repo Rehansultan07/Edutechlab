@@ -310,7 +310,11 @@ export default function SubscriptionPage() {
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Current Plan</p>
           <div className="mt-2 flex items-center gap-2">
             <h2 className="text-2xl font-extrabold text-slate-900">
-              {subData?.is_trial ? "15-Day Free Trial" : "Active Standard Plan"}
+              {subData?.is_trial
+                ? `Free Trial (${subData.days_remaining}d remaining)`
+                : subData?.status === "active"
+                ? "Active Standard Plan"
+                : "No Active Subscription"}
             </h2>
           </div>
 
@@ -329,7 +333,7 @@ export default function SubscriptionPage() {
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
-                <AlertTriangle size={13} /> Plan Expired
+                <AlertTriangle size={13} /> Plan Inactive / Expired
               </span>
             )}
           </div>
@@ -341,7 +345,9 @@ export default function SubscriptionPage() {
                 current period.
               </span>
             ) : (
-              <span className="font-semibold text-red-600">Expired - Please renew to continue.</span>
+              <span className="font-semibold text-red-600">
+                No active plan or trial - Please select a plan and subscribe below.
+              </span>
             )}
           </p>
         </div>

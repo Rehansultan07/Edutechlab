@@ -94,8 +94,10 @@ export default function Dashboard(){
                    : subInfo.status === "pending_approval"
                    ? "Payment Proof Under Review"
                    : subInfo.is_trial
-                   ? "15-Day Free Trial Active"
-                   : "Standard Subscription Active"}
+                   ? `Free Trial Active (${subInfo.days_remaining}d Left)`
+                   : subInfo.status === "active"
+                   ? "Standard Subscription Active"
+                   : "No Active Subscription"}
                </span>
                <span className="rounded-md bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
                  {subInfo.current_student_count} / {subInfo.student_limit} Students
