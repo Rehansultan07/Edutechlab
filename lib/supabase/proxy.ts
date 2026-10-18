@@ -31,6 +31,11 @@ export async function updateSession(request: NextRequest) {
     pathname === "/" ||
     pathname === "/login" ||
     pathname === "/register" ||
+    pathname === "/manifest.json" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/sw.js" ||
+    pathname === "/favicon.ico" ||
+    pathname.startsWith("/icons/") ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/parent-portal") ||
     pathname.startsWith("/platform-gateway") ||

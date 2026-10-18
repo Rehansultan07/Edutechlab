@@ -61,9 +61,17 @@ export default function InstallAppPrompt() {
       }
     };
 
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    // 5. Listen to appinstalled event when user completes installation
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setIsOpen(false);
+      setDeferredPrompt(null);
+    };
 
-    // 5. On Mobile (iOS or Android), show popup if not dismissed
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    // 6. On Mobile (iOS or Android), show popup if not dismissed
     const dismissed = sessionStorage.getItem("edutechlab_pwa_dismissed");
     if (!dismissed && !isStandalone) {
       const timer = setTimeout(() => {
@@ -72,7 +80,7 @@ export default function InstallAppPrompt() {
       return () => clearTimeout(timer);
     }
 
-    // 6. Manual open trigger from header button
+    // 7. Manual open trigger from header button
     const handleManualOpen = () => {
       setShowGuide(false);
       setIsOpen(true);
@@ -81,6 +89,7 @@ export default function InstallAppPrompt() {
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
       window.removeEventListener("open-install-prompt", handleManualOpen);
     };
   }, []);
@@ -186,6 +195,9 @@ export default function InstallAppPrompt() {
                 <li>Chrome browser ke top-right corner me <strong>3 Dots</strong> <MoreVertical size={13} className="inline mx-0.5 text-purple-700" /> par tap karein.</li>
                 <li>Menu me <strong>"Install app"</strong> ya <strong>"Add to Home screen"</strong> (होम स्क्रीन में जोड़ें) par tap karein.</li>
                 <li>Confirm karein — aapke mobile ki home screen par app ban jayegi!</li>
+                <li className="text-[10px] text-purple-700 pt-0.5">
+                  <em>💡 Note: Agar WhatsApp ya Facebook ke andar link khula hai, to pehle 3 dots se <strong>"Open in Chrome"</strong> karein.</em>
+                </li>
               </ol>
             ) : (
               <p className="text-[11px] leading-5 text-purple-900">

@@ -1,16 +1,20 @@
 // EduTechLab PWA Service Worker
-const CACHE_NAME = "edutechlab-pwa-v1";
+const CACHE_NAME = "edutechlab-pwa-v2";
 const STATIC_ASSETS = [
   "/manifest.json",
+  "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
+  "/icons/icon-maskable-512.png",
   "/icons/apple-touch-icon.png",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch(() => {});
+      return cache.addAll(STATIC_ASSETS).catch((err) => {
+        console.warn("PWA pre-cache warning:", err);
+      });
     })
   );
   self.skipWaiting();
@@ -34,8 +38,13 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Skip dynamic next.js chunks or api calls from aggressive cache
-  if (url.pathname.startsWith("/api/") || url.pathname.includes("_next/data")) {
+  // Never cache API, Supabase, Next internals, or Auth requests
+  if (
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/auth/") ||
+    url.pathname.includes("_next/data") ||
+    url.pathname.includes("__nextjs")
+  ) {
     return;
   }
 
