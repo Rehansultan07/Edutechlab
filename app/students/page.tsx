@@ -44,6 +44,7 @@ export default function Students() {
   const [rows, setRows] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
+  const [quota, setQuota] = useState<{ allowed: boolean; current: number; limit: number; is_expired: boolean; status: string } | null>(null);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Student | null>(null);
@@ -81,7 +82,7 @@ export default function Students() {
 
   const load = async () => {
     if (!org) return;
-    const [stRes, clRes, secRes] = await Promise.all([
+    const [stRes, clRes, secRes, quotaRes] = await Promise.all([
       s
         .from("students")
         .select(
@@ -91,12 +92,14 @@ export default function Students() {
         .order("created_at", { ascending: false }),
       s.from("classes").select("id,name").eq("organization_id", org).order("sort_order"),
       s.from("sections").select("id,class_id,name").eq("organization_id", org),
+      s.rpc("check_student_admission_quota", { p_org_id: org }),
     ]);
 
     if (stRes.error) setError(stRes.error.message);
     else setRows(stRes.data || []);
     setClasses(clRes.data || []);
     setSections(secRes.data || []);
+    if (quotaRes.data) setQuota(quotaRes.data as any);
   };
 
   useEffect(() => {
@@ -287,6 +290,14 @@ export default function Students() {
         {canManage && (
           <button
             onClick={() => {
+              if (quota && !quota.allowed) {
+                setError(
+                  quota.is_expired
+                    ? "Your subscription plan has expired. Please renew your subscription to admit new students."
+                    : `Student enrollment limit reached (${quota.current}/${quota.limit} students). Please upgrade your subscription plan to admit more students.`
+                );
+                return;
+              }
               setEditing(null);
               setFiles({ photo: null, aadhaar: null, birth: null });
               setOpen(true);
@@ -298,6 +309,25 @@ export default function Students() {
           </button>
         )}
       </div>
+
+      {quota && (
+        <div className={`mt-5 flex flex-col gap-2 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
+          !quota.allowed ? "border-red-200 bg-red-50 text-red-900" : "border-slate-200 bg-white text-slate-700"
+        }`}>
+          <div className="flex items-center gap-2.5">
+            <Users size={18} className={!quota.allowed ? "text-red-600" : "text-purple-600"} />
+            <span className="text-xs font-medium">
+              Student Enrollment Capacity: <strong className="font-bold text-slate-900">{quota.current} / {quota.limit} Students</strong> ({Math.max(0, quota.limit - quota.current)} slots remaining)
+            </span>
+          </div>
+          <Link
+            href="/subscription"
+            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-100"
+          >
+            Upgrade / Manage Plan →
+          </Link>
+        </div>
+      )}
 
       <div className="mt-7 flex items-center gap-3 rounded-xl border bg-white px-3 py-2.5 shadow-sm">
         <Search size={18} className="text-slate-400" />

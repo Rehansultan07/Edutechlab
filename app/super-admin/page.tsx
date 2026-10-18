@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, FormEvent, ChangeEvent } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -19,6 +19,18 @@ import {
   Settings,
   AlertTriangle,
   LogOut,
+  CreditCard,
+  FileCheck,
+  Trash2,
+  Edit,
+  ExternalLink,
+  Upload,
+  Check,
+  X,
+  QrCode,
+  Eye,
+  Calendar,
+  Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -43,6 +55,37 @@ type InstitutionItem = {
   teacher_count: number;
   owner_name: string | null;
   owner_login_id: string | null;
+  subscription?: {
+    student_limit: number;
+    status: string;
+    is_trial: boolean;
+    current_period_ends_at: string;
+  } | null;
+};
+
+type PaymentRequest = {
+  id: string;
+  organization_id: string;
+  organization_name?: string;
+  student_limit: number;
+  amount: number;
+  utr_number: string;
+  screenshot_url: string | null;
+  status: "pending" | "approved" | "rejected";
+  rejection_reason: string | null;
+  created_at: string;
+};
+
+type PlatformPricing = {
+  base_price: number;
+  base_students: number;
+  extra_student_rate: number;
+  default_trial_days: number;
+  upi_id: string;
+  upi_name: string;
+  upi_qr_url: string | null;
+  contact_phone: string;
+  contact_email: string;
 };
 
 export default function SuperAdminPage() {
@@ -51,10 +94,41 @@ export default function SuperAdminPage() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [institutions, setInstitutions] = useState<InstitutionItem[]>([]);
+  const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>([]);
+  const [pricing, setPricing] = useState<PlatformPricing>({
+    base_price: 149,
+    base_students: 20,
+    extra_student_rate: 7,
+    default_trial_days: 15,
+    upi_id: "edutechlab@upi",
+    upi_name: "EduTechLab Platform",
+    upi_qr_url: null,
+    contact_phone: "+91 98765 43210",
+    contact_email: "edutechlab@gmail.com",
+  });
+
+  const [activeTab, setActiveTab] = useState<"institutions" | "requests" | "pricing">("institutions");
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Modals state
+  const [editingInst, setEditingInst] = useState<InstitutionItem | null>(null);
+  const [editLimit, setEditLimit] = useState<number>(20);
+  const [extendDays, setExtendDays] = useState<number>(0);
+  const [editStatus, setEditStatus] = useState<string>("active");
+
+  const [deletingInst, setDeletingInst] = useState<InstitutionItem | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const [rejectingPay, setRejectingPay] = useState<PaymentRequest | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const [viewScreenshotUrl, setViewScreenshotUrl] = useState<string | null>(null);
+  const [uploadingQr, setUploadingQr] = useState(false);
+  const [savingPricing, setSavingPricing] = useState(false);
 
   const checkAndLoad = async () => {
     try {
@@ -88,13 +162,12 @@ export default function SuperAdminPage() {
       }
 
       // Check if user is in platform_admins or is owner
-      const [{ data: isSuper }, { data: adminRecord }, { data: pRecord }] = await Promise.all([
+      const [{ data: isSuper }, { data: adminRecord }] = await Promise.all([
         supabase.rpc("is_platform_admin"),
         supabase.from("platform_admins").select("role").eq("user_id", user.id).maybeSingle(),
-        supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
       ]);
 
-      const isAllowed = isSuper === true || !!adminRecord || pRecord?.role === "owner";
+      const isAllowed = isSuper === true || !!adminRecord;
 
       if (!isAllowed) {
         setIsSuperAdmin(false);
@@ -104,51 +177,63 @@ export default function SuperAdminPage() {
 
       setIsSuperAdmin(true);
 
-      // Load stats and institutions via secure RPCs
-      const [statsRes, listRes] = await Promise.all([
+      // Load Stats, Institutions, Subscriptions, Payments & Pricing
+      const [statsRes, listRes, subsRes, paysRes, settingsRes] = await Promise.all([
         supabase.rpc("get_platform_overview"),
         supabase.rpc("list_institutions_for_platform"),
+        supabase.from("institution_subscriptions").select("*"),
+        supabase
+          .from("subscription_payments")
+          .select("*, organizations(name)")
+          .order("created_at", { ascending: false }),
+        supabase.from("platform_settings").select("*").eq("id", "global").maybeSingle(),
       ]);
 
-      if (statsRes.error) {
-        // Fallback calculation if RPC is not yet executed on backend
-        const [orgs, stus, tchs, fees] = await Promise.all([
-          supabase.from("organizations").select("id, name, slug, created_at"),
-          supabase.from("students").select("id", { count: "exact", head: true }),
-          supabase.from("teachers").select("id", { count: "exact", head: true }),
-          supabase.from("fee_payments").select("amount"),
-        ]);
-
-        const totalFees = (fees.data || []).reduce((sum, f) => sum + Number(f.amount || 0), 0);
-        setStats({
-          total_institutions: orgs.data?.length || 0,
-          active_institutions: orgs.data?.length || 0,
-          suspended_institutions: 0,
-          total_students: stus.count || 0,
-          total_teachers: tchs.count || 0,
-          total_fee_volume: totalFees,
-        });
-
-        if (orgs.data) {
-          setInstitutions(
-            orgs.data.map((o) => ({
-              id: o.id,
-              name: o.name,
-              slug: o.slug,
-              is_active: true,
-              status: "active",
-              plan: "standard",
-              created_at: o.created_at,
-              student_count: 0,
-              teacher_count: 0,
-              owner_name: null,
-              owner_login_id: null,
-            }))
-          );
-        }
-      } else {
+      if (statsRes.data) {
         setStats(statsRes.data as PlatformStats);
-        setInstitutions((listRes.data as InstitutionItem[]) || []);
+      }
+
+      const subMap = new Map((subsRes.data || []).map((s: any) => [s.organization_id, s]));
+
+      if (listRes.data) {
+        const enrichedInsts = (listRes.data as InstitutionItem[]).map((inst) => {
+          const sub = subMap.get(inst.id);
+          return {
+            ...inst,
+            subscription: sub
+              ? {
+                  student_limit: sub.student_limit,
+                  status: sub.status,
+                  is_trial: sub.is_trial,
+                  current_period_ends_at: sub.current_period_ends_at,
+                }
+              : null,
+          };
+        });
+        setInstitutions(enrichedInsts);
+      }
+
+      if (paysRes.data) {
+        setPaymentRequests(
+          paysRes.data.map((p: any) => ({
+            ...p,
+            organization_name: p.organizations?.name || "Unknown School",
+          }))
+        );
+      }
+
+      if (settingsRes.data) {
+        setPricing({
+          base_price: Number(settingsRes.data.base_price || 149),
+          base_students: Number(settingsRes.data.base_students || 20),
+          extra_student_rate: Number(settingsRes.data.extra_student_rate || 7),
+          default_trial_days: Number(settingsRes.data.default_trial_days || 15),
+          upi_id: settingsRes.data.upi_id || "edutechlab@upi",
+          upi_name: settingsRes.data.upi_name || "EduTechLab Platform",
+          upi_qr_url: settingsRes.data.upi_qr_url || null,
+          contact_phone: settingsRes.data.contact_phone || "+91 98765 43210",
+          contact_email: settingsRes.data.contact_email || "edutechlab@gmail.com",
+        });
       }
     } catch (err: any) {
       setError(err.message || "Failed to load platform administration dashboard.");
@@ -161,6 +246,7 @@ export default function SuperAdminPage() {
     checkAndLoad();
   }, []);
 
+  // Suspend / Activate Institution
   const handleToggleStatus = async (inst: InstitutionItem) => {
     const newIsActive = !inst.is_active;
     const newStatus = newIsActive ? "active" : "suspended";
@@ -181,21 +267,201 @@ export default function SuperAdminPage() {
         p_is_active: newIsActive,
       });
 
-      if (err) {
-        // Fallback to direct table update if RPC not present
-        const { error: fallbackErr } = await supabase
-          .from("organizations")
-          .update({ is_active: newIsActive, status: newStatus })
-          .eq("id", inst.id);
-        if (fallbackErr) throw fallbackErr;
-      }
-
+      if (err) throw err;
       setSuccess(`Institution "${inst.name}" has been ${actionWord}d.`);
       await checkAndLoad();
     } catch (err: any) {
       setError(err.message || `Failed to ${actionWord} institution.`);
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // Open Quota Edit Modal
+  const openEditQuotaModal = (inst: InstitutionItem) => {
+    setEditingInst(inst);
+    setEditLimit(inst.subscription?.student_limit || 20);
+    setEditStatus(inst.subscription?.status || "active");
+    setExtendDays(0);
+  };
+
+  // Save Quota Override
+  const handleSaveQuotaOverride = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editingInst) return;
+
+    setBusyId(editingInst.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { data, error: err } = await supabase.rpc("update_institution_subscription_quota", {
+        p_org_id: editingInst.id,
+        p_student_limit: editLimit,
+        p_status: editStatus,
+        p_extend_days: extendDays > 0 ? extendDays : null,
+      });
+
+      if (err) throw err;
+      setSuccess(`Subscription quota for "${editingInst.name}" updated successfully.`);
+      setEditingInst(null);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to update subscription quota.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Permanent Delete Institution
+  const handlePermanentDelete = async () => {
+    if (!deletingInst) return;
+    if (deleteConfirmText.trim().toLowerCase() !== deletingInst.name.trim().toLowerCase()) {
+      setError(`Confirmation name does not match "${deletingInst.name}". Deletion aborted.`);
+      return;
+    }
+
+    setIsDeleting(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { data, error: err } = await supabase.rpc("delete_institution_permanently", {
+        p_org_id: deletingInst.id,
+      });
+
+      if (err) throw err;
+      setSuccess(data?.message || `Institution "${deletingInst.name}" permanently deleted.`);
+      setDeletingInst(null);
+      setDeleteConfirmText("");
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to permanently delete institution.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Approve Payment Request
+  const handleApprovePayment = async (pay: PaymentRequest) => {
+    if (!confirm(`Approve payment of ₹${pay.amount} for ${pay.organization_name} (UTR: ${pay.utr_number})?`)) {
+      return;
+    }
+
+    setBusyId(pay.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { data, error: err } = await supabase.rpc("approve_subscription_payment", {
+        p_payment_id: pay.id,
+        p_duration_days: 30,
+      });
+
+      if (err) throw err;
+      setSuccess(`Payment for ${pay.organization_name} approved! Subscription activated for 30 days.`);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to approve payment.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Reject Payment Request
+  const handleRejectPayment = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!rejectingPay) return;
+
+    setBusyId(rejectingPay.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { data, error: err } = await supabase.rpc("reject_subscription_payment", {
+        p_payment_id: rejectingPay.id,
+        p_reason: rejectReason.trim() || "Payment could not be verified with UTR. Please re-submit.",
+      });
+
+      if (err) throw err;
+      setSuccess(`Payment request for ${rejectingPay.organization_name} has been rejected.`);
+      setRejectingPay(null);
+      setRejectReason("");
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to reject payment.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Upload UPI QR Code Image
+  const handleUploadQrCode = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+
+    setUploadingQr(true);
+    setError("");
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const path = `platform/upi_qr_code_${Date.now()}.${ext}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from("platform-assets")
+        .upload(path, file, { upsert: true });
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: publicUrlData } = supabase.storage
+        .from("platform-assets")
+        .getPublicUrl(path);
+
+      const qrUrl = publicUrlData.publicUrl;
+      setPricing((prev) => ({ ...prev, upi_qr_url: qrUrl }));
+
+      // Update in DB
+      await supabase
+        .from("platform_settings")
+        .update({ upi_qr_url: qrUrl, updated_at: new Date().toISOString() })
+        .eq("id", "global");
+
+      setSuccess("Platform UPI QR Code uploaded and updated successfully!");
+    } catch (err: any) {
+      setError(err.message || "Failed to upload UPI QR Code.");
+    } finally {
+      setUploadingQr(false);
+    }
+  };
+
+  // Save Pricing Settings
+  const handleSavePricing = async (e: FormEvent) => {
+    e.preventDefault();
+    setSavingPricing(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { error: err } = await supabase
+        .from("platform_settings")
+        .update({
+          base_price: pricing.base_price,
+          base_students: pricing.base_students,
+          extra_student_rate: pricing.extra_student_rate,
+          default_trial_days: pricing.default_trial_days,
+          upi_id: pricing.upi_id.trim(),
+          upi_name: pricing.upi_name.trim(),
+          contact_phone: pricing.contact_phone.trim(),
+          contact_email: pricing.contact_email.trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", "global");
+
+      if (err) throw err;
+      setSuccess("Platform pricing and UPI configurations saved successfully.");
+    } catch (err: any) {
+      setError(err.message || "Failed to save platform settings.");
+    } finally {
+      setSavingPricing(false);
     }
   };
 
@@ -208,6 +474,8 @@ export default function SuperAdminPage() {
       (inst.owner_name && inst.owner_name.toLowerCase().includes(q))
     );
   });
+
+  const pendingRequestsCount = paymentRequests.filter((p) => p.status === "pending").length;
 
   if (loading) {
     return (
@@ -240,7 +508,7 @@ export default function SuperAdminPage() {
               <p className="text-xs text-slate-400">EduTechLab Platform Management</p>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-              Platform Overview
+              Platform Master Console
             </h1>
           </div>
         </div>
@@ -278,44 +546,46 @@ export default function SuperAdminPage() {
         </div>
       )}
       {success && (
-        <div className="mb-5 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+        <div className="mb-5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 size={18} className="shrink-0" />
           <span>{success}</span>
         </div>
       )}
 
-      {/* Metric Cards */}
+      {/* Platform Metric Cards */}
       {stats && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between text-slate-500">
-              <span className="text-sm font-medium">Institutions</span>
+              <span className="text-sm font-medium">Total Institutions</span>
               <Building2 size={18} className="text-purple-600" />
             </div>
             <p className="mt-3 text-3xl font-bold text-slate-900">{stats.total_institutions}</p>
-            <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-              <span className="font-semibold text-emerald-600">{stats.active_institutions} active</span>
-              <span>·</span>
-              <span className="text-amber-600">{stats.suspended_institutions} suspended</span>
+            <div className="mt-2 flex items-center gap-3 text-xs">
+              <span className="font-semibold text-emerald-600">
+                {stats.active_institutions} active
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="text-slate-500">{stats.suspended_institutions} suspended</span>
             </div>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between text-slate-500">
-              <span className="text-sm font-medium">Total Students</span>
+              <span className="text-sm font-medium">Platform Students</span>
               <Users size={18} className="text-blue-600" />
             </div>
             <p className="mt-3 text-3xl font-bold text-slate-900">{stats.total_students}</p>
-            <p className="mt-2 text-xs text-slate-500">Enrolled across all institutions</p>
+            <p className="mt-2 text-xs text-slate-500">Enrolled across all tenants</p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between text-slate-500">
-              <span className="text-sm font-medium">Teachers & Staff</span>
-              <GraduationCap size={18} className="text-indigo-600" />
+              <span className="text-sm font-medium">Pending Approvals</span>
+              <Clock size={18} className="text-amber-600" />
             </div>
-            <p className="mt-3 text-3xl font-bold text-slate-900">{stats.total_teachers}</p>
-            <p className="mt-2 text-xs text-slate-500">Active educators & personnel</p>
+            <p className="mt-3 text-3xl font-bold text-slate-900">{pendingRequestsCount}</p>
+            <p className="mt-2 text-xs text-slate-500">Subscription payment requests</p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -335,116 +605,770 @@ export default function SuperAdminPage() {
         </div>
       )}
 
-      {/* Institutions Table */}
-      <section className="mt-8 rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Registered Institutions</h2>
+      {/* Tabs Navigation */}
+      <div className="mt-8 flex border-b border-slate-200 text-sm font-bold">
+        <button
+          onClick={() => setActiveTab("institutions")}
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 transition ${
+            activeTab === "institutions"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <Building2 size={16} />
+          Registered Institutions ({institutions.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab("requests")}
+          className={`relative flex items-center gap-2 border-b-2 px-5 py-3 transition ${
+            activeTab === "requests"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <FileCheck size={16} />
+          Subscription Approvals
+          {pendingRequestsCount > 0 && (
+            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">
+              {pendingRequestsCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab("pricing")}
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 transition ${
+            activeTab === "pricing"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <Settings size={16} />
+          Pricing & UPI QR Settings
+        </button>
+      </div>
+
+      {/* ============================================================== */}
+      {/* TAB 1: INSTITUTIONS MANAGEMENT & LIFECYCLE                     */}
+      {/* ============================================================== */}
+      {activeTab === "institutions" && (
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Registered Institutions</h2>
+              <p className="text-xs text-slate-500">
+                Manage student capacity quotas, mid-month overrides, status suspension, and permanent deletion.
+              </p>
+            </div>
+
+            <div className="relative">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search by name, slug or ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 pl-9 pr-4 py-2 text-xs outline-none focus:border-slate-900 sm:w-64"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+                <tr>
+                  <th className="px-5 py-3.5">Institution</th>
+                  <th className="px-5 py-3.5">Admin / Login ID</th>
+                  <th className="px-5 py-3.5">Student Quota</th>
+                  <th className="px-5 py-3.5">Plan / Status</th>
+                  <th className="px-5 py-3.5">Valid Until</th>
+                  <th className="px-5 py-3.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredInstitutions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-sm text-slate-500">
+                      No institutions match your search query.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredInstitutions.map((inst) => {
+                    const sub = inst.subscription;
+                    const isExpired = sub?.current_period_ends_at && new Date(sub.current_period_ends_at) < new Date();
+                    return (
+                      <tr key={inst.id} className="hover:bg-slate-50/50">
+                        <td className="px-5 py-4">
+                          <div className="font-semibold text-slate-900">{inst.name}</div>
+                          <div className="text-xs text-slate-400 font-mono">/{inst.slug}</div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="text-xs font-medium text-slate-800">
+                            {inst.owner_name || "—"}
+                          </div>
+                          <div className="font-mono text-xs text-purple-600 font-bold">
+                            {inst.owner_login_id || "—"}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900">
+                              {inst.student_count}
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              / {sub?.student_limit || 20} max
+                            </span>
+                          </div>
+                          <div className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full bg-purple-600 rounded-full"
+                              style={{
+                                width: `${Math.min(
+                                  100,
+                                  Math.round((inst.student_count / (sub?.student_limit || 20)) * 100)
+                                )}%`,
+                              }}
+                            />
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          {sub?.is_trial ? (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700">
+                              <Sparkles size={11} /> 15-Day Trial
+                            </span>
+                          ) : isExpired ? (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                              Expired
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                              Standard Active
+                            </span>
+                          )}
+                          <div className="mt-1">
+                            {inst.is_active ? (
+                              <span className="text-[11px] text-emerald-600 font-medium">● Operational</span>
+                            ) : (
+                              <span className="text-[11px] text-red-600 font-medium">● Suspended</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-xs text-slate-500">
+                          {sub?.current_period_ends_at
+                            ? new Date(sub.current_period_ends_at).toLocaleDateString("en-IN")
+                            : "—"}
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Edit Quota / Plan Button */}
+                            <button
+                              onClick={() => openEditQuotaModal(inst)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                              title="Override student capacity or extend subscription"
+                            >
+                              <Edit size={12} />
+                              Edit Plan
+                            </button>
+
+                            {/* Suspend / Activate Toggle */}
+                            <button
+                              onClick={() => handleToggleStatus(inst)}
+                              disabled={busyId === inst.id}
+                              className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                                inst.is_active
+                                  ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+                                  : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                              } disabled:opacity-50`}
+                            >
+                              <Power size={12} />
+                              {inst.is_active ? "Suspend" : "Activate"}
+                            </button>
+
+                            {/* Permanent Delete Button */}
+                            <button
+                              onClick={() => {
+                                setDeletingInst(inst);
+                                setDeleteConfirmText("");
+                              }}
+                              className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100"
+                              title="Permanently delete institution and all records"
+                            >
+                              <Trash2 size={12} />
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 2: SUBSCRIPTION APPROVALS QUEUE                            */}
+      {/* ============================================================== */}
+      {activeTab === "requests" && (
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-5">
+            <h2 className="text-lg font-bold text-slate-900">Subscription Payment Verifications</h2>
             <p className="text-xs text-slate-500">
-              Manage institution status, lifecycle activation, and account health.
+              Review UPI transaction references (UTR) and payment screenshots. Approve to activate monthly access.
             </p>
           </div>
 
-          <div className="relative">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+                <tr>
+                  <th className="px-5 py-3.5">School</th>
+                  <th className="px-5 py-3.5">Capacity Requested</th>
+                  <th className="px-5 py-3.5">Amount Paid</th>
+                  <th className="px-5 py-3.5">UTR / Reference</th>
+                  <th className="px-5 py-3.5">Proof Screenshot</th>
+                  <th className="px-5 py-3.5">Status</th>
+                  <th className="px-5 py-3.5">Submitted On</th>
+                  <th className="px-5 py-3.5 text-right">Review Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {paymentRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-sm text-slate-500">
+                      No subscription payment requests submitted yet.
+                    </td>
+                  </tr>
+                ) : (
+                  paymentRequests.map((pay) => (
+                    <tr key={pay.id} className="hover:bg-slate-50/50">
+                      <td className="px-5 py-4 font-semibold text-slate-900">
+                        {pay.organization_name}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="font-bold text-slate-900">{pay.student_limit}</span>{" "}
+                        <span className="text-xs text-slate-400">students</span>
+                      </td>
+                      <td className="px-5 py-4 font-extrabold text-purple-700">
+                        ₹{pay.amount}
+                      </td>
+                      <td className="px-5 py-4 font-mono text-xs font-bold text-slate-800">
+                        {pay.utr_number}
+                      </td>
+                      <td className="px-5 py-4">
+                        {pay.screenshot_url ? (
+                          <button
+                            type="button"
+                            onClick={() => setViewScreenshotUrl(pay.screenshot_url)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-purple-600 hover:bg-purple-50"
+                          >
+                            <Eye size={12} /> View Proof
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">No screenshot</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        {pay.status === "approved" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                            <CheckCircle2 size={12} /> Approved
+                          </span>
+                        ) : pay.status === "rejected" ? (
+                          <div>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700">
+                              <XCircle size={12} /> Rejected
+                            </span>
+                            {pay.rejection_reason && (
+                              <p className="mt-1 text-[11px] text-red-600 max-w-xs">
+                                {pay.rejection_reason}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                            <Clock size={12} /> Pending Review
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-xs text-slate-500">
+                        {new Date(pay.created_at).toLocaleString("en-IN")}
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        {pay.status === "pending" ? (
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleApprovePayment(pay)}
+                              disabled={busyId === pay.id}
+                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-50"
+                            >
+                              <Check size={13} /> Approve
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRejectingPay(pay);
+                                setRejectReason("");
+                              }}
+                              disabled={busyId === pay.id}
+                              className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              <X size={13} /> Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">Processed</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 3: PLATFORM PRICING & UPI CONFIGURATION                    */}
+      {/* ============================================================== */}
+      {activeTab === "pricing" && (
+        <section className="mt-6 grid gap-6 lg:grid-cols-2">
+          {/* Pricing Rule Config */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="rounded-lg bg-purple-600 p-2 text-white">
+                <CreditCard size={18} />
+              </span>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Per-Student Pricing Formula</h2>
+                <p className="text-xs text-slate-500">
+                  Configure default base tier and per-student incremental rates.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSavePricing} className="mt-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Base Plan Price (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={pricing.base_price}
+                    onChange={(e) =>
+                      setPricing({ ...pricing, base_price: Number(e.target.value) || 0 })
+                    }
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-400">Default: ₹149</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Base Student Limit
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={pricing.base_students}
+                    onChange={(e) =>
+                      setPricing({ ...pricing, base_students: Number(e.target.value) || 1 })
+                    }
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-400">Default: 20 students</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Extra Student Rate (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={pricing.extra_student_rate}
+                    onChange={(e) =>
+                      setPricing({ ...pricing, extra_student_rate: Number(e.target.value) || 0 })
+                    }
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-400">Default: ₹7 / extra student</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Default Free Trial (Days)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={pricing.default_trial_days}
+                    onChange={(e) =>
+                      setPricing({ ...pricing, default_trial_days: Number(e.target.value) || 0 })
+                    }
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-400">Default: 15 days</span>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Official Support Contact Phone
+                  </label>
+                  <input
+                    type="text"
+                    value={pricing.contact_phone}
+                    onChange={(e) => setPricing({ ...pricing, contact_phone: e.target.value })}
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Official Support Contact Email
+                  </label>
+                  <input
+                    type="email"
+                    value={pricing.contact_email}
+                    onChange={(e) => setPricing({ ...pricing, contact_email: e.target.value })}
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingPricing}
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-purple-500 disabled:opacity-50"
+              >
+                {savingPricing ? "Saving Settings..." : "Save Pricing Configuration"}
+              </button>
+            </form>
+          </div>
+
+          {/* UPI ID & QR Code Upload */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="rounded-lg bg-emerald-600 p-2 text-white">
+                <QrCode size={18} />
+              </span>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Platform UPI & QR Code</h2>
+                <p className="text-xs text-slate-500">
+                  Set the receiving UPI address and upload your official QR code.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  UPI ID (VPA)
+                </label>
+                <input
+                  type="text"
+                  value={pricing.upi_id}
+                  onChange={(e) => setPricing({ ...pricing, upi_id: e.target.value })}
+                  placeholder="e.g. edutechlab@upi"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  UPI Payee Name
+                </label>
+                <input
+                  type="text"
+                  value={pricing.upi_name}
+                  onChange={(e) => setPricing({ ...pricing, upi_name: e.target.value })}
+                  placeholder="e.g. EduTechLab Platform"
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Custom UPI QR Code Image
+                </label>
+                <div className="mt-2 flex items-center gap-4">
+                  {pricing.upi_qr_url ? (
+                    <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-1">
+                      <img
+                        src={pricing.upi_qr_url}
+                        alt="Current UPI QR Code"
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid h-24 w-24 shrink-0 place-items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-400">
+                      <QrCode size={28} />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+                      <Upload size={14} />
+                      {uploadingQr ? "Uploading..." : "Upload New QR Image"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleUploadQrCode}
+                        disabled={uploadingQr}
+                      />
+                    </label>
+                    <p className="text-[11px] text-slate-400">
+                      If left unuploaded, dynamic QR code with exact amount will be generated automatically.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 1: EDIT QUOTA / EXTEND PLAN (SUPER ADMIN OVERRIDE)       */}
+      {/* ============================================================== */}
+      {editingInst && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Override Subscription Quota</h3>
+                <p className="text-xs text-slate-500 font-medium">{editingInst.name}</p>
+              </div>
+              <button
+                onClick={() => setEditingInst(null)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveQuotaOverride} className="mt-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Student Enrollment Limit
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={editLimit}
+                  onChange={(e) => setEditLimit(Number(e.target.value) || 1)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                />
+                <span className="text-[11px] text-slate-400">
+                  Current enrolled students: {editingInst.student_count}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Subscription Status
+                </label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
+                >
+                  <option value="active">Active (Standard)</option>
+                  <option value="trial">Free Trial</option>
+                  <option value="expired">Expired</option>
+                  <option value="suspended">Suspended</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Extend Validity Period
+                </label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    value={extendDays}
+                    onChange={(e) => setExtendDays(Number(e.target.value) || 0)}
+                    placeholder="0"
+                    className="w-28 rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
+                  />
+                  <span className="text-xs text-slate-500">additional days</span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={() => setEditingInst(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busyId === editingInst.id}
+                  className="rounded-xl bg-purple-600 px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-purple-500 disabled:opacity-50"
+                >
+                  {busyId === editingInst.id ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 2: PERMANENTLY DELETE INSTITUTION                        */}
+      {/* ============================================================== */}
+      {deletingInst && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-red-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center gap-3 text-red-600">
+              <span className="rounded-xl bg-red-100 p-2.5">
+                <Trash2 size={22} />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Permanently Delete School?</h3>
+                <p className="text-xs text-red-600 font-semibold">Irreversible Platform Operation</p>
+              </div>
+            </div>
+
+            <p className="mt-4 text-xs leading-5 text-slate-600">
+              This will completely and permanently purge <strong>"{deletingInst.name}"</strong>, including all
+              students ({deletingInst.student_count}), classes, attendance records, fee payments, marksheets,
+              notices, and the administrator account from Supabase.
+            </p>
+
+            <div className="mt-4 rounded-xl bg-red-50 p-3 text-xs text-red-700">
+              To confirm deletion, type <strong>{deletingInst.name}</strong> below:
+            </div>
+
             <input
               type="text"
-              placeholder="Search by name, slug or ID..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 pl-9 pr-4 py-2 text-xs outline-none focus:border-slate-900 sm:w-64"
+              autoFocus
+              placeholder={`Type "${deletingInst.name}"`}
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              className="mt-3 w-full rounded-xl border border-red-300 px-3.5 py-2.5 text-sm outline-none focus:border-red-600 focus:ring-1 focus:ring-red-600 font-medium"
+            />
+
+            <div className="mt-6 flex justify-end gap-3 pt-4 border-t">
+              <button
+                type="button"
+                onClick={() => setDeletingInst(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handlePermanentDelete}
+                disabled={
+                  isDeleting ||
+                  deleteConfirmText.trim().toLowerCase() !== deletingInst.name.trim().toLowerCase()
+                }
+                className="rounded-xl bg-red-600 px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-red-500 disabled:opacity-40"
+              >
+                {isDeleting ? "Purging School..." : "Permanently Delete School"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 3: REJECT PAYMENT REQUEST WITH REASON                    */}
+      {/* ============================================================== */}
+      {rejectingPay && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-4">
+              <h3 className="text-base font-bold text-slate-900">
+                Reject Payment Request
+              </h3>
+              <button
+                onClick={() => setRejectingPay(null)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleRejectPayment} className="mt-4 space-y-4">
+              <p className="text-xs text-slate-500">
+                School: <strong>{rejectingPay.organization_name}</strong> • UTR:{" "}
+                <span className="font-mono">{rejectingPay.utr_number}</span>
+              </p>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Reason for Rejection
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="e.g. UTR number not found in bank statement, or payment amount mismatch."
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 p-3 text-xs outline-none focus:border-red-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setRejectingPay(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busyId === rejectingPay.id}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-500 disabled:opacity-50"
+                >
+                  {busyId === rejectingPay.id ? "Rejecting..." : "Confirm Rejection"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 4: FULLSCREEN SCREENSHOT PREVIEW                         */}
+      {/* ============================================================== */}
+      {viewScreenshotUrl && (
+        <div
+          onClick={() => setViewScreenshotUrl(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
+        >
+          <div className="relative max-h-[90vh] max-w-2xl overflow-hidden rounded-2xl bg-white p-2">
+            <button
+              onClick={() => setViewScreenshotUrl(null)}
+              className="absolute right-3 top-3 rounded-full bg-black/60 p-1.5 text-white hover:bg-black"
+            >
+              <X size={18} />
+            </button>
+            <img
+              src={viewScreenshotUrl}
+              alt="Payment Slip Proof"
+              className="max-h-[85vh] w-auto rounded-xl object-contain"
             />
           </div>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
-              <tr>
-                <th className="px-5 py-3.5">Institution</th>
-                <th className="px-5 py-3.5">Admin / Login ID</th>
-                <th className="px-5 py-3.5">Students</th>
-                <th className="px-5 py-3.5">Teachers</th>
-                <th className="px-5 py-3.5">Plan</th>
-                <th className="px-5 py-3.5">Status</th>
-                <th className="px-5 py-3.5">Registered</th>
-                <th className="px-5 py-3.5 text-right">Lifecycle Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredInstitutions.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="p-8 text-center text-sm text-slate-500">
-                    No institutions match your search query.
-                  </td>
-                </tr>
-              ) : (
-                filteredInstitutions.map((inst) => (
-                  <tr key={inst.id} className="hover:bg-slate-50/50">
-                    <td className="px-5 py-4">
-                      <div className="font-semibold text-slate-900">{inst.name}</div>
-                      <div className="text-xs text-slate-400 font-mono">/{inst.slug}</div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="text-xs font-medium text-slate-800">
-                        {inst.owner_name || "—"}
-                      </div>
-                      <div className="font-mono text-xs text-indigo-600">
-                        {inst.owner_login_id || "—"}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-slate-700 font-medium">
-                      {inst.student_count}
-                    </td>
-                    <td className="px-5 py-4 text-slate-700 font-medium">
-                      {inst.teacher_count}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium uppercase text-slate-600">
-                        {inst.plan || "standard"}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      {inst.is_active && inst.status === "active" ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                          <CheckCircle2 size={12} />
-                          Active
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700">
-                          <XCircle size={12} />
-                          Suspended
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-xs text-slate-500">
-                      {new Date(inst.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <button
-                        onClick={() => handleToggleStatus(inst)}
-                        disabled={busyId === inst.id}
-                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
-                          inst.is_active
-                            ? "border-red-200 text-red-600 hover:bg-red-50"
-                            : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
-                        } disabled:opacity-50`}
-                      >
-                        <Power size={13} />
-                        {busyId === inst.id
-                          ? "Updating..."
-                          : inst.is_active
-                          ? "Suspend"
-                          : "Activate"}
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      )}
     </main>
   );
 }

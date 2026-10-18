@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, FileText, Bell, Settings, Menu, X, ChevronRight, Search, ShieldCheck, BookOpen } from "lucide-react";
+import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, FileText, Bell, Settings, Menu, X, ChevronRight, Search, ShieldCheck, BookOpen, CreditCard, Sparkles, AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -15,6 +15,7 @@ const nav = [
  ["Exams & Results","/exams",FileText,["exams.view","exams.manage","results.manage"]],
  ["Notices","/notices",Bell,["notices.manage"]],
  ["Staff & Permissions","/staff",ShieldCheck,["staff.manage"]],
+ ["Subscription","/subscription",CreditCard,["settings.manage"]],
  ["Settings","/settings",Settings,["settings.manage"]]
 ] as const;
 type PermissionCode=string;
@@ -23,7 +24,7 @@ type Profile={full_name:string;login_id:string|null;organization_id:string;role:
 
 export default function Dashboard(){
  const supabase=createClient();
- const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[loading,setLoading]=useState(true),[error,setError]=useState("");
+ const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[subInfo,setSubInfo]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
  useEffect(()=>{(async()=>{
   const {data:{user}}=await supabase.auth.getUser(); if(!user){window.location.href="/login";return;}
   const {data:p,error:pError}=await supabase.from("profiles").select("full_name,login_id,organization_id,role,organizations(name)").eq("id",user.id).single();
@@ -41,14 +42,16 @@ export default function Dashboard(){
   const monthDate=monthStart.toISOString().slice(0,10);
   const can=(code:string)=>isAdmin||granted.has(code);
   const canAny=(codes:readonly string[])=>isAdmin||codes.some(code=>granted.has(code));
-  const [students,teachers,attendance,fees]=await Promise.all([
+  const [students,teachers,attendance,fees,subRes]=await Promise.all([
    canAny(["students.view","students.manage","admissions.manage"])?supabase.from("students").select("id",{count:"exact",head:true}).eq("organization_id",orgId).eq("status","active"):Promise.resolve({count:0}),
    canAny(["teachers.view","teachers.manage"])?supabase.from("teachers").select("id",{count:"exact",head:true}).eq("organization_id",orgId):Promise.resolve({count:0}),
    canAny(["attendance.view","attendance.manage"])?supabase.from("attendance").select("status").eq("organization_id",orgId).eq("attendance_date",today):Promise.resolve({data:[]}),
-   canAny(["fees.view","fees.manage","fees.receipts"])?supabase.from("fee_payments").select("amount").eq("organization_id",orgId).gte("paid_on",monthDate):Promise.resolve({data:[]})
+   canAny(["fees.view","fees.manage","fees.receipts"])?supabase.from("fee_payments").select("amount").eq("organization_id",orgId).gte("paid_on",monthDate):Promise.resolve({data:[]}),
+   supabase.rpc("get_institution_subscription",{p_org_id:orgId})
   ]);
   const present=attendance.data?.filter((x:{status:string})=>x.status==="present").length??0,marked=attendance.data?.filter((x:{status:string})=>x.status==="present"||x.status==="absent").length??0;
   setStats({students:students.count??0,teachers:teachers.count??0,attendance:marked?Math.round(present/marked*1000)/10:null,fees:(fees.data??[]).reduce((s,r)=>s+Number(r.amount??0),0)});
+  if(subRes.data) setSubInfo(subRes.data);
   setLoading(false);
  })()},[]);
  const can=(code:string)=>{const role=String(profile?.role||"").trim().toLowerCase(); return (role==="owner"||role==="admin")||permissions.has(code)};
@@ -67,6 +70,54 @@ export default function Dashboard(){
    <main className="mx-auto max-w-7xl p-5 sm:p-8">
     {error?<div className="rounded-2xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">{error}</div>:<>
      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><p className="text-sm font-medium text-slate-500">{instituteName}</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Good to see you, {firstName}.</h1><p className="mt-2 text-sm text-slate-500">Here’s the live overview of your institute.</p></div>{can("students.manage")||can("admissions.manage")?<Link href="/students" className="rounded-xl bg-slate-900 px-4 py-2.5 text-center text-sm font-semibold text-white">+ Add Student</Link>:null}</div>
+     {subInfo && (
+       <div className={`mt-6 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
+         subInfo.is_expired
+           ? "border-red-200 bg-red-50 text-red-900"
+           : subInfo.status === "pending_approval"
+           ? "border-blue-200 bg-blue-50 text-blue-900"
+           : subInfo.is_trial
+           ? "border-purple-200 bg-purple-50 text-purple-900"
+           : "border-slate-200 bg-white text-slate-800"
+       }`}>
+         <div className="flex items-center gap-3">
+           <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+             subInfo.is_expired ? "bg-red-200 text-red-800" : "bg-purple-200 text-purple-800"
+           }`}>
+             {subInfo.is_expired ? <AlertCircle size={18} /> : <Sparkles size={18} />}
+           </span>
+           <div>
+             <div className="flex items-center gap-2">
+               <span className="font-bold text-sm">
+                 {subInfo.is_expired
+                   ? "Subscription Plan Expired"
+                   : subInfo.status === "pending_approval"
+                   ? "Payment Proof Under Review"
+                   : subInfo.is_trial
+                   ? "15-Day Free Trial Active"
+                   : "Standard Subscription Active"}
+               </span>
+               <span className="rounded-md bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                 {subInfo.current_student_count} / {subInfo.student_limit} Students
+               </span>
+             </div>
+             <p className="text-xs opacity-80 mt-0.5">
+               {subInfo.is_expired
+                 ? "Your subscription cycle has ended. Please renew to keep adding students."
+                 : subInfo.days_remaining > 0
+                 ? `${subInfo.days_remaining} days remaining in current period.`
+                 : "Renewal due today."}
+             </p>
+           </div>
+         </div>
+         <Link
+           href="/subscription"
+           className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800"
+         >
+           {subInfo.is_expired ? "Renew Subscription" : "Manage Subscription"} →
+         </Link>
+       </div>
+     )}
      <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{statCards.map((card:any)=><div key={card[0]} className="rounded-2xl border bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{card[0]}</p><p className="mt-2 text-2xl font-bold">{card[1]}</p><p className="mt-1 text-xs text-slate-500">{card[2]}</p></div>)}</div>
      <div className="mt-6 grid gap-6 lg:grid-cols-3">
       <section className="rounded-2xl border bg-white p-5 lg:col-span-2"><div className="flex items-center justify-between"><h2 className="font-semibold">Your workspace</h2><span className="text-xs text-slate-400">{profile?.login_id||"Institute admin"}</span></div><div className="mt-5 rounded-xl bg-slate-50 p-5"><p className="text-sm font-medium text-slate-800">Your institute workspace is ready.</p><p className="mt-1 text-sm leading-6 text-slate-500">Start by adding students, teachers and attendance records. Dashboard numbers will update from your institute’s own data.</p></div></section>
