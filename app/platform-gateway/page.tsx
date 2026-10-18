@@ -90,9 +90,10 @@ export default function PlatformGatewayPage() {
 
   const unlockGate = () => {
     try {
+      localStorage.setItem("edutechlab_master_gate_unlocked", "true");
       sessionStorage.setItem("edutechlab_master_gate_unlocked", "true");
       document.cookie =
-        "edutechlab_master_gate_unlocked=true; path=/; max-age=86400; SameSite=Lax";
+        "edutechlab_master_gate_unlocked=true; path=/; max-age=31536000; SameSite=Lax";
     } catch {
       // Storage access safeguard
     }
@@ -106,9 +107,10 @@ export default function PlatformGatewayPage() {
 
     let isUnlocked = false;
     try {
+      const localVal = localStorage.getItem("edutechlab_master_gate_unlocked");
       const sessionVal = sessionStorage.getItem("edutechlab_master_gate_unlocked");
       const cookieVal = document.cookie.includes("edutechlab_master_gate_unlocked=true");
-      if (sessionVal === "true" || cookieVal) {
+      if (localVal === "true" || sessionVal === "true" || cookieVal) {
         isUnlocked = true;
       }
     } catch {
@@ -216,10 +218,11 @@ export default function PlatformGatewayPage() {
         );
       }
 
-      // Ensure gate unlock token persists
+      // Ensure gate unlock token persists for 1 year
+      localStorage.setItem("edutechlab_master_gate_unlocked", "true");
       sessionStorage.setItem("edutechlab_master_gate_unlocked", "true");
       document.cookie =
-        "edutechlab_master_gate_unlocked=true; path=/; max-age=86400; SameSite=Lax";
+        "edutechlab_master_gate_unlocked=true; path=/; max-age=31536000; SameSite=Lax";
 
       // Step 3: Redirect to Super Admin Console
       window.location.href = "/super-admin";
@@ -232,6 +235,7 @@ export default function PlatformGatewayPage() {
 
   const handleSignOut = async () => {
     try {
+      localStorage.removeItem("edutechlab_master_gate_unlocked");
       sessionStorage.removeItem("edutechlab_master_gate_unlocked");
       document.cookie = "edutechlab_master_gate_unlocked=; path=/; max-age=0";
     } catch {

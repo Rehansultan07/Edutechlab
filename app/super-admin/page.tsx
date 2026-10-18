@@ -33,6 +33,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import InstallButton from "@/components/pwa/InstallButton";
 
 type PlatformStats = {
   total_institutions: number;
@@ -149,6 +150,7 @@ export default function SuperAdminPage() {
       let gateUnlocked = false;
       try {
         gateUnlocked =
+          localStorage.getItem("edutechlab_master_gate_unlocked") === "true" ||
           sessionStorage.getItem("edutechlab_master_gate_unlocked") === "true" ||
           document.cookie.includes("edutechlab_master_gate_unlocked=true");
       } catch {
@@ -572,6 +574,7 @@ export default function SuperAdminPage() {
           </Link>
           <div>
             <div className="flex items-center gap-2">
+          <InstallButton />
               <span className="rounded-md bg-purple-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-700">
                 Super Admin
               </span>
@@ -594,6 +597,7 @@ export default function SuperAdminPage() {
           <button
             onClick={async () => {
               try {
+                localStorage.removeItem("edutechlab_master_gate_unlocked");
                 sessionStorage.removeItem("edutechlab_master_gate_unlocked");
                 document.cookie = "edutechlab_master_gate_unlocked=; path=/; max-age=0";
               } catch {}
