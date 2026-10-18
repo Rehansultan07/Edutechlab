@@ -550,10 +550,10 @@ export default function Home() {
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                       <div className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
-                        <Lock size={20} />
+                        <ShieldCheck size={20} />
                       </div>
-                      <h4 className="font-bold text-sm text-slate-900 mt-3">Secret Super Admin Entry</h4>
-                      <p className="text-xs text-slate-500 mt-1 leading-5">Aapka Master Control 5-tap gesture se 100% secret aur protected hai.</p>
+                      <h4 className="font-bold text-sm text-slate-900 mt-3">100% Secure Cloud Backup</h4>
+                      <p className="text-xs text-slate-500 mt-1 leading-5">Aapke school ka sara record encrypted aur bank-grade cloud par safe rehta hai.</p>
                     </div>
                   </div>
                 </div>
@@ -923,11 +923,11 @@ export default function Home() {
             },
             {
               q: "Free trial ke liye kya hume credit card ya pehle payment karni hogi?",
-              a: "Nahi, bilkul nahi! Free trial 100% free hai bina kisi payment details ke. Pehle 15 din tak aap pura software apne school ke bachchon ke sath test karein, achha lage tabhi continue karein.",
+              a: "Nahi, bilkul nahi! Free trial 100% free hai bina kisi card ya payment details ke. Aap bina kisi risk ke pura software apne institute ke sath test karein, pasand aaye tabhi aage continue karein.",
             },
             {
               q: "Fees payment kaise hoti hai? Kya school ka apna QR code lagega?",
-              a: "Haan! Super Admin / School Admin apna khud ka UPI QR code aur UPI ID dalte hain. Parents scan karke direct aapke bank account me fee transfer karte hain, aur system instant digital receipt generate karta hai.",
+              a: "Haan! School Admin apna khud ka UPI QR code aur UPI ID dalte hain. Parents scan karke direct aapke bank account me fee transfer karte hain, aur system instant digital receipt generate karta hai.",
             },
             {
               q: "Kya teachers ko alag login milta hai?",
