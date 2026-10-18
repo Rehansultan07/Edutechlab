@@ -61,13 +61,18 @@ export default function Dashboard(){
  const can=(code:string)=>{const role=String(profile?.role||"").trim().toLowerCase(); return (role==="owner"||role==="admin")||permissions.has(code)};
  const canAny=(codes:readonly string[])=>{const role=String(profile?.role||"").trim().toLowerCase(); return (role==="owner"||role==="admin")||codes.some(code=>permissions.has(code))};
  const visibleNav=nav.filter(([,href,,required])=>href==="/dashboard"||canAny(required));
- const instituteName=profile?.organizations?.name||"Your Institute",firstName=profile?.full_name?.trim()?.split(/\\s+/)[0]||"Admin",initials=(profile?.full_name||"A").split(/\\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase();
- const statCards:any[]=[canAny(["students.view","students.manage","admissions.manage"])?["Total Students",loading?"—":String(stats.students),"Active students"]:null,canAny(["teachers.view","teachers.manage"])?["Teachers",loading?"—":String(stats.teachers),"Staff records"]:null,canAny(["attendance.view","attendance.manage"])?["Attendance Today",loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%","Based on today’s marked attendance"]:null,canAny(["fees.view","fees.manage","fees.receipts"])?["Fees This Month",loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),"Recorded payments"]:null].filter(Boolean);
+ const instituteName=profile?.organizations?.name||"Your Institute",firstName=profile?.full_name?.trim()?.split(/\s+/)[0]||"Admin",initials=(profile?.full_name||"A").split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase();
+ const statCards:any[]=[
+  canAny(["students.view","students.manage","admissions.manage"])?{title:"Total Students",value:loading?"—":String(stats.students),sub:"Active enrolled students",icon:Users,border:"border-blue-100",iconBg:"bg-blue-50 text-blue-600"}:null,
+  canAny(["teachers.view","teachers.manage"])?{title:"Total Teachers",value:loading?"—":String(stats.teachers),sub:"Assigned faculty records",icon:GraduationCap,border:"border-purple-100",iconBg:"bg-purple-50 text-purple-600"}:null,
+  canAny(["attendance.view","attendance.manage"])?{title:"Today's Attendance",value:loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%",sub:"Realtime attendance ratio",icon:ClipboardCheck,border:"border-emerald-100",iconBg:"bg-emerald-50 text-emerald-600"}:null,
+  canAny(["fees.view","fees.manage","fees.receipts"])?{title:"Fees This Month",value:loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),sub:"Recorded collections",icon:WalletCards,border:"border-amber-100",iconBg:"bg-amber-50 text-amber-600"}:null
+ ].filter(Boolean);
  const quickActions:any[]=[can("students.manage")?["Add student","/students"]:null,can("attendance.manage")?["Mark attendance","/attendance"]:null,can("fees.manage")?["Record fee payment","/fees"]:null,can("notices.manage")?["Create notice","/notices"]:null].filter(Boolean);
- return <div className="min-h-screen bg-slate-50">
+ return <div className="min-h-screen bg-[#f8fafc]">
   <aside className={`fixed inset-y-0 left-0 z-30 w-64 border-r bg-white p-5 transition-transform lg:translate-x-0 ${open?"translate-x-0":"-translate-x-full"}`}>
-   <div className="flex items-center justify-between"><div><div className="text-xl font-bold">EduTechLab</div><div className="mt-1 max-w-[190px] truncate text-xs text-slate-500">{instituteName}</div></div><button className="lg:hidden" onClick={()=>setOpen(false)}><X size={20}/></button></div>
-   <nav className="mt-8 space-y-1">{visibleNav.map(([label,href,Icon])=><Link key={label} href={href} onClick={()=>setOpen(false)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${href==="/dashboard"?"bg-slate-900 text-white":"text-slate-600 hover:bg-slate-100"}`}><Icon size={18}/>{label}</Link>)}</nav>
+   <div className="flex items-center justify-between"><div><div className="text-xl font-bold bg-gradient-to-r from-purple-700 to-indigo-600 bg-clip-text text-transparent">EduTechLab</div><div className="mt-1 max-w-[190px] truncate text-xs text-slate-500 font-medium">{instituteName}</div></div><button className="lg:hidden" onClick={()=>setOpen(false)}><X size={20}/></button></div>
+   <nav className="mt-8 space-y-1">{visibleNav.map(([label,href,Icon])=><Link key={label} href={href} onClick={()=>setOpen(false)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${href==="/dashboard"?"bg-slate-900 text-white shadow-sm":"text-slate-600 hover:bg-slate-100"}`}><Icon size={18}/>{label}</Link>)}</nav>
    <div className="mt-6 space-y-2 border-t pt-4">
      {isPlatformAdmin && (
        <Link
@@ -83,64 +88,132 @@ export default function Dashboard(){
    </div>
   </aside>
   <div className="lg:pl-64">
-   <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-white/95 px-5 backdrop-blur"><button className="lg:hidden" onClick={()=>setOpen(true)}><Menu/></button><div className="hidden items-center gap-2 text-sm text-slate-500 sm:flex"><span>{instituteName}</span><ChevronRight size={15}/><span className="font-medium text-slate-900">Dashboard</span></div><div className="flex items-center gap-3">{isPlatformAdmin && (<Link href="/super-admin" className="inline-flex items-center gap-1.5 rounded-xl border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700 shadow-sm hover:bg-purple-100 transition" title="Switch to Super Admin Console"><ShieldCheck size={14} className="text-purple-600" /><span className="hidden sm:inline">Super Admin Console</span></Link>)}<InstallButton /><div className="hidden items-center gap-2 rounded-lg border bg-white px-3 py-2 sm:flex"><Search size={16} className="text-slate-400"/><span className="text-sm text-slate-400">Search...</span></div><div title={profile?.full_name||"Admin"} className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">{initials}</div></div></header>
+   <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-white/95 px-5 backdrop-blur"><button className="lg:hidden" onClick={()=>setOpen(true)}><Menu/></button><div className="hidden items-center gap-2 text-sm text-slate-500 sm:flex"><span>{instituteName}</span><ChevronRight size={15}/><span className="font-semibold text-slate-900">Dashboard</span></div><div className="flex items-center gap-3">{isPlatformAdmin && (<Link href="/super-admin" className="inline-flex items-center gap-1.5 rounded-xl border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700 shadow-sm hover:bg-purple-100 transition" title="Switch to Super Admin Console"><ShieldCheck size={14} className="text-purple-600" /><span className="hidden sm:inline">Super Admin Console</span></Link>)}<InstallButton /><div className="hidden items-center gap-2 rounded-lg border bg-white px-3 py-2 sm:flex"><Search size={16} className="text-slate-400"/><span className="text-sm text-slate-400">Search...</span></div><div title={profile?.full_name||"Admin"} className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white shadow-sm">{initials}</div></div></header>
    <main className="mx-auto max-w-7xl p-5 sm:p-8">
     {error?<div className="rounded-2xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">{error}</div>:<>
-     <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><p className="text-sm font-medium text-slate-500">{instituteName}</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Good to see you, {firstName}.</h1><p className="mt-2 text-sm text-slate-500">Here’s the live overview of your institute.</p></div>{can("students.manage")||can("admissions.manage")?<Link href="/students" className="rounded-xl bg-slate-900 px-4 py-2.5 text-center text-sm font-semibold text-white">+ Add Student</Link>:null}</div>
+     <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+      <div>
+        <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-3 py-0.5 text-xs font-bold text-purple-700 mb-1">
+          <Sparkles size={12} /> {instituteName} Workspace
+        </div>
+        <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-slate-900">Good to see you, {firstName}.</h1>
+        <p className="mt-1 text-sm text-slate-500 font-medium">Here’s the live operational overview of your institute.</p>
+      </div>
+      {can("students.manage")||can("admissions.manage")?<Link href="/students" className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2.5 text-center text-sm font-bold text-white shadow-md hover:bg-slate-800 transition hover:-translate-y-0.5">+ Add New Student</Link>:null}
+     </div>
+
      {subInfo && (
-       <div className={`mt-6 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
+       <div className={`mt-6 rounded-2xl border p-5 shadow-sm transition sm:flex sm:items-center sm:justify-between ${
          subInfo.is_expired
-           ? "border-red-200 bg-red-50 text-red-900"
+           ? "border-red-200 bg-red-50/70 text-red-900"
            : subInfo.status === "pending_approval"
-           ? "border-blue-200 bg-blue-50 text-blue-900"
+           ? "border-blue-200 bg-blue-50/70 text-blue-900"
            : subInfo.is_trial
-           ? "border-purple-200 bg-purple-50 text-purple-900"
+           ? "border-purple-200 bg-purple-50/70 text-purple-900"
            : "border-slate-200 bg-white text-slate-800"
        }`}>
-         <div className="flex items-center gap-3">
-           <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+         <div className="flex items-start gap-4">
+           <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl shadow-sm ${
              subInfo.is_expired ? "bg-red-200 text-red-800" : "bg-purple-200 text-purple-800"
            }`}>
-             {subInfo.is_expired ? <AlertCircle size={18} /> : <Sparkles size={18} />}
+             {subInfo.is_expired ? <AlertCircle size={22} /> : <Sparkles size={22} />}
            </span>
            <div>
-             <div className="flex items-center gap-2">
-               <span className="font-bold text-sm">
+             <div className="flex flex-wrap items-center gap-2">
+               <span className="font-extrabold text-sm sm:text-base">
                  {subInfo.is_expired
                    ? "Subscription Plan Expired"
                    : subInfo.status === "pending_approval"
                    ? "Payment Proof Under Review"
                    : subInfo.is_trial
-                   ? `Free Trial Active (${subInfo.days_remaining}d Left)`
+                   ? `Free Trial Active (${subInfo.days_remaining} Days Left)`
                    : subInfo.status === "active"
                    ? "Standard Subscription Active"
                    : "No Active Subscription"}
                </span>
-               <span className="rounded-md bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                 {subInfo.current_student_count} / {subInfo.student_limit} Students
+               <span className="rounded-full bg-white/90 border border-current/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                 {subInfo.current_student_count} / {subInfo.student_limit} Students Quota
                </span>
              </div>
-             <p className="text-xs opacity-80 mt-0.5">
+             <p className="text-xs opacity-80 mt-1">
                {subInfo.is_expired
-                 ? "Your subscription cycle has ended. Please renew to keep adding students."
+                 ? "Aapka subscription cycle khatam ho gaya hai. Students add karne ke liye plan renew karein."
                  : subInfo.days_remaining > 0
-                 ? `${subInfo.days_remaining} days remaining in current period.`
+                 ? `Current billing period me ${subInfo.days_remaining} din bache hain.`
                  : "Renewal due today."}
              </p>
+             <div className="mt-2.5 h-1.5 w-64 max-w-full rounded-full bg-slate-200/80 overflow-hidden">
+               <div
+                 className="h-full bg-gradient-to-r from-purple-600 to-teal-500 rounded-full"
+                 style={{ width: `${Math.min(100, Math.round((subInfo.current_student_count / Math.max(1, subInfo.student_limit)) * 100))}%` }}
+               />
+             </div>
            </div>
          </div>
-         <Link
-           href="/subscription"
-           className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800"
-         >
-           {subInfo.is_expired ? "Renew Subscription" : "Manage Subscription"} →
-         </Link>
+         <div className="mt-4 sm:mt-0 flex shrink-0">
+           <Link
+             href="/subscription"
+             className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-slate-800 transition hover:-translate-y-0.5"
+           >
+             <span>{subInfo.is_expired ? "Renew Subscription" : "Manage Plan & Billing"}</span>
+             <ChevronRight size={14} />
+           </Link>
+         </div>
        </div>
      )}
-     <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{statCards.map((card:any)=><div key={card[0]} className="rounded-2xl border bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{card[0]}</p><p className="mt-2 text-2xl font-bold">{card[1]}</p><p className="mt-1 text-xs text-slate-500">{card[2]}</p></div>)}</div>
+
+     <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+       {statCards.map((card:any)=>{
+         const Icon = card.icon;
+         return (
+           <div key={card.title} className={`group relative overflow-hidden rounded-2xl border ${card.border} bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md`}>
+             <div className="flex items-center justify-between">
+               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{card.title}</span>
+               <div className={`grid h-9 w-9 place-items-center rounded-xl ${card.iconBg}`}><Icon size={18}/></div>
+             </div>
+             <p className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">{card.value}</p>
+             <p className="mt-1 text-xs text-slate-400 font-medium">{card.sub}</p>
+           </div>
+         );
+       })}
+     </div>
+
      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-      <section className="rounded-2xl border bg-white p-5 lg:col-span-2"><div className="flex items-center justify-between"><h2 className="font-semibold">Your workspace</h2><span className="text-xs text-slate-400">{profile?.login_id||"Institute admin"}</span></div><div className="mt-5 rounded-xl bg-slate-50 p-5"><p className="text-sm font-medium text-slate-800">Your institute workspace is ready.</p><p className="mt-1 text-sm leading-6 text-slate-500">Start by adding students, teachers and attendance records. Dashboard numbers will update from your institute’s own data.</p></div></section>
-      <section className="rounded-2xl border bg-white p-5"><h2 className="font-semibold">Quick actions</h2><div className="mt-4 space-y-2">{quickActions.map((item:any)=><Link href={item[1]} key={item[0]} className="flex w-full items-center justify-between rounded-xl border px-3 py-3 text-sm hover:bg-slate-50">{item[0]}<ChevronRight size={16}/></Link>)}</div></section>
+      <section className="rounded-2xl border bg-white p-5 lg:col-span-2 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold text-slate-900">Your Institute Workspace</h2>
+            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700">Online & Active</span>
+          </div>
+          <span className="text-xs font-mono text-slate-400">{profile?.login_id||"Admin"}</span>
+        </div>
+        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/80 p-5">
+          <p className="text-sm font-semibold text-slate-800">Your institute workspace is fully configured.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Start by adding students, assigning teachers, and recording daily attendance. Numbers will automatically refresh in real-time from your institute’s live records.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2.5">
+            <Link href="/attendance" className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-100 transition">
+              <ClipboardCheck size={14} className="text-emerald-600"/> Mark Today's Attendance
+            </Link>
+            <Link href="/fees" className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-100 transition">
+              <WalletCards size={14} className="text-amber-600"/> Record Fee Payment
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="font-bold text-slate-900">Quick Actions</h2>
+        <div className="mt-4 space-y-2">
+          {quickActions.map((item:any)=>(
+            <Link href={item[1]} key={item[0]} className="flex w-full items-center justify-between rounded-xl border border-slate-200/80 px-3.5 py-3 text-xs font-bold text-slate-700 hover:border-purple-300 hover:bg-purple-50/50 hover:text-purple-700 transition">
+              <span>{item[0]}</span>
+              <ChevronRight size={15}/>
+            </Link>
+          ))}
+        </div>
+      </section>
      </div>
     </>}
    </main>
