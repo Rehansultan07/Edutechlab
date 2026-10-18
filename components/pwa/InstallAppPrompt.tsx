@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, Smartphone, X, Share, PlusSquare, Sparkles } from "lucide-react";
+import { Download, Smartphone, X, Share, PlusSquare, Sparkles, MoreVertical, CheckCircle2 } from "lucide-react";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -13,13 +13,14 @@ export default function InstallAppPrompt() {
   const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIos, setIsIos] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
-  const [showIosGuide, setShowIosGuide] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // 1. Check if already running in standalone app mode
+    // 1. Check if already installed & running in standalone app mode
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
       (window.navigator as any).standalone === true ||
@@ -30,64 +31,50 @@ export default function InstallAppPrompt() {
       return;
     }
 
-    // 2. Detect iOS Safari
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    const isIosDevice =
-      /iphone|ipad|ipod/.test(userAgent) && !(window as any).MSStream;
+    // 2. Detect Device Type
+    const ua = window.navigator.userAgent.toLowerCase();
+    const isIosDevice = /iphone|ipad|ipod/.test(ua) && !(window as any).MSStream;
+    const isAndroidDevice = /android/.test(ua);
     setIsIos(isIosDevice);
+    setIsAndroid(isAndroidDevice);
 
     // 3. Register service worker safely
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js")
-        .then(() => {
-          // SW registered
-        })
-        .catch(() => {
-          // SW registration ignored in non-https local environments
-        });
+        .then(() => {})
+        .catch(() => {});
     }
 
-    // 4. Listen for Chrome/Edge/Android beforeinstallprompt event
+    // 4. Capture native browser beforeinstallprompt (Android Chrome, Edge, Chromium)
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
       setIsInstallable(true);
 
-      // Check if user dismissed it in this session
       const dismissed = sessionStorage.getItem("edutechlab_pwa_dismissed");
       if (!dismissed) {
-        // Slight delay for smooth entrance after dashboard loads
         const timer = setTimeout(() => {
           setIsOpen(true);
-        }, 1200);
+        }, 800);
         return () => clearTimeout(timer);
       }
     };
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
-    // Also trigger popup on iOS if not dismissed
-    if (isIosDevice) {
-      const dismissed = sessionStorage.getItem("edutechlab_pwa_dismissed");
-      if (!dismissed) {
-        const timer = setTimeout(() => {
-          setIsOpen(true);
-        }, 1500);
-        return () => clearTimeout(timer);
-      }
+    // 5. On Mobile (iOS or Android), show popup if not dismissed
+    const dismissed = sessionStorage.getItem("edutechlab_pwa_dismissed");
+    if (!dismissed && !isStandalone) {
+      const timer = setTimeout(() => {
+        setIsOpen(true);
+      }, 1000);
+      return () => clearTimeout(timer);
     }
 
-    // Fallback: If not fired after 3 seconds on desktop/mobile and not dismissed, show install helper
-    const fallbackTimer = setTimeout(() => {
-      const dismissed = sessionStorage.getItem("edutechlab_pwa_dismissed");
-      if (!isStandalone && !dismissed) {
-        setIsOpen(true);
-      }
-    }, 2500);
-
-    // Listen to manual open trigger from header button
+    // 6. Manual open trigger from header button
     const handleManualOpen = () => {
+      setShowGuide(false);
       setIsOpen(true);
     };
     window.addEventListener("open-install-prompt", handleManualOpen);
@@ -95,13 +82,11 @@ export default function InstallAppPrompt() {
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("open-install-prompt", handleManualOpen);
-      clearTimeout(fallbackTimer);
     };
   }, []);
 
   const handleInstallClick = async () => {
     if (deferredPrompt) {
-      // Trigger native browser installation modal
       try {
         await deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
@@ -111,13 +96,11 @@ export default function InstallAppPrompt() {
         }
         setDeferredPrompt(null);
       } catch {
-        // If prompt fails, fallback
+        setShowGuide(true);
       }
-    } else if (isIos) {
-      setShowIosGuide(true);
     } else {
-      // Browser doesn't support deferred prompt or desktop without prompt
-      setShowIosGuide(true);
+      // If native prompt is not yet ready or iOS
+      setShowGuide(true);
     }
   };
 
@@ -131,15 +114,15 @@ export default function InstallAppPrompt() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 max-w-sm sm:max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300">
-      <div className="overflow-hidden rounded-3xl border border-purple-300/80 bg-white/95 p-5 shadow-[0_20px_60px_rgba(102,87,232,0.22)] backdrop-blur-md">
-        {/* Glow accent */}
-        <div className="absolute -top-12 -right-12 h-28 w-28 rounded-full bg-purple-400/20 blur-2xl pointer-events-none" />
+    <div className="fixed inset-x-3 bottom-3 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:max-w-md z-50 animate-in fade-in slide-in-from-bottom-5 duration-300">
+      <div className="overflow-hidden rounded-3xl border border-purple-300/80 bg-white/95 p-4 sm:p-5 shadow-[0_20px_60px_rgba(102,87,232,0.25)] backdrop-blur-md">
+        {/* Glow decoration */}
+        <div className="absolute -top-12 -right-12 h-28 w-28 rounded-full bg-purple-500/20 blur-2xl pointer-events-none" />
 
-        {/* Top Header */}
+        {/* Top bar with icon and title */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-tr from-[#171625] via-[#4338ca] to-[#6657e8] p-1.5 shadow-md shadow-purple-500/20 flex items-center justify-center">
+            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-tr from-[#171625] via-[#4338ca] to-[#6657e8] p-1.5 shadow-md shadow-purple-500/30 flex items-center justify-center">
               <img
                 src="/icons/icon-192.png"
                 alt="EduTechLab App"
@@ -150,17 +133,18 @@ export default function InstallAppPrompt() {
               />
               <Smartphone className="text-white" size={24} />
             </div>
+
             <div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="font-extrabold text-slate-900 text-sm sm:text-base">
-                  Install EduTechLab
+                  EduTechLab App
                 </span>
                 <span className="inline-flex items-center gap-0.5 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-700">
-                  <Sparkles size={10} /> App
+                  <Sparkles size={10} /> {isAndroid ? "Android App" : isIos ? "iOS App" : "PWA App"}
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 font-medium">
-                Install directly to your Home Screen / Desktop
+                Apne Mobile ki Home Screen par install karein
               </p>
             </div>
           </div>
@@ -174,31 +158,44 @@ export default function InstallAppPrompt() {
           </button>
         </div>
 
-        {/* Description */}
+        {/* Pitch text */}
         <p className="mt-3 text-xs leading-5 text-slate-600">
-          Ab browser me baar-baar URL type karne ki zaroorat nahi. Direct <strong>Home Screen</strong> par install karein aur 1-click me poora <strong>native mobile app</strong> jaisa fast experience payein!
+          Ab browser khole bina direct <strong>Home Screen icon</strong> se 1-click me open karein. Fast, full-screen native mobile app jaisa work karega!
         </p>
 
-        {/* iOS Step Guide if needed */}
-        {showIosGuide && (
-          <div className="mt-3 rounded-2xl bg-purple-50 p-3.5 text-xs text-purple-900 border border-purple-100 space-y-1.5">
-            <p className="font-bold flex items-center gap-1">
-              {isIos ? "iPhone / Safari par install kaise karein:" : "Desktop / Browser par install kaise karein:"}
+        {/* Step-by-Step Guide if native prompt didn't fire */}
+        {showGuide && (
+          <div className="mt-3.5 rounded-2xl bg-purple-50 p-3.5 text-xs text-purple-900 border border-purple-200/70 space-y-2">
+            <p className="font-bold flex items-center gap-1.5 text-purple-950">
+              <CheckCircle2 size={14} className="text-purple-600" />
+              {isIos
+                ? "iPhone / Safari par install kaise karein:"
+                : isAndroid
+                ? "Android / Chrome par install kaise karein:"
+                : "Apne Device par install kaise karein:"}
             </p>
+
             {isIos ? (
-              <ol className="list-decimal pl-4 space-y-1 text-[11px]">
-                <li>Neeche Safari bar me <strong>Share</strong> button <Share size={12} className="inline mx-0.5" /> par tap karein.</li>
-                <li>Neeche scroll karke <strong>Add to Home Screen</strong> <PlusSquare size={12} className="inline mx-0.5" /> select karein.</li>
+              <ol className="list-decimal pl-4 space-y-1 text-[11px] leading-5 text-purple-900">
+                <li>Neeche Safari bar me <strong>Share button</strong> <Share size={13} className="inline mx-0.5 text-purple-700" /> par tap karein.</li>
+                <li>Menu me scroll karke <strong>Add to Home Screen</strong> <PlusSquare size={13} className="inline mx-0.5 text-purple-700" /> (होम स्क्रीन में जोड़ें) select karein.</li>
+                <li>Upar <strong>Add</strong> par tap karein — aapke phone par app add ho jayegi!</li>
+              </ol>
+            ) : isAndroid ? (
+              <ol className="list-decimal pl-4 space-y-1 text-[11px] leading-5 text-purple-900">
+                <li>Chrome browser ke top-right corner me <strong>3 Dots</strong> <MoreVertical size={13} className="inline mx-0.5 text-purple-700" /> par tap karein.</li>
+                <li>Menu me <strong>"Install app"</strong> ya <strong>"Add to Home screen"</strong> (होम स्क्रीन में जोड़ें) par tap karein.</li>
+                <li>Confirm karein — aapke mobile ki home screen par app ban jayegi!</li>
               </ol>
             ) : (
-              <p className="text-[11px]">
-                Browser address bar ke right side me <strong>Install Icon (⊕)</strong> par click karein, ya browser menu (⋮) me jakar <strong>"Install EduTechLab"</strong> par click karein.
+              <p className="text-[11px] leading-5 text-purple-900">
+                Browser address bar ke right side me <strong>Install Icon (⊕)</strong> par click karein, ya browser menu me jakar <strong>"Install EduTechLab"</strong> par click karein.
               </p>
             )}
           </div>
         )}
 
-        {/* Buttons */}
+        {/* Action Buttons */}
         <div className="mt-4 flex items-center justify-end gap-2.5">
           <button
             onClick={handleDismiss}
@@ -208,10 +205,10 @@ export default function InstallAppPrompt() {
           </button>
           <button
             onClick={handleInstallClick}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-[#6657e8] px-4 py-2 text-xs font-bold text-white shadow-md shadow-purple-600/25 hover:from-purple-500 hover:to-purple-600 transition hover:-translate-y-0.5 active:translate-y-0"
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-[#6657e8] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-purple-600/25 hover:from-purple-500 hover:to-purple-600 transition hover:-translate-y-0.5 active:translate-y-0"
           >
             <Download size={14} />
-            Install App Now
+            {deferredPrompt ? "Install App Now" : "📲 Mobile Me Install Karein"}
           </button>
         </div>
       </div>
