@@ -38,7 +38,6 @@ export default function Settings() {
   const [saved, setSaved] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   const canManage = can("settings.manage");
 
@@ -50,21 +49,11 @@ export default function Settings() {
       if (!user) return;
       setUserEmail(user.email || "");
 
-      const [{ data: p }, { data: pa }, { data: isSuper }] = await Promise.all([
-        s
-          .from("profiles")
-          .select("organization_id,full_name,login_id,role")
-          .eq("id", user.id)
-          .single(),
-        s
-          .from("platform_admins")
-          .select("role")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        s.rpc("is_platform_admin"),
-      ]);
-
-      if (pa || isSuper === true || p?.role === "owner") setIsPlatformAdmin(true);
+      const { data: p } = await s
+        .from("profiles")
+        .select("organization_id,full_name,login_id,role")
+        .eq("id", user.id)
+        .single();
       if (!p) return;
       setAdminName(p.full_name || "");
       setLoginId(p.login_id || "");

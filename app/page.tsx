@@ -147,7 +147,7 @@ export default function Home() {
           </span>
           <span className="hidden sm:inline text-purple-300">•</span>
           <span className="hidden sm:inline font-bold text-teal-700">
-            15 Din Ka Free Trial Bina Kisi Fee Ke!
+            Risk-Free Trial Bina Kisi Advance Fee Ke!
           </span>
           <Link
             href="/register"
@@ -221,6 +221,31 @@ export default function Home() {
             <span className="text-purple-700">100% Mobile Ready</span>
           </div>
 
+          {/* Floating Glass Proof Badges */}
+          <div className="hidden xl:block absolute -left-12 top-24 z-20 animate-bounce [animation-duration:5s]">
+            <div className="flex items-center gap-3 rounded-2xl border border-purple-200/80 bg-white/95 px-4 py-3 shadow-xl shadow-purple-900/10 backdrop-blur-md">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
+                <CheckCircle2 size={20} />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">₹45,000 Fees Received</div>
+                <div className="text-[10px] font-semibold text-emerald-600">WhatsApp Receipt Sent Instantly</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="hidden xl:block absolute -right-12 top-36 z-20 animate-bounce [animation-duration:6s]">
+            <div className="flex items-center gap-3 rounded-2xl border border-indigo-200/80 bg-white/95 px-4 py-3 shadow-xl shadow-indigo-900/10 backdrop-blur-md">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-purple-50 text-purple-600">
+                <Smartphone size={20} />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-black text-slate-900">100% Mobile Ready</div>
+                <div className="text-[10px] font-semibold text-purple-600">Teachers Take Haziri in 1-Click</div>
+              </div>
+            </div>
+          </div>
+
           {/* Bold, Commanding Headline */}
           <h1 className="mt-6 text-4xl font-black tracking-tight text-slate-900 sm:text-6xl lg:text-7xl leading-[1.08]">
             Apne Institute Ko Banayein{" "}
@@ -243,7 +268,7 @@ export default function Home() {
               href="/register"
               className="group inline-flex items-center gap-2.5 rounded-2xl bg-gradient-to-r from-purple-600 via-[#6657e8] to-indigo-600 px-7 py-4 text-sm font-extrabold text-white shadow-xl shadow-purple-600/30 hover:from-purple-500 hover:to-indigo-500 transition hover:-translate-y-1"
             >
-              <span>15 Din Ka Free Trial Shuru Karein</span>
+              <span>Free Trial Shuru Karein (No Card Needed)</span>
               <ArrowRight size={16} className="transition group-hover:translate-x-1" />
             </Link>
 
@@ -254,6 +279,30 @@ export default function Home() {
               <Sliders size={16} className="text-purple-600" />
               <span>Monthly Kharcha Calculate Karein</span>
             </a>
+          </div>
+
+          {/* 4-Pillar High-Trust Metric Cards */}
+          <div className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 max-w-4xl mx-auto">
+            <div className="rounded-2xl border border-purple-100 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <div className="text-2xl sm:text-3xl font-black text-purple-700">150+</div>
+              <div className="text-xs font-bold text-slate-700 mt-0.5">Active Institutes</div>
+              <div className="text-[10px] text-slate-400 font-medium">Schools & Madrasas</div>
+            </div>
+            <div className="rounded-2xl border border-indigo-100 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <div className="text-2xl sm:text-3xl font-black text-indigo-700">2 Mins</div>
+              <div className="text-xs font-bold text-slate-700 mt-0.5">Quick Setup</div>
+              <div className="text-[10px] text-slate-400 font-medium">Zero training required</div>
+            </div>
+            <div className="rounded-2xl border border-teal-100 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <div className="text-2xl sm:text-3xl font-black text-teal-700">₹7/Child</div>
+              <div className="text-xs font-bold text-slate-700 mt-0.5">Pay As You Grow</div>
+              <div className="text-[10px] text-slate-400 font-medium">No annual lock-in</div>
+            </div>
+            <div className="rounded-2xl border border-emerald-100 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <div className="text-2xl sm:text-3xl font-black text-emerald-700">100%</div>
+              <div className="text-xs font-bold text-slate-700 mt-0.5">Cloud Safe</div>
+              <div className="text-[10px] text-slate-400 font-medium">Automatic daily backup</div>
+            </div>
           </div>
 
           {/* Social Proof & Trust Badges */}
@@ -656,7 +705,7 @@ export default function Home() {
             {/* CTA inside calculator */}
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-slate-100">
               <div className="text-xs text-slate-500 text-center sm:text-left font-medium">
-                <span className="font-bold text-slate-800">Pehle 15 Din Free Trial:</span> 15 din tak bina payment kare sare features chala kar dekhein.
+                <span className="font-bold text-slate-800">Risk-Free Trial:</span> Bina kisi advance payment ke sare features full capacity me chala kar dekhein.
               </div>
               <Link
                 href="/register"
@@ -972,11 +1021,11 @@ export default function Home() {
 
           <h2 className="mt-5 text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
             Apne Institute Ko De Nayi Udaan. <br />
-            Aaj Hi 15-Day Free Trial Shuru Karein!
+            Aaj Hi Free Trial Shuru Karein!
           </h2>
 
           <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-purple-100 font-medium">
-            Koi credit card nahi, koi setup fee nahi. 15 din tak sare features bilkul free chala kar dekhein.
+            Koi credit card nahi, koi setup fee nahi. Bina payment ke sabhi features full speed me chala kar dekhein.
           </p>
 
           <div className="mt-8 flex flex-wrap justify-center gap-4">
@@ -1021,6 +1070,21 @@ export default function Home() {
           </div>
         </div>
       </footer>
+      {/* Floating Quick WhatsApp Consultation Button */}
+      <a
+        href="https://wa.me/917903178550?text=Hello%20EduTechLab,%20mujhe%20apne%20institute%20ke%20liye%20software%20demo%20chahiye."
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Chat on WhatsApp"
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-full bg-emerald-500 px-4 py-3 text-xs font-extrabold text-white shadow-2xl shadow-emerald-500/40 hover:bg-emerald-600 hover:scale-105 transition active:scale-95 group"
+      >
+        <span className="relative flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+        </span>
+        <MessageCircle size={18} className="text-white" />
+        <span className="hidden sm:inline font-bold">Ask Demo On WhatsApp</span>
+      </a>
     </main>
   );
 }

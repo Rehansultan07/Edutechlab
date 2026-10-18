@@ -25,12 +25,9 @@ type Profile={full_name:string;login_id:string|null;organization_id:string;role:
 
 export default function Dashboard(){
  const supabase=createClient();
- const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[subInfo,setSubInfo]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[isPlatformAdmin,setIsPlatformAdmin]=useState(false);
+ const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[subInfo,setSubInfo]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
  useEffect(()=>{(async()=>{
   const {data:{user}}=await supabase.auth.getUser(); if(!user){window.location.href="/login";return;}
-  const isKnownSuperEmail = !!user.email && (["edutechlab@gmail.com","edutechlabb@gmail.com","rehanedutechlab@gmail.com","admin@edutechlab.com"].includes(user.email.toLowerCase()) || user.email.toLowerCase().includes("edutechlab"));
-  const [{data:isSuper},{data:adminRecord}] = await Promise.all([supabase.rpc("is_platform_admin"),supabase.from("platform_admins").select("role").eq("user_id",user.id).maybeSingle()]);
-  if(isSuper===true||!!adminRecord||isKnownSuperEmail){setIsPlatformAdmin(true);}
   const {data:p,error:pError}=await supabase.from("profiles").select("full_name,login_id,organization_id,role,organizations(name)").eq("id",user.id).single();
   if(pError||!p){setError("We couldn't load your institute workspace.");setLoading(false);return;}
   setProfile(p as unknown as Profile); const orgId=p.organization_id;
@@ -74,21 +71,12 @@ export default function Dashboard(){
    <div className="flex items-center justify-between"><div><div className="text-xl font-bold bg-gradient-to-r from-purple-700 to-indigo-600 bg-clip-text text-transparent">EduTechLab</div><div className="mt-1 max-w-[190px] truncate text-xs text-slate-500 font-medium">{instituteName}</div></div><button className="lg:hidden" onClick={()=>setOpen(false)}><X size={20}/></button></div>
    <nav className="mt-8 space-y-1">{visibleNav.map(([label,href,Icon])=><Link key={label} href={href} onClick={()=>setOpen(false)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${href==="/dashboard"?"bg-slate-900 text-white shadow-sm":"text-slate-600 hover:bg-slate-100"}`}><Icon size={18}/>{label}</Link>)}</nav>
    <div className="mt-6 space-y-2 border-t pt-4">
-     {isPlatformAdmin && (
-       <Link
-         href="/super-admin"
-         onClick={() => setOpen(false)}
-         className="flex w-full items-center justify-center gap-2 rounded-xl border border-purple-300 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 shadow-sm hover:bg-purple-100 transition"
-       >
-         <ShieldCheck size={15} className="text-purple-600" />
-         <span>Super Admin Console</span>
-       </Link>
-     )}
+     
      <InstallButton className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-100 transition" />
    </div>
   </aside>
   <div className="lg:pl-64">
-   <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-white/95 px-5 backdrop-blur"><button className="lg:hidden" onClick={()=>setOpen(true)}><Menu/></button><div className="hidden items-center gap-2 text-sm text-slate-500 sm:flex"><span>{instituteName}</span><ChevronRight size={15}/><span className="font-semibold text-slate-900">Dashboard</span></div><div className="flex items-center gap-3">{isPlatformAdmin && (<Link href="/super-admin" className="inline-flex items-center gap-1.5 rounded-xl border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700 shadow-sm hover:bg-purple-100 transition" title="Switch to Super Admin Console"><ShieldCheck size={14} className="text-purple-600" /><span className="hidden sm:inline">Super Admin Console</span></Link>)}<InstallButton /><div className="hidden items-center gap-2 rounded-lg border bg-white px-3 py-2 sm:flex"><Search size={16} className="text-slate-400"/><span className="text-sm text-slate-400">Search...</span></div><div title={profile?.full_name||"Admin"} className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white shadow-sm">{initials}</div></div></header>
+   <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-white/95 px-5 backdrop-blur"><button className="lg:hidden" onClick={()=>setOpen(true)}><Menu/></button><div className="hidden items-center gap-2 text-sm text-slate-500 sm:flex"><span>{instituteName}</span><ChevronRight size={15}/><span className="font-semibold text-slate-900">Dashboard</span></div><div className="flex items-center gap-3"><InstallButton /><div className="hidden items-center gap-2 rounded-lg border bg-white px-3 py-2 sm:flex"><Search size={16} className="text-slate-400"/><span className="text-sm text-slate-400">Search...</span></div><div title={profile?.full_name||"Admin"} className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white shadow-sm">{initials}</div></div></header>
    <main className="mx-auto max-w-7xl p-5 sm:p-8">
     {error?<div className="rounded-2xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">{error}</div>:<>
      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">

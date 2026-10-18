@@ -178,7 +178,7 @@ export default function SubscriptionPage() {
 
       if (submitErr) throw submitErr;
 
-      setSuccess("Payment details submitted successfully! Super Admin will review and activate your subscription shortly.");
+      setSuccess("Payment details submitted successfully! Your payment will be verified and subscription activated shortly.");
       setUtrNumber("");
       setProofFile(null);
       await loadSubscription();
@@ -295,7 +295,7 @@ export default function SubscriptionPage() {
                 Your payment of{" "}
                 <span className="font-bold">₹{subData.latest_payment?.amount}</span> (UTR:{" "}
                 <span className="font-mono font-semibold">{subData.latest_payment?.utr_number}</span>)
-                has been received and is awaiting Super Admin verification. Your workspace features
+                has been received and is being verified. Your workspace features
                 remain active.
               </p>
             </div>
@@ -525,8 +525,7 @@ export default function SubscriptionPage() {
                 <strong>Need a mid-month quota upgrade or custom plan?</strong>
                 <p className="mt-0.5 text-purple-700">
                   You can change your plan monthly directly here. If you need to immediately increase
-                  student capacity in the middle of a month, please contact the developer / Super
-                  Admin:
+                  student capacity in the middle of a month, please contact Platform Support:
                 </p>
                 <div className="mt-2 flex flex-wrap gap-4 font-semibold text-purple-900">
                   {subData?.pricing.contact_phone && (
@@ -636,7 +635,7 @@ export default function SubscriptionPage() {
           </form>
 
           <p className="mt-4 text-center text-[11px] text-slate-400">
-            Super Admin typically approves payments within 1-2 hours during business hours.
+            Payments are typically verified and activated within 1-2 hours during business hours.
           </p>
         </div>
       </section>
