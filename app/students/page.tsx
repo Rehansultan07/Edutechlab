@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Search, Trash2, X, Pencil, ArrowLeft, Upload, Users } from "lucide-react";
+import { Plus, Search, Trash2, X, Pencil, ArrowLeft, Upload, Users, Printer, Download, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
@@ -55,6 +55,149 @@ export default function Students() {
     aadhaar: null,
     birth: null,
   });
+
+  // Bulk CSV Import State
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkRows, setBulkRows] = useState<any[]>([]);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const [bulkSuccess, setBulkSuccess] = useState("");
+  const [bulkFileName, setBulkFileName] = useState("");
+
+  const downloadTemplate = () => {
+    const csvContent = "data:text/csv;charset=utf-8," + 
+      "Admission_No,First_Name,Last_Name,Class,Section,Father_Name,Mother_Name,Phone,Date_Of_Birth,Gender,Address\n" +
+      "ADM-101,Aarav,Sharma,Class 1,A,Rajesh Sharma,Pooja Sharma,9876543210,2017-05-12,male,MG Road Patna\n" +
+      "ADM-102,Fatima,Khan,Class 1,A,Tariq Khan,Zainab Khan,9876543211,2017-08-20,female,Civil Lines Gaya\n" +
+      "ADM-103,Mohammad,Ali,Class 2,B,Farooq Ali,Nasreen Begum,9876543212,2016-03-15,male,Near Jama Masjid\n";
+    const encoded = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encoded);
+    link.setAttribute("download", "Student_Admission_Template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkFileName(file.name);
+    setBulkError("");
+    setBulkSuccess("");
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (lines.length < 2) {
+          setBulkError("CSV file must contain at least 1 student row below header.");
+          return;
+        }
+
+        const headers = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+        const parsed: any[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
+          if (cols.length < 2 || !cols[1]) continue; // Skip empty rows
+
+          const row: any = {};
+          headers.forEach((h, idx) => {
+            row[h] = cols[idx] || "";
+          });
+
+          // Match or create admission number if blank
+          const admNo = row.admission_no || row.roll_no || row.admission || `ADM-${Date.now().toString().slice(-4)}-${i}`;
+          const firstName = row.first_name || row.name || cols[1];
+          const lastName = row.last_name || cols[2] || "";
+          const className = row.class || row.standard || cols[3] || "Class 1";
+          const sectionName = row.section || cols[4] || "A";
+
+          parsed.push({
+            admission_no: admNo,
+            first_name: firstName,
+            last_name: lastName || null,
+            class_name: className,
+            section_name: sectionName,
+            father_name: row.father_name || row.father || null,
+            mother_name: row.mother_name || row.mother || null,
+            phone: row.phone || row.mobile || null,
+            date_of_birth: row.date_of_birth || row.dob || null,
+            gender: (row.gender || "").toLowerCase().includes("f") ? "female" : "male",
+            address: row.address || null,
+          });
+        }
+
+        if (parsed.length === 0) {
+          setBulkError("No valid student rows found in uploaded file.");
+        } else {
+          setBulkRows(parsed);
+        }
+      } catch (err: any) {
+        setBulkError("Failed to parse CSV file: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleBulkImportSubmit = async () => {
+    if (bulkRows.length === 0) return;
+    if (!org) return;
+
+    if (quota && !quota.allowed) {
+      setBulkError("Your subscription student capacity has been reached. Please upgrade to admit more students.");
+      return;
+    }
+
+    setBulkImporting(true);
+    setBulkError("");
+    setBulkSuccess("");
+
+    try {
+      // 1. Map classes
+      const currentClasses = [...classes];
+      const classNameToId: Record<string, string> = {};
+      currentClasses.forEach((c) => {
+        classNameToId[c.name.toLowerCase().trim()] = c.id;
+      });
+
+      // Prepare payloads
+      const payloads = bulkRows.map((r) => {
+        const cKey = (r.class_name || "").toLowerCase().trim();
+        const matchedClassId = classNameToId[cKey] || classes[0]?.id || null;
+        return {
+          organization_id: org,
+          admission_no: r.admission_no,
+          first_name: r.first_name,
+          last_name: r.last_name,
+          class_id: matchedClassId,
+          phone: r.phone,
+          father_name: r.father_name,
+          mother_name: r.mother_name,
+          date_of_birth: r.date_of_birth,
+          gender: r.gender,
+          address: r.address,
+          status: "active",
+        };
+      });
+
+      // Insert in batch
+      const { error: insErr } = await s.from("students").insert(payloads);
+      if (insErr) throw insErr;
+
+      setBulkSuccess(`Successfully admitted and imported ${payloads.length} students!`);
+      setBulkRows([]);
+      setBulkFileName("");
+      await load();
+      setTimeout(() => setBulkOpen(false), 2000);
+    } catch (err: any) {
+      setBulkError(err.message || "Failed to bulk import students.");
+    } finally {
+      setBulkImporting(false);
+    }
+  };
 
   const [form, setForm] = useState({
     admission_no: "",
@@ -287,27 +430,53 @@ export default function Students() {
             Complete admission records with class, section, parent details and documents.
           </p>
         </div>
-        {canManage && (
-          <button
-            onClick={() => {
-              if (quota && !quota.allowed) {
-                setError(
-                  quota.is_expired
-                    ? "Your subscription plan has expired. Please renew your subscription to admit new students."
-                    : `Student enrollment limit reached (${quota.current}/${quota.limit} students). Please upgrade your subscription plan to admit more students.`
-                );
-                return;
-              }
-              setEditing(null);
-              setFiles({ photo: null, aadhaar: null, birth: null });
-              setOpen(true);
-            }}
-            className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/id-cards"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 transition"
           >
-            <Plus size={17} />
-            Add student
-          </button>
-        )}
+            <Printer size={15} className="text-purple-600" />
+            <span>Print ID Cards</span>
+          </Link>
+
+          {canManage && (
+            <button
+              onClick={() => {
+                setBulkOpen(true);
+                setBulkError("");
+                setBulkSuccess("");
+                setBulkRows([]);
+                setBulkFileName("");
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3.5 py-2.5 text-xs font-bold text-purple-700 shadow-sm hover:bg-purple-100 transition"
+            >
+              <Upload size={15} />
+              <span>Bulk CSV Import</span>
+            </button>
+          )}
+
+          {canManage && (
+            <button
+              onClick={() => {
+                if (quota && !quota.allowed) {
+                  setError(
+                    quota.is_expired
+                      ? "Your subscription plan has expired. Please renew your subscription to admit new students."
+                      : `Student enrollment limit reached (${quota.current}/${quota.limit} students). Please upgrade your subscription plan to admit more students.`
+                  );
+                  return;
+                }
+                setEditing(null);
+                setFiles({ photo: null, aadhaar: null, birth: null });
+                setOpen(true);
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-slate-800 transition"
+            >
+              <Plus size={16} />
+              <span>Add student</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {quota && (

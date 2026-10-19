@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, FileText, Bell, Settings, Menu, X, ChevronRight, Search, ShieldCheck, BookOpen, CreditCard, Sparkles, AlertCircle } from "lucide-react";
+import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, FileText, Bell, Settings, Menu, X, ChevronRight, Search, ShieldCheck, BookOpen, CreditCard, Sparkles, AlertCircle, Printer, Award, Receipt, Calendar, Cake } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import InstallButton from "@/components/pwa/InstallButton";
@@ -9,10 +9,15 @@ import InstallButton from "@/components/pwa/InstallButton";
 const nav = [
  ["Dashboard","/dashboard",LayoutDashboard,[]],
  ["Students","/students",Users,["students.view","students.manage","admissions.manage"]],
+ ["ID Cards","/id-cards",Printer,["students.view"]],
+ ["Certificates & TC","/certificates",Award,["students.manage"]],
  ["Academics","/academics",BookOpen,["settings.manage","students.manage"]],
+ ["Class Timetable","/timetable",Calendar,["settings.manage"]],
+ ["Daily Homework","/homework",BookOpen,["students.view"]],
  ["Teachers","/teachers",GraduationCap,["teachers.view","teachers.manage"]],
  ["Attendance","/attendance",ClipboardCheck,["attendance.view","attendance.manage"]],
- ["Fees","/fees",WalletCards,["fees.view","fees.manage","fees.receipts"]],
+ ["Fees & Receipts","/fees",WalletCards,["fees.view","fees.manage","fees.receipts"]],
+ ["School Expenses","/expenses",Receipt,["settings.manage"]],
  ["Exams & Results","/exams",FileText,["exams.view","exams.manage","results.manage"]],
  ["Notices","/notices",Bell,["notices.manage"]],
  ["Staff & Permissions","/staff",ShieldCheck,["staff.manage"]],
@@ -25,7 +30,7 @@ type Profile={full_name:string;login_id:string|null;organization_id:string;role:
 
 export default function Dashboard(){
  const supabase=createClient();
- const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[subInfo,setSubInfo]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
+ const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[subInfo,setSubInfo]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[birthdays,setBirthdays]=useState<any[]>([]),[monthlyExpense,setMonthlyExpense]=useState<number>(0);
  useEffect(()=>{(async()=>{
   const {data:{user}}=await supabase.auth.getUser(); if(!user){window.location.href="/login";return;}
   const {data:p,error:pError}=await supabase.from("profiles").select("full_name,login_id,organization_id,role,organizations(name)").eq("id",user.id).single();
@@ -43,13 +48,30 @@ export default function Dashboard(){
   const monthDate=monthStart.toISOString().slice(0,10);
   const can=(code:string)=>isAdmin||granted.has(code);
   const canAny=(codes:readonly string[])=>isAdmin||codes.some(code=>granted.has(code));
-  const [students,teachers,attendance,fees,subRes]=await Promise.all([
+  const [students,teachers,attendance,fees,subRes,bdayRes,expRes]=await Promise.all([
    canAny(["students.view","students.manage","admissions.manage"])?supabase.from("students").select("id",{count:"exact",head:true}).eq("organization_id",orgId).eq("status","active"):Promise.resolve({count:0}),
    canAny(["teachers.view","teachers.manage"])?supabase.from("teachers").select("id",{count:"exact",head:true}).eq("organization_id",orgId):Promise.resolve({count:0}),
    canAny(["attendance.view","attendance.manage"])?supabase.from("attendance").select("status").eq("organization_id",orgId).eq("attendance_date",today):Promise.resolve({data:[]}),
    canAny(["fees.view","fees.manage","fees.receipts"])?supabase.from("fee_payments").select("amount").eq("organization_id",orgId).gte("paid_on",monthDate):Promise.resolve({data:[]}),
-   supabase.rpc("get_institution_subscription",{p_org_id:orgId})
+   supabase.rpc("get_institution_subscription",{p_org_id:orgId}),
+   supabase.from("students").select("id,first_name,last_name,date_of_birth,class_id").eq("organization_id",orgId).not("date_of_birth","is",null),
+   supabase.from("school_expenses").select("amount").eq("organization_id",orgId).gte("expense_date",monthDate)
   ]);
+  
+  // Calculate birthdays
+  const todayMMDD = today.slice(5); // MM-DD
+  const todaysBdays = (bdayRes.data || []).filter((s:any) => s.date_of_birth && s.date_of_birth.slice(5) === todayMMDD);
+  setBirthdays(todaysBdays);
+
+  // Calculate monthly expenses
+  let totalExp = (expRes.data || []).reduce((sum:number, r:any) => sum + Number(r.amount||0), 0);
+  if (totalExp === 0 && typeof window !== "undefined") {
+    try {
+      const localExp = JSON.parse(localStorage.getItem(`edutechlab_expenses_${orgId}`) || "[]");
+      totalExp = localExp.filter((e:any) => e.expense_date >= monthDate).reduce((s:number, r:any) => s + Number(r.amount||0), 0);
+    } catch {}
+  }
+  setMonthlyExpense(totalExp);
   const present=attendance.data?.filter((x:{status:string})=>x.status==="present").length??0,marked=attendance.data?.filter((x:{status:string})=>x.status==="present"||x.status==="absent").length??0;
   setStats({students:students.count??0,teachers:teachers.count??0,attendance:marked?Math.round(present/marked*1000)/10:null,fees:(fees.data??[]).reduce((s,r)=>s+Number(r.amount??0),0)});
   if(subRes.data) setSubInfo(subRes.data);
@@ -65,7 +87,17 @@ export default function Dashboard(){
   canAny(["attendance.view","attendance.manage"])?{title:"Today's Attendance",value:loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%",sub:"Realtime attendance ratio",icon:ClipboardCheck,border:"border-emerald-100",iconBg:"bg-emerald-50 text-emerald-600"}:null,
   canAny(["fees.view","fees.manage","fees.receipts"])?{title:"Fees This Month",value:loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),sub:"Recorded collections",icon:WalletCards,border:"border-amber-100",iconBg:"bg-amber-50 text-amber-600"}:null
  ].filter(Boolean);
- const quickActions:any[]=[can("students.manage")?["Add student","/students"]:null,can("attendance.manage")?["Mark attendance","/attendance"]:null,can("fees.manage")?["Record fee payment","/fees"]:null,can("notices.manage")?["Create notice","/notices"]:null].filter(Boolean);
+ const quickActions:any[]=[
+  can("students.manage")?["Add student","/students"]:null,
+  ["Print ID Cards","/id-cards"],
+  ["Issue Certificate / TC","/certificates"],
+  can("attendance.manage")?["Mark attendance","/attendance"]:null,
+  can("fees.manage")?["Record fee payment","/fees"]:null,
+  ["School Expenses & Kharcha","/expenses"],
+  ["Class Timetable Routine","/timetable"],
+  ["Daily Homework Diary","/homework"],
+  can("notices.manage")?["Create notice","/notices"]:null
+].filter(Boolean);
  return <div className="min-h-screen bg-[#f8fafc]">
   <aside className={`fixed inset-y-0 left-0 z-30 w-64 border-r bg-white p-5 transition-transform lg:translate-x-0 ${open?"translate-x-0":"-translate-x-full"}`}>
    <div className="flex items-center justify-between"><div><div className="text-xl font-bold bg-gradient-to-r from-purple-700 to-indigo-600 bg-clip-text text-transparent">EduTechLab</div><div className="mt-1 max-w-[190px] truncate text-xs text-slate-500 font-medium">{instituteName}</div></div><button className="lg:hidden" onClick={()=>setOpen(false)}><X size={20}/></button></div>
@@ -149,6 +181,60 @@ export default function Dashboard(){
          </div>
        </div>
      )}
+
+           {/* TODAY'S BIRTHDAY CELEBRATION BANNER */}
+      {birthdays.length > 0 && (
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50 p-4 sm:p-5 shadow-sm sm:flex sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-100 text-amber-700 text-2xl shadow-sm">
+              🎂
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-900">
+                  Today's Birthday Celebrations ({birthdays.length})
+                </span>
+                <span className="rounded-full bg-amber-200/80 px-2 py-0.5 text-[9px] font-extrabold text-amber-900 uppercase">
+                  Celebration
+                </span>
+              </div>
+              <p className="mt-0.5 text-sm font-extrabold text-slate-900">
+                {birthdays.map((b: any) => `${b.first_name} ${b.last_name || ""}`).join(", ")}
+              </p>
+              <p className="text-[11px] text-amber-800 font-medium">
+                Wishing them a joyful year of academic success and health!
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const names = birthdays.map((b: any) => `${b.first_name}`).join(", ");
+              navigator.clipboard.writeText(`🎉 *Happy Birthday from ${instituteName}!*
+Dear ${names}, we wish you a wonderful birthday filled with joy, knowledge, and bright blessings!`);
+              alert("Birthday wish message copied to clipboard!");
+            }}
+            className="mt-3 sm:mt-0 inline-flex items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-600 transition active:scale-95 whitespace-nowrap"
+          >
+            <span>Copy Birthday Wish</span>
+          </button>
+        </div>
+      )}
+
+      {/* Monthly Financial Pulse: Fees vs Expenses */}
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+          <span className="text-[10px] font-bold uppercase text-emerald-800 tracking-wider">Fees Collected This Month</span>
+          <div className="text-xl sm:text-2xl font-black text-emerald-950 mt-1">₹{stats.fees.toLocaleString("en-IN")}</div>
+        </div>
+        <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4">
+          <span className="text-[10px] font-bold uppercase text-rose-800 tracking-wider">Expenses / Outflow</span>
+          <div className="text-xl sm:text-2xl font-black text-rose-950 mt-1">₹{monthlyExpense.toLocaleString("en-IN")}</div>
+        </div>
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+          <span className="text-[10px] font-bold uppercase text-indigo-800 tracking-wider">Net Cash Operating Surplus</span>
+          <div className="text-xl sm:text-2xl font-black text-indigo-950 mt-1">₹{(stats.fees - monthlyExpense).toLocaleString("en-IN")}</div>
+        </div>
+      </div>
 
      <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
        {statCards.map((card:any)=>{
