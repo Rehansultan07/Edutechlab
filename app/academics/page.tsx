@@ -1,5 +1,8 @@
 "use client";
 
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
+
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import {
@@ -44,6 +47,7 @@ type StudentCount = {
   section_id: string | null;
 };
 
+// FeatureGate state flag
 export default function AcademicsPage() {
   const supabase = createClient();
   const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess([
@@ -51,6 +55,7 @@ export default function AcademicsPage() {
     "students.manage",
   ]);
 
+  const [featureActive, setFeatureActive] = useState(true);
   const [activeTab, setActiveTab] = useState<"classes" | "sessions">("classes");
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
@@ -84,6 +89,8 @@ export default function AcademicsPage() {
 
   const loadData = async () => {
     if (!orgId) return;
+    const feat = await fetchInstitutionFeatures(supabase, orgId);
+    if (feat && feat.academics === false) { setFeatureActive(false); setLoading(false); return; }
     try {
       setLoading(true);
       setError("");
@@ -414,6 +421,14 @@ export default function AcademicsPage() {
 
   if (!hasAccess) {
     return <AccessDenied moduleName="Academic Structure" />;
+  }
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="academics" />
+      </div>
+    );
   }
 
   return (

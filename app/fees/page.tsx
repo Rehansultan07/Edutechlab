@@ -1,5 +1,8 @@
 "use client";
 
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Plus, Search, Trash2, X, Receipt, ChevronRight, Lock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -17,6 +20,7 @@ type M = {
   paid_on: string | null;
 };
 
+// FeatureGate state flag
 export default function Fees() {
   const s = createClient();
   const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
@@ -25,6 +29,7 @@ export default function Fees() {
     "fees.receipts",
   ]);
 
+  const [featureActive, setFeatureActive] = useState(true);
   const [students, setStudents] = useState<S[]>([]);
   const [months, setMonths] = useState<M[]>([]);
   const [q, setQ] = useState("");
@@ -53,6 +58,8 @@ export default function Fees() {
 
   const load = async () => {
     if (!org) return;
+    const feat = await fetchInstitutionFeatures(s, org);
+    if (feat && feat.fees === false) { setFeatureActive(false); return; }
     const { data: st } = await s
       .from("students")
       .select("id,admission_no,first_name,last_name")
@@ -216,6 +223,14 @@ export default function Fees() {
 
   if (!hasAccess) {
     return <AccessDenied moduleName="Fees & Accounts" />;
+  }
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="fees" />
+      </div>
+    );
   }
 
   return (

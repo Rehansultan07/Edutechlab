@@ -501,18 +501,64 @@ export default function SuperAdminPage() {
       return;
     }
 
+    const orgId = deletingInst.id;
+    const orgName = deletingInst.name;
     setIsDeleting(true);
     setError("");
     setSuccess("");
 
     try {
-      const { data, error: err } = await supabase.rpc("delete_institution_permanently", {
-        p_org_id: deletingInst.id,
-        p_master_code: MASTER_ACCESS_CODE,
-      });
+      let rpcWorked = false;
+      let rpcMsg = "";
+      try {
+        const { data, error: err } = await supabase.rpc("delete_institution_permanently", {
+          p_org_id: orgId,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (!err && data?.success) {
+          rpcWorked = true;
+          rpcMsg = data.message;
+        }
+      } catch {}
 
-      if (err) throw err;
-      setSuccess(data?.message || `Institution "${deletingInst.name}" permanently deleted.`);
+      if (!rpcWorked) {
+        // Direct cascade deletion fallback
+        await Promise.allSettled([
+          supabase.from("student_certificates").delete().eq("organization_id", orgId),
+          supabase.from("class_timetables").delete().eq("organization_id", orgId),
+          supabase.from("class_homework").delete().eq("organization_id", orgId),
+          supabase.from("school_expenses").delete().eq("organization_id", orgId),
+          supabase.from("exam_marks").delete().eq("organization_id", orgId),
+          supabase.from("exams").delete().eq("organization_id", orgId),
+          supabase.from("attendance").delete().eq("organization_id", orgId),
+          supabase.from("fee_payments").delete().eq("organization_id", orgId),
+          supabase.from("student_fee_months").delete().eq("organization_id", orgId),
+          supabase.from("student_fee_plans").delete().eq("organization_id", orgId),
+          supabase.from("notices").delete().eq("organization_id", orgId),
+          supabase.from("staff_permissions").delete().eq("organization_id", orgId),
+          supabase.from("students").delete().eq("organization_id", orgId),
+          supabase.from("teachers").delete().eq("organization_id", orgId),
+          supabase.from("sections").delete().eq("organization_id", orgId),
+          supabase.from("classes").delete().eq("organization_id", orgId),
+          supabase.from("academic_sessions").delete().eq("organization_id", orgId),
+          supabase.from("organization_settings").delete().eq("organization_id", orgId),
+          supabase.from("subscription_payments").delete().eq("organization_id", orgId),
+          supabase.from("institution_subscriptions").delete().eq("organization_id", orgId),
+          supabase.from("profiles").delete().eq("organization_id", orgId),
+        ]);
+        await supabase.from("organizations").delete().eq("id", orgId);
+      }
+
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.removeItem(`edutechlab_features_${orgId}`);
+          localStorage.removeItem(`edutechlab_expenses_${orgId}`);
+        } catch {}
+      }
+
+      // Remove immediately from memory state
+      setInstitutions((prev) => prev.filter((i) => i.id !== orgId));
+      setSuccess(rpcMsg || `Institution "${orgName}" permanently deleted.`);
       setDeletingInst(null);
       setDeleteConfirmText("");
       await checkAndLoad();

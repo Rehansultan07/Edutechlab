@@ -1,5 +1,8 @@
 "use client";
 
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
+
 import { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, Plus, ShieldCheck, Power, Trash2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -8,8 +11,10 @@ type Staff = { id: string; full_name: string; role: string; login_id: string | n
 type Permission = { id: string; code: string; name: string; module: string };
 const rn = (r: string) => r.split("_").map((x) => x[0]?.toUpperCase() + x.slice(1)).join(" ");
 
+// FeatureGate state flag
 export default function StaffPage() {
   const s = createClient();
+  const [featureActive, setFeatureActive] = useState(true);
   const [org, setOrg] = useState("");
   const [staff, setStaff] = useState<Staff[]>([]);
   const [perms, setPerms] = useState<Permission[]>([]);
@@ -42,6 +47,12 @@ export default function StaffPage() {
       return;
     }
     setOrg(p.organization_id);
+    const feat = await fetchInstitutionFeatures(s, p.organization_id);
+    if (feat && feat.staff === false) {
+      setFeatureActive(false);
+      setLoading(false);
+      return;
+    }
     const [a, b] = await Promise.all([
       s.from("profiles").select("id,full_name,role,login_id,is_active,phone").eq("organization_id", p.organization_id).order("created_at", { ascending: false }),
       s.from("permissions").select("id,code,name,module").order("module").order("name"),
@@ -57,6 +68,14 @@ export default function StaffPage() {
 
   if (loading) {
     return <main className="mx-auto max-w-7xl p-8 text-center text-sm text-slate-500">Loading staff workspace...</main>;
+  }
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="staff" />
+      </div>
+    );
   }
 
   if (isDenied) {

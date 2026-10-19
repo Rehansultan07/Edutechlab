@@ -1,5 +1,8 @@
 "use client";
 
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
+
 import { useEffect, useState } from "react";
 import { Plus, Trash2, X, ArrowLeft, ClipboardList, Save, Minus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -17,6 +20,7 @@ type Row = {
   status: "marked" | "absent" | "fail" | "pass";
 };
 
+// FeatureGate state flag
 export default function Exams() {
   const supabase = createClient();
   const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
@@ -25,6 +29,7 @@ export default function Exams() {
     "results.manage",
   ]);
 
+  const [featureActive, setFeatureActive] = useState(true);
   const [exams, setExams] = useState<Exam[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [subjects, setSubjects] = useState<Record<string, Subject[]>>({});
@@ -46,6 +51,8 @@ export default function Exams() {
 
   const load = async () => {
     if (!org) return;
+    const feat = await fetchInstitutionFeatures(supabase, org);
+    if (feat && feat.exams === false) { setFeatureActive(false); return; }
     const [er, sr, subr] = await Promise.all([
       supabase
         .from("exams")
@@ -233,6 +240,14 @@ export default function Exams() {
 
   if (!hasAccess) {
     return <AccessDenied moduleName="Examinations & Results" />;
+  }
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="exams" />
+      </div>
+    );
   }
 
   return (

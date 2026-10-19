@@ -155,16 +155,23 @@ export async function fetchInstitutionFeatures(
   supabase: any,
   orgId: string
 ): Promise<EnabledFeaturesMap> {
-  // 1. Try local storage cache first for instant synchronous response
-  let cached: EnabledFeaturesMap | null = null;
-  if (typeof window !== "undefined") {
-    try {
-      const raw = localStorage.getItem(`edutechlab_features_${orgId}`);
-      if (raw) cached = parseFeatures(JSON.parse(raw));
-    } catch {}
-  }
+  // 1. Try secure RPC first (Security Definer - always succeeds)
+  try {
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("get_institution_features", {
+      p_org_id: orgId,
+    });
+    if (!rpcErr && rpcData) {
+      const parsed = parseFeatures(rpcData);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(`edutechlab_features_${orgId}`, JSON.stringify(parsed));
+        } catch {}
+      }
+      return parsed;
+    }
+  } catch {}
 
-  // 2. Query Supabase
+  // 2. Direct query on organizations table
   try {
     const { data, error } = await supabase
       .from("organizations")
@@ -183,7 +190,15 @@ export async function fetchInstitutionFeatures(
     }
   } catch {}
 
-  return cached || getDefaultFeaturesMap();
+  // 3. Fallback to localStorage cache
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(`edutechlab_features_${orgId}`);
+      if (raw) return parseFeatures(JSON.parse(raw));
+    } catch {}
+  }
+
+  return getDefaultFeaturesMap();
 }
 
 export const PRESET_BUNDLES = {

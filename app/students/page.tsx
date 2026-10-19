@@ -1,5 +1,8 @@
 "use client";
 
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Search, Trash2, X, Pencil, ArrowLeft, Upload, Users, Printer, Download, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
@@ -33,6 +36,7 @@ type Student = {
 type ClassItem = { id: string; name: string };
 type SectionItem = { id: string; class_id: string; name: string };
 
+// FeatureGate state flag
 export default function Students() {
   const s = createClient();
   const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
@@ -41,6 +45,7 @@ export default function Students() {
     "admissions.manage",
   ]);
 
+  const [featureActive, setFeatureActive] = useState(true);
   const [rows, setRows] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
@@ -225,6 +230,8 @@ export default function Students() {
 
   const load = async () => {
     if (!org) return;
+    const feat = await fetchInstitutionFeatures(s, org);
+    if (feat && feat.students === false) { setFeatureActive(false); return; }
     const [stRes, clRes, secRes, quotaRes] = await Promise.all([
       s
         .from("students")
@@ -408,6 +415,14 @@ export default function Students() {
 
   if (!hasAccess) {
     return <AccessDenied moduleName="Student Management" />;
+  }
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="students" />
+      </div>
+    );
   }
 
   const availableSections = sections.filter((sec) => !form.class_id || sec.class_id === form.class_id);

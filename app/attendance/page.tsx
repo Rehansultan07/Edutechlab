@@ -1,5 +1,8 @@
 "use client";
 
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
+
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -17,6 +20,7 @@ type Student = {
 type A = { student_id: string; status: string };
 type ClassItem = { id: string; name: string };
 
+// FeatureGate state flag
 export default function Attendance() {
   const s = createClient();
   const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
@@ -24,6 +28,7 @@ export default function Attendance() {
     "attendance.manage",
   ]);
 
+  const [featureActive, setFeatureActive] = useState(true);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedClass, setSelectedClass] = useState<string>("");
@@ -38,6 +43,8 @@ export default function Attendance() {
 
   const load = async () => {
     if (!org) return;
+    const feat = await fetchInstitutionFeatures(s, org);
+    if (feat && feat.attendance === false) { setFeatureActive(false); setLoading(false); return; }
     setLoading(true);
     setSaved("");
 
@@ -144,6 +151,14 @@ export default function Attendance() {
 
   if (!hasAccess) {
     return <AccessDenied moduleName="Attendance" />;
+  }
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="attendance" />
+      </div>
+    );
   }
 
   return (

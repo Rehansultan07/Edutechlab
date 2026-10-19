@@ -5,7 +5,7 @@ import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, Fil
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import InstallButton from "@/components/pwa/InstallButton";
-import { fetchInstitutionFeatures, getDefaultFeaturesMap, EnabledFeaturesMap, FeatureKey } from "@/lib/features";
+import { fetchInstitutionFeatures, getDefaultFeaturesMap, EnabledFeaturesMap, FeatureKey, parseFeatures } from "@/lib/features";
 
 const ROUTE_FEATURE_MAP: Record<string, FeatureKey> = {
   "/students": "students",
@@ -43,14 +43,14 @@ const nav = [
 ] as const;
 type PermissionCode=string;
 type Stats={students:number;teachers:number;attendance:number|null;fees:number};
-type Profile={full_name:string;login_id:string|null;organization_id:string;role:string;organizations:{name:string}|null};
+type Profile={full_name:string;login_id:string|null;organization_id:string;role:string;organizations:{name:string;enabled_features?:any}|null};
 
 export default function Dashboard(){
  const supabase=createClient();
  const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[subInfo,setSubInfo]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[birthdays,setBirthdays]=useState<any[]>([]),[monthlyExpense,setMonthlyExpense]=useState<number>(0),[features,setFeatures]=useState<EnabledFeaturesMap>(getDefaultFeaturesMap());
  useEffect(()=>{(async()=>{
   const {data:{user}}=await supabase.auth.getUser(); if(!user){window.location.href="/login";return;}
-  const {data:p,error:pError}=await supabase.from("profiles").select("full_name,login_id,organization_id,role,organizations(name)").eq("id",user.id).single();
+  const {data:p,error:pError}=await supabase.from("profiles").select("full_name,login_id,organization_id,role,organizations(name,enabled_features)").eq("id",user.id).single();
   if(pError||!p){setError("We couldn't load your institute workspace.");setLoading(false);return;}
   setProfile(p as unknown as Profile); const orgId=p.organization_id;
   const role=String(p.role||"").trim().toLowerCase(); const isAdmin=role==="owner"||role==="admin";
@@ -62,6 +62,10 @@ export default function Dashboard(){
   }
   setPermissions(granted);
   // Fetch institution enabled features
+  const pFeat = (p as any)?.organizations?.enabled_features;
+  if (pFeat) {
+    setFeatures(parseFeatures(pFeat));
+  }
   const instFeatures = await fetchInstitutionFeatures(supabase, orgId);
   setFeatures(instFeatures);
   const today=new Date().toISOString().slice(0,10), monthStart=new Date(); monthStart.setDate(1);

@@ -1,5 +1,8 @@
 "use client";
 
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
+
 import { useEffect, useState } from "react";
 import { Plus, Bell, Trash2, X, ArrowLeft, Pencil } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -8,12 +11,14 @@ import AccessDenied from "@/components/auth/AccessDenied";
 
 type N = { id: string; title: string; body: string; published_at: string | null };
 
+// FeatureGate state flag
 export default function Notices() {
   const s = createClient();
   const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
     "notices.manage",
   ]);
 
+  const [featureActive, setFeatureActive] = useState(true);
   const [rows, setRows] = useState<N[]>([]);
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<N | null>(null);
@@ -24,6 +29,8 @@ export default function Notices() {
 
   const load = async () => {
     if (!org) return;
+    const feat = await fetchInstitutionFeatures(s, org);
+    if (feat && feat.notices === false) { setFeatureActive(false); return; }
     const { data, error } = await s
       .from("notices")
       .select("id,title,body,published_at")
@@ -91,6 +98,14 @@ export default function Notices() {
 
   if (!hasAccess) {
     return <AccessDenied moduleName="Notices & Announcements" />;
+  }
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="notices" />
+      </div>
+    );
   }
 
   return (

@@ -1,5 +1,8 @@
 "use client";
 
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
+
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search, Trash2, X, Pencil, ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -8,6 +11,7 @@ import AccessDenied from "@/components/auth/AccessDenied";
 
 type Teacher = { id: string; full_name: string; phone: string | null; email: string | null };
 
+// FeatureGate state flag
 export default function Teachers() {
   const s = createClient();
   const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
@@ -15,6 +19,7 @@ export default function Teachers() {
     "teachers.manage",
   ]);
 
+  const [featureActive, setFeatureActive] = useState(true);
   const [rows, setRows] = useState<Teacher[]>([]);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -26,6 +31,8 @@ export default function Teachers() {
 
   const load = async () => {
     if (!org) return;
+    const feat = await fetchInstitutionFeatures(s, org);
+    if (feat && feat.teachers === false) { setFeatureActive(false); return; }
     const { data, error } = await s
       .from("teachers")
       .select("id,full_name,phone,email")
@@ -103,6 +110,14 @@ export default function Teachers() {
 
   if (!hasAccess) {
     return <AccessDenied moduleName="Teacher Management" />;
+  }
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="teachers" />
+      </div>
+    );
   }
 
   return (
