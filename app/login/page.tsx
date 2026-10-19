@@ -125,36 +125,44 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const normalized = loginId.trim().toUpperCase();
-    const expectedPrefix = mode === "staff" ? "STAFF-" : "EDU-";
-    if (!normalized.startsWith(expectedPrefix)) {
-      setError(
-        mode === "staff"
-          ? "Enter the Staff ID provided by your institute."
-          : "Enter your Institute ID."
-      );
-      setLoading(false);
-      return;
-    }
+    const rawInput = loginId.trim();
+    let emailToAuth = "";
 
-    const { data: resolved, error: resolveError } =
-      await supabase.functions.invoke("resolve-login-id", {
-        body: { loginId: normalized },
-      });
+    if (rawInput.includes("@")) {
+      emailToAuth = rawInput.toLowerCase();
+    } else {
+      const normalized = rawInput.toUpperCase();
+      const expectedPrefix = mode === "staff" ? "STAFF-" : "EDU-";
+      if (!normalized.startsWith(expectedPrefix)) {
+        setError(
+          mode === "staff"
+            ? "Enter the Staff ID provided by your institute."
+            : "Enter your Institute ID (e.g. EDU-XXXX) or registered Email."
+        );
+        setLoading(false);
+        return;
+      }
 
-    if (resolveError || !resolved?.email) {
-      setError(
-        resolveError?.message ||
-          resolved?.error ||
-          "Institute / Staff ID or password is incorrect."
-      );
-      setLoading(false);
-      return;
+      const { data: resolved, error: resolveError } =
+        await supabase.functions.invoke("resolve-login-id", {
+          body: { loginId: normalized },
+        });
+
+      if (resolveError || !resolved?.email) {
+        setError(
+          resolveError?.message ||
+            resolved?.error ||
+            "Institute / Staff ID or password is incorrect."
+        );
+        setLoading(false);
+        return;
+      }
+      emailToAuth = resolved.email;
     }
 
     const { data: sessionData, error: authError } =
       await supabase.auth.signInWithPassword({
-        email: resolved.email,
+        email: emailToAuth,
         password,
       });
 

@@ -39,6 +39,11 @@ import {
   Unlock,
   CheckSquare,
   Square,
+  Copy,
+  Plus,
+  Send,
+  Smartphone,
+  KeyRound,
 } from "lucide-react";
 import {
   PLATFORM_FEATURES,
@@ -163,6 +168,32 @@ export default function SuperAdminPage() {
   const [viewScreenshotUrl, setViewScreenshotUrl] = useState<string | null>(null);
   const [uploadingQr, setUploadingQr] = useState(false);
   const [savingPricing, setSavingPricing] = useState(false);
+
+  // Modals state: Quick Demo Account Creator
+  const [showDemoModal, setShowDemoModal] = useState(false);
+  const [demoForm, setDemoForm] = useState({
+    name: "",
+    type: "school" as "school" | "madrasa" | "coaching" | "other",
+    directorName: "",
+    phone: "",
+    email: "",
+    password: "",
+    trialDays: 15,
+    studentLimit: 100,
+  });
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoError, setDemoError] = useState("");
+  const [demoSuccess, setDemoSuccess] = useState<{
+    loginId: string;
+    password: string;
+    instituteName: string;
+    adminName: string;
+    adminEmail: string;
+    trialDays: number;
+    studentLimit: number;
+    portalUrl: string;
+  } | null>(null);
+  const [demoCopied, setDemoCopied] = useState(false);
 
   const checkAndLoad = async () => {
     try {
@@ -700,6 +731,144 @@ export default function SuperAdminPage() {
     }
   };
 
+  // Open Create Demo School Modal
+  const openCreateDemo = () => {
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    setDemoForm({
+      name: "",
+      type: "school",
+      directorName: "",
+      phone: "",
+      email: "",
+      password: `Demo@${randomSuffix}`,
+      trialDays: 15,
+      studentLimit: 100,
+    });
+    setDemoError("");
+    setDemoSuccess(null);
+    setDemoCopied(false);
+    setShowDemoModal(true);
+  };
+
+  // Submit Handler for Demo School Account Creation
+  const handleCreateDemoAccount = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!demoForm.name.trim()) {
+      setDemoError("Please enter the school / institute name.");
+      return;
+    }
+    if (!demoForm.password.trim() || demoForm.password.trim().length < 8) {
+      setDemoError("Password must be at least 8 characters long.");
+      return;
+    }
+
+    setDemoLoading(true);
+    setDemoError("");
+
+    try {
+      const cleanSlug =
+        demoForm.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "")
+          .slice(0, 10) || "demo";
+      const randomTag = Math.floor(1000 + Math.random() * 9000);
+      const generatedEmail = `${cleanSlug}_${randomTag}@edutechlab.demo`;
+      const finalEmail = demoForm.email.trim().toLowerCase() || generatedEmail;
+
+      const { data, error: fnError } = await supabase.functions.invoke("register-institute", {
+        body: {
+          instituteName: demoForm.name.trim(),
+          instituteType: demoForm.type,
+          adminName: demoForm.directorName.trim() || "Institute Director",
+          adminEmail: finalEmail,
+          password: demoForm.password.trim(),
+          phone: demoForm.phone.trim() || undefined,
+        },
+      });
+
+      if (fnError || data?.error) {
+        throw new Error(fnError?.message || data?.error || "Failed to create demo account.");
+      }
+
+      const loginId = data?.loginId;
+      if (!loginId) {
+        throw new Error("Institute registered but no login ID was returned.");
+      }
+
+      // Automatically assign the free trial days & student capacity in subscription
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("organization_id")
+          .eq("login_id", loginId)
+          .maybeSingle();
+
+        if (profile?.organization_id) {
+          await supabase.rpc("admin_grant_free_trial", {
+            p_org_id: profile.organization_id,
+            p_trial_days: Number(demoForm.trialDays) || 15,
+            p_student_limit: Number(demoForm.studentLimit) || 100,
+            p_master_code: MASTER_ACCESS_CODE,
+          });
+        }
+      } catch (trialErr) {
+        console.warn("Could not adjust trial quota:", trialErr);
+      }
+
+      const origin =
+        typeof window !== "undefined" && window.location.origin
+          ? window.location.origin
+          : "https://edutechlab.vercel.app";
+      const portalUrl = `${origin}/login`;
+
+      setDemoSuccess({
+        loginId,
+        password: demoForm.password.trim(),
+        instituteName: data?.instituteName || demoForm.name.trim(),
+        adminName: data?.adminName || demoForm.directorName.trim() || "Institute Director",
+        adminEmail: finalEmail,
+        trialDays: Number(demoForm.trialDays) || 15,
+        studentLimit: Number(demoForm.studentLimit) || 100,
+        portalUrl,
+      });
+
+      setSuccess(`Demo account "${demoForm.name.trim()}" created successfully with Login ID: ${loginId}!`);
+      await checkAndLoad();
+    } catch (err: any) {
+      setDemoError(err.message || "Failed to create demo account.");
+    } finally {
+      setDemoLoading(false);
+    }
+  };
+
+  // Copy WhatsApp Shareable Invitation
+  const handleCopyWhatsAppText = () => {
+    if (!demoSuccess) return;
+    const text = `🌟 *EduTechLab School Management Software - Demo Login* 🌟
+
+Namaste *${demoSuccess.adminName}* ji,
+Here are your exclusive login details for *${demoSuccess.instituteName}*:
+
+🔗 *Login Portal:* ${demoSuccess.portalUrl}
+🆔 *Institute Login ID:* ${demoSuccess.loginId}
+🔑 *Password:* ${demoSuccess.password}
+⏳ *Free Trial Period:* ${demoSuccess.trialDays} Days (Full Access)
+👥 *Student Capacity:* Up to ${demoSuccess.studentLimit} Students
+
+📱 *How to access from Mobile or Laptop:*
+1. Open the login link above in Chrome or Safari.
+2. Enter your Institute Login ID and Password.
+3. Instantly manage Admissions, Attendance, Fee Collection, Marksheets, and Time Tables!
+
+For any assistance or setup guidance, we are just a message away! 🚀`;
+
+    if (navigator?.clipboard) {
+      navigator.clipboard.writeText(text);
+      setDemoCopied(true);
+      setTimeout(() => setDemoCopied(false), 3000);
+    }
+  };
+
   const filteredInstitutions = institutions.filter((inst) => {
     const q = searchQuery.toLowerCase();
     return (
@@ -749,7 +918,14 @@ export default function SuperAdminPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={openCreateDemo}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-md hover:from-purple-500 hover:to-indigo-500 active:scale-95 transition"
+          >
+            <Plus size={16} />
+            Create Demo / School Account
+          </button>
           <button
             onClick={checkAndLoad}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
@@ -2075,6 +2251,344 @@ export default function SuperAdminPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 6: CREATE DEMO / SCHOOL ACCOUNT MODAL                    */}
+      {/* ============================================================== */}
+      {showDemoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-xl rounded-3xl border border-purple-200 bg-white p-6 shadow-2xl my-8">
+            {!demoSuccess ? (
+              <>
+                {/* Modal Header */}
+                <div className="flex items-center justify-between border-b pb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-10 w-10 place-items-center rounded-2xl bg-purple-100 text-purple-700 shadow-sm">
+                      <Sparkles size={20} />
+                    </span>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">
+                        Create Instant School Demo Account
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Instantly creates an active ID &amp; password to demo on client&apos;s phone.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDemoModal(false)}
+                    className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {demoError && (
+                  <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 font-medium">
+                    <AlertTriangle size={16} className="shrink-0" />
+                    <span>{demoError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleCreateDemoAccount} className="mt-4 space-y-4">
+                  {/* Row 1: School Name & Type */}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        School / Institute Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={demoForm.name}
+                        onChange={(e) => setDemoForm({ ...demoForm, name: e.target.value })}
+                        placeholder="e.g. Modern Public School"
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-purple-600 focus:ring-1 focus:ring-purple-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Institute Type
+                      </label>
+                      <select
+                        value={demoForm.type}
+                        onChange={(e) =>
+                          setDemoForm({
+                            ...demoForm,
+                            type: e.target.value as "school" | "madrasa" | "coaching" | "other",
+                          })
+                        }
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-purple-600"
+                      >
+                        <option value="school">School</option>
+                        <option value="coaching">Coaching Institute</option>
+                        <option value="madrasa">Madrasa</option>
+                        <option value="other">College / Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Director Name & Phone */}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Director / Principal Name
+                      </label>
+                      <input
+                        type="text"
+                        value={demoForm.directorName}
+                        onChange={(e) => setDemoForm({ ...demoForm, directorName: e.target.value })}
+                        placeholder="e.g. Ramesh Kumar"
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-purple-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Client Phone / WhatsApp
+                      </label>
+                      <input
+                        type="tel"
+                        value={demoForm.phone}
+                        onChange={(e) => setDemoForm({ ...demoForm, phone: e.target.value })}
+                        placeholder="e.g. 9876543210 (optional)"
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-purple-600"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 3: Password & Email */}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Demo Password * (min 8 chars)
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        minLength={8}
+                        value={demoForm.password}
+                        onChange={(e) => setDemoForm({ ...demoForm, password: e.target.value })}
+                        placeholder="e.g. Demo@2026"
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono font-bold text-purple-700 outline-none focus:border-purple-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Custom Email (Optional)
+                      </label>
+                      <input
+                        type="email"
+                        value={demoForm.email}
+                        onChange={(e) => setDemoForm({ ...demoForm, email: e.target.value })}
+                        placeholder="Auto-generated if left blank"
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-purple-600"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 4: Trial Days & Student Limit */}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Free Trial Period (Days)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={365}
+                        value={demoForm.trialDays}
+                        onChange={(e) =>
+                          setDemoForm({ ...demoForm, trialDays: Math.max(1, Number(e.target.value) || 1) })
+                        }
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Student Capacity Limit
+                      </label>
+                      <input
+                        type="number"
+                        min={10}
+                        max={10000}
+                        value={demoForm.studentLimit}
+                        onChange={(e) =>
+                          setDemoForm({
+                            ...demoForm,
+                            studentLimit: Math.max(10, Number(e.target.value) || 100),
+                          })
+                        }
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-600"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Info notice */}
+                  <div className="rounded-xl bg-purple-50 p-3 text-[11px] leading-relaxed text-purple-800">
+                    💡 <strong>Instant Setup:</strong> A unique Institute Login ID (e.g. <code>EDU-MPS2026</code>) and database workspace will be generated immediately. The client can log in from mobile or laptop directly using either the Institute ID or their Email.
+                  </div>
+
+                  {/* Modal Action Buttons */}
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t">
+                    <button
+                      type="button"
+                      onClick={() => setShowDemoModal(false)}
+                      className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={demoLoading}
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md hover:from-purple-500 hover:to-indigo-500 transition disabled:opacity-50"
+                    >
+                      {demoLoading ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" />
+                          Creating Account...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} />
+                          Generate Demo Account Now
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : (
+              /* Success Screen */
+              <div className="space-y-4">
+                <div className="text-center">
+                  <div className="mx-auto grid h-14 w-14 place-items-center rounded-3xl bg-emerald-100 text-emerald-600 shadow-sm">
+                    <CheckCircle2 size={32} />
+                  </div>
+                  <h3 className="mt-3 text-xl font-bold text-slate-900">
+                    Demo Account Ready!
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Hand this Login ID &amp; Password directly to the school client for their live demo.
+                  </p>
+                </div>
+
+                {/* Credentials Highlight Card */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-900 p-5 text-white shadow-inner">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <span className="text-xs font-medium text-slate-400">School Name</span>
+                    <span className="text-sm font-bold text-emerald-400">{demoSuccess.instituteName}</span>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl bg-slate-800/80 p-3">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Institute Login ID
+                      </span>
+                      <span className="mt-0.5 block font-mono text-base font-bold text-yellow-300">
+                        {demoSuccess.loginId}
+                      </span>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-800/80 p-3">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Password
+                      </span>
+                      <span className="mt-0.5 block font-mono text-base font-bold text-white">
+                        {demoSuccess.password}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between rounded-xl bg-slate-800/80 px-3 py-2 text-xs">
+                    <span className="text-slate-400">Login Portal:</span>
+                    <span className="font-mono text-purple-300 truncate max-w-[240px]">
+                      {demoSuccess.portalUrl}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>Trial Validity: <strong className="text-white">{demoSuccess.trialDays} Days Free</strong></span>
+                    <span>Student Limit: <strong className="text-white">{demoSuccess.studentLimit} Students</strong></span>
+                  </div>
+                </div>
+
+                {/* WhatsApp & Copy Action Card */}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+                  <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                    <Smartphone size={16} />
+                    <span>Share with School Director</span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-emerald-800 leading-relaxed">
+                    Click the button below to copy a pre-formatted invitation text ready to send over WhatsApp or SMS.
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyWhatsAppText}
+                      className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition shadow-sm ${
+                        demoCopied
+                          ? "bg-emerald-600 text-white"
+                          : "bg-emerald-700 text-white hover:bg-emerald-800"
+                      }`}
+                    >
+                      {demoCopied ? (
+                        <>
+                          <Check size={15} />
+                          Copied to Clipboard!
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={15} />
+                          Copy for WhatsApp / SMS
+                        </>
+                      )}
+                    </button>
+
+                    {demoForm.phone && (
+                      <a
+                        href={`https://wa.me/91${demoForm.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                          `🌟 *EduTechLab School Management Software - Demo Login* 🌟\n\nNamaste *${demoSuccess.adminName}* ji,\nHere are your login credentials for *${demoSuccess.instituteName}*:\n\n🔗 *Login Portal:* ${demoSuccess.portalUrl}\n🆔 *Institute Login ID:* ${demoSuccess.loginId}\n🔑 *Password:* ${demoSuccess.password}\n⏳ *Free Trial Period:* ${demoSuccess.trialDays} Days (Full Access)\n👥 *Student Capacity:* Up to ${demoSuccess.studentLimit} Students\n\n📱 *How to access from Mobile or Laptop:*\n1. Open the login link above in Chrome or Safari.\n2. Enter your Institute Login ID and Password.\n3. Instantly manage Admissions, Attendance, Fee Collection, Marksheets, and Time Tables!\n\nFor any help, we are always here! 🚀`
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-white px-3.5 py-2.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-sm"
+                      >
+                        <Send size={14} />
+                        Send directly via WhatsApp
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {/* Done / Create Another */}
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <button
+                    type="button"
+                    onClick={openCreateDemo}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                  >
+                    <Plus size={14} />
+                    Create Another Demo
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDemoModal(false);
+                      setDemoSuccess(null);
+                    }}
+                    className="rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition"
+                  >
+                    Done &amp; Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
