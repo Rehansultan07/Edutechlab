@@ -5,6 +5,23 @@ import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, Fil
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import InstallButton from "@/components/pwa/InstallButton";
+import { fetchInstitutionFeatures, getDefaultFeaturesMap, EnabledFeaturesMap, FeatureKey } from "@/lib/features";
+
+const ROUTE_FEATURE_MAP: Record<string, FeatureKey> = {
+  "/students": "students",
+  "/id-cards": "id_cards",
+  "/certificates": "certificates",
+  "/academics": "academics",
+  "/timetable": "timetable",
+  "/homework": "homework",
+  "/teachers": "teachers",
+  "/attendance": "attendance",
+  "/fees": "fees",
+  "/expenses": "expenses",
+  "/exams": "exams",
+  "/notices": "notices",
+  "/staff": "staff",
+};
 
 const nav = [
  ["Dashboard","/dashboard",LayoutDashboard,[]],
@@ -30,7 +47,7 @@ type Profile={full_name:string;login_id:string|null;organization_id:string;role:
 
 export default function Dashboard(){
  const supabase=createClient();
- const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[subInfo,setSubInfo]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[birthdays,setBirthdays]=useState<any[]>([]),[monthlyExpense,setMonthlyExpense]=useState<number>(0);
+ const [open,setOpen]=useState(false),[profile,setProfile]=useState<Profile|null>(null),[permissions,setPermissions]=useState<Set<string>>(new Set()),[stats,setStats]=useState<Stats>({students:0,teachers:0,attendance:null,fees:0}),[subInfo,setSubInfo]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[birthdays,setBirthdays]=useState<any[]>([]),[monthlyExpense,setMonthlyExpense]=useState<number>(0),[features,setFeatures]=useState<EnabledFeaturesMap>(getDefaultFeaturesMap());
  useEffect(()=>{(async()=>{
   const {data:{user}}=await supabase.auth.getUser(); if(!user){window.location.href="/login";return;}
   const {data:p,error:pError}=await supabase.from("profiles").select("full_name,login_id,organization_id,role,organizations(name)").eq("id",user.id).single();
@@ -44,6 +61,9 @@ export default function Dashboard(){
    granted=new Set((grants??[]).map((g:any)=>g.permissions?.code).filter(Boolean));
   }
   setPermissions(granted);
+  // Fetch institution enabled features
+  const instFeatures = await fetchInstitutionFeatures(supabase, orgId);
+  setFeatures(instFeatures);
   const today=new Date().toISOString().slice(0,10), monthStart=new Date(); monthStart.setDate(1);
   const monthDate=monthStart.toISOString().slice(0,10);
   const can=(code:string)=>isAdmin||granted.has(code);
@@ -79,24 +99,29 @@ export default function Dashboard(){
  })()},[]);
  const can=(code:string)=>{const role=String(profile?.role||"").trim().toLowerCase(); return (role==="owner"||role==="admin")||permissions.has(code)};
  const canAny=(codes:readonly string[])=>{const role=String(profile?.role||"").trim().toLowerCase(); return (role==="owner"||role==="admin")||codes.some(code=>permissions.has(code))};
- const visibleNav=nav.filter(([,href,,required])=>href==="/dashboard"||canAny(required));
+ const isFeatActive = (href: string) => {
+  const k = ROUTE_FEATURE_MAP[href];
+  if (!k) return true;
+  return features[k] !== false;
+ };
+ const visibleNav=nav.filter(([,href,,required])=>isFeatActive(href)&&(href==="/dashboard"||canAny(required)));
  const instituteName=profile?.organizations?.name||"Your Institute",firstName=profile?.full_name?.trim()?.split(/\s+/)[0]||"Admin",initials=(profile?.full_name||"A").split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase();
  const statCards:any[]=[
-  canAny(["students.view","students.manage","admissions.manage"])?{title:"Total Students",value:loading?"—":String(stats.students),sub:"Active enrolled students",icon:Users,border:"border-blue-100",iconBg:"bg-blue-50 text-blue-600"}:null,
-  canAny(["teachers.view","teachers.manage"])?{title:"Total Teachers",value:loading?"—":String(stats.teachers),sub:"Assigned faculty records",icon:GraduationCap,border:"border-purple-100",iconBg:"bg-purple-50 text-purple-600"}:null,
-  canAny(["attendance.view","attendance.manage"])?{title:"Today's Attendance",value:loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%",sub:"Realtime attendance ratio",icon:ClipboardCheck,border:"border-emerald-100",iconBg:"bg-emerald-50 text-emerald-600"}:null,
-  canAny(["fees.view","fees.manage","fees.receipts"])?{title:"Fees This Month",value:loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),sub:"Recorded collections",icon:WalletCards,border:"border-amber-100",iconBg:"bg-amber-50 text-amber-600"}:null
+  isFeatActive("/students") && canAny(["students.view","students.manage","admissions.manage"])?{title:"Total Students",value:loading?"—":String(stats.students),sub:"Active enrolled students",icon:Users,border:"border-blue-100",iconBg:"bg-blue-50 text-blue-600"}:null,
+  isFeatActive("/teachers") && canAny(["teachers.view","teachers.manage"])?{title:"Total Teachers",value:loading?"—":String(stats.teachers),sub:"Assigned faculty records",icon:GraduationCap,border:"border-purple-100",iconBg:"bg-purple-50 text-purple-600"}:null,
+  isFeatActive("/attendance") && canAny(["attendance.view","attendance.manage"])?{title:"Today's Attendance",value:loading?"—":stats.attendance===null?"Not marked":stats.attendance+"%",sub:"Realtime attendance ratio",icon:ClipboardCheck,border:"border-emerald-100",iconBg:"bg-emerald-50 text-emerald-600"}:null,
+  isFeatActive("/fees") && canAny(["fees.view","fees.manage","fees.receipts"])?{title:"Fees This Month",value:loading?"—":stats.fees.toLocaleString("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}),sub:"Recorded collections",icon:WalletCards,border:"border-amber-100",iconBg:"bg-amber-50 text-amber-600"}:null
  ].filter(Boolean);
  const quickActions:any[]=[
-  can("students.manage")?["Add student","/students"]:null,
-  ["Print ID Cards","/id-cards"],
-  ["Issue Certificate / TC","/certificates"],
-  can("attendance.manage")?["Mark attendance","/attendance"]:null,
-  can("fees.manage")?["Record fee payment","/fees"]:null,
-  ["School Expenses & Kharcha","/expenses"],
-  ["Class Timetable Routine","/timetable"],
-  ["Daily Homework Diary","/homework"],
-  can("notices.manage")?["Create notice","/notices"]:null
+  isFeatActive("/students") && can("students.manage")?["Add student","/students"]:null,
+  isFeatActive("/id-cards")?["Print ID Cards","/id-cards"]:null,
+  isFeatActive("/certificates")?["Issue Certificate / TC","/certificates"]:null,
+  isFeatActive("/attendance") && can("attendance.manage")?["Mark attendance","/attendance"]:null,
+  isFeatActive("/fees") && can("fees.manage")?["Record fee payment","/fees"]:null,
+  isFeatActive("/expenses")?["School Expenses & Kharcha","/expenses"]:null,
+  isFeatActive("/timetable")?["Class Timetable Routine","/timetable"]:null,
+  isFeatActive("/homework")?["Daily Homework Diary","/homework"]:null,
+  isFeatActive("/notices") && can("notices.manage")?["Create notice","/notices"]:null
 ].filter(Boolean);
  return <div className="min-h-screen bg-[#f8fafc]">
   <aside className={`fixed inset-y-0 left-0 z-30 w-64 border-r bg-white p-5 transition-transform lg:translate-x-0 ${open?"translate-x-0":"-translate-x-full"}`}>
@@ -221,6 +246,7 @@ Dear ${names}, we wish you a wonderful birthday filled with joy, knowledge, and 
       )}
 
       {/* Monthly Financial Pulse: Fees vs Expenses */}
+      {isFeatActive("/expenses") && (
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
           <span className="text-[10px] font-bold uppercase text-emerald-800 tracking-wider">Fees Collected This Month</span>
@@ -235,6 +261,7 @@ Dear ${names}, we wish you a wonderful birthday filled with joy, knowledge, and 
           <div className="text-xl sm:text-2xl font-black text-indigo-950 mt-1">₹{(stats.fees - monthlyExpense).toLocaleString("en-IN")}</div>
         </div>
       </div>
+      )}
 
      <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
        {statCards.map((card:any)=>{

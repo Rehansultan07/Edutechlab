@@ -6,6 +6,8 @@ import { ArrowLeft, Plus, BookOpen, Calendar, Search, Users, Trash2, Edit3, X, C
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
 
 type HomeworkItem = {
   id: string;
@@ -45,6 +47,7 @@ export default function HomeworkPage() {
   const [orgName, setOrgName] = useState("Your Institution");
   const [homeworkList, setHomeworkList] = useState<HomeworkItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [featureActive, setFeatureActive] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -72,6 +75,8 @@ export default function HomeworkPage() {
     if (!orgId || !hasAccess) return;
     (async () => {
       setLoading(true);
+      const feat = await fetchInstitutionFeatures(supabase, orgId);
+      if (feat && feat.homework === false) { setFeatureActive(false); setLoading(false); return; }
       const [clRes, tchRes, orgRes] = await Promise.all([
         supabase.from("classes").select("id,name").eq("organization_id", orgId).order("sort_order"),
         supabase.from("teachers").select("id,full_name").eq("organization_id", orgId),
@@ -206,6 +211,14 @@ export default function HomeworkPage() {
       return matchClass && matchDate && matchSearch;
     });
   }, [homeworkList, selectedClassId, selectedDate, search]);
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="homework" instituteName={orgName} />
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (

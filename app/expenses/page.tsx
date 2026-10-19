@@ -6,6 +6,8 @@ import { ArrowLeft, Plus, Search, Trash2, Download, TrendingUp, TrendingDown, Do
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
 
 type Expense = {
   id: string;
@@ -39,6 +41,7 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [feeIncome, setFeeIncome] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [featureActive, setFeatureActive] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -66,6 +69,8 @@ export default function ExpensesPage() {
   const loadData = async () => {
     if (!orgId) return;
     setLoading(true);
+      const feat = await fetchInstitutionFeatures(supabase, orgId);
+      if (feat && feat.expenses === false) { setFeatureActive(false); setLoading(false); return; }
     setError("");
 
     try {
@@ -223,6 +228,14 @@ export default function ExpensesPage() {
     link.click();
     document.body.removeChild(link);
   };
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="expenses" instituteName={"Your School"} />
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (

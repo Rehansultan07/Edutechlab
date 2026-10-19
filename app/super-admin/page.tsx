@@ -31,7 +31,23 @@ import {
   Eye,
   Calendar,
   Sparkles,
+  Sliders,
+  ToggleLeft,
+  ToggleRight,
+  Layers,
+  Lock,
+  Unlock,
+  CheckSquare,
+  Square,
 } from "lucide-react";
+import {
+  PLATFORM_FEATURES,
+  FeatureKey,
+  EnabledFeaturesMap,
+  getDefaultFeaturesMap,
+  parseFeatures,
+  PRESET_BUNDLES,
+} from "@/lib/features";
 import { createClient } from "@/lib/supabase/client";
 import InstallButton from "@/components/pwa/InstallButton";
 
@@ -56,6 +72,7 @@ type InstitutionItem = {
   teacher_count: number;
   owner_name: string | null;
   owner_login_id: string | null;
+  enabled_features?: EnabledFeaturesMap;
   subscription?: {
     student_limit: number;
     status: string;
@@ -110,7 +127,13 @@ export default function SuperAdminPage() {
     contact_email: "edutechlab@gmail.com",
   });
 
-  const [activeTab, setActiveTab] = useState<"institutions" | "requests" | "pricing">("institutions");
+  const [activeTab, setActiveTab] = useState<"institutions" | "requests" | "pricing" | "features">("institutions");
+  // Feature Controller State
+  const [managingFeaturesInst, setManagingFeaturesInst] = useState<InstitutionItem | null>(null);
+  const [currentFeatures, setCurrentFeatures] = useState<EnabledFeaturesMap>(getDefaultFeaturesMap());
+  const [savingFeatures, setSavingFeatures] = useState(false);
+  const [featureMatrixSearch, setFeatureMatrixSearch] = useState("");
+  const [selectedFeatureFilter, setSelectedFeatureFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -199,8 +222,8 @@ export default function SuperAdminPage() {
 
       setIsSuperAdmin(true);
 
-      // Load Stats, Institutions, Subscriptions, Payments & Pricing
-      const [statsRes, listRes, subsRes, paysRes, settingsRes] = await Promise.all([
+      // Load Stats, Institutions, Subscriptions, Payments & Pricing & Features
+      const [statsRes, listRes, subsRes, paysRes, settingsRes, orgsFeatRes] = await Promise.all([
         supabase.rpc("get_platform_overview"),
         supabase.rpc("list_institutions_for_platform"),
         supabase.from("institution_subscriptions").select("*"),
@@ -209,6 +232,7 @@ export default function SuperAdminPage() {
           .select("*, organizations(name)")
           .order("created_at", { ascending: false }),
         supabase.from("platform_settings").select("*").eq("id", "global").maybeSingle(),
+        supabase.from("organizations").select("id, enabled_features"),
       ]);
 
       if (statsRes.data) {
@@ -216,12 +240,23 @@ export default function SuperAdminPage() {
       }
 
       const subMap = new Map((subsRes.data || []).map((s: any) => [s.organization_id, s]));
+      const featMap = new Map((orgsFeatRes.data || []).map((o: any) => [o.id, o.enabled_features]));
 
       if (listRes.data) {
         const enrichedInsts = (listRes.data as InstitutionItem[]).map((inst) => {
           const sub = subMap.get(inst.id);
+          let rawFeat = featMap.get(inst.id);
+          if (!rawFeat && typeof window !== "undefined") {
+            try {
+              const local = localStorage.getItem(`edutechlab_features_${inst.id}`);
+              if (local) rawFeat = JSON.parse(local);
+            } catch {}
+          }
+          const parsedFeat = parseFeatures(rawFeat);
+
           return {
             ...inst,
+            enabled_features: parsedFeat,
             subscription: sub
               ? {
                   student_limit: sub.student_limit,
@@ -344,6 +379,88 @@ export default function SuperAdminPage() {
       setError(err.message || "Failed to update free trial.");
     } finally {
       setIsGrantingTrial(false);
+    }
+  };
+
+  // Open Feature Allocation Modal
+  const openManageFeaturesModal = (inst: InstitutionItem) => {
+    setManagingFeaturesInst(inst);
+    const initialFeat = inst.enabled_features || getDefaultFeaturesMap();
+    setCurrentFeatures({ ...initialFeat });
+  };
+
+  const handleToggleSingleFeature = (key: FeatureKey) => {
+    setCurrentFeatures((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const handleApplyPreset = (bundleKey: keyof typeof PRESET_BUNDLES) => {
+    const bundle = PRESET_BUNDLES[bundleKey];
+    if (bundle) {
+      setCurrentFeatures({ ...bundle.features });
+    }
+  };
+
+  const handleToggleAllFeatures = (val: boolean) => {
+    const next: Partial<EnabledFeaturesMap> = {};
+    PLATFORM_FEATURES.forEach((f) => {
+      next[f.key] = val;
+    });
+    setCurrentFeatures(next as EnabledFeaturesMap);
+  };
+
+  const handleSaveFeatures = async () => {
+    if (!managingFeaturesInst) return;
+    setSavingFeatures(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      // 1. Try RPC
+      const { error: rpcErr } = await supabase.rpc("update_institution_features", {
+        p_org_id: managingFeaturesInst.id,
+        p_features: currentFeatures,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+
+      // 2. Direct table update fallback
+      if (rpcErr) {
+        await supabase
+          .from("organizations")
+          .update({ enabled_features: currentFeatures })
+          .eq("id", managingFeaturesInst.id);
+      }
+
+      // 3. Sync to local storage
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `edutechlab_features_${managingFeaturesInst.id}`,
+            JSON.stringify(currentFeatures)
+          );
+        } catch {}
+      }
+
+      // 4. Update memory state
+      setInstitutions((prev) =>
+        prev.map((inst) =>
+          inst.id === managingFeaturesInst.id
+            ? { ...inst, enabled_features: { ...currentFeatures } }
+            : inst
+        )
+      );
+
+      const activeCount = Object.values(currentFeatures).filter(Boolean).length;
+      setSuccess(
+        `Features for "${managingFeaturesInst.name}" updated successfully! (${activeCount}/13 modules active)`
+      );
+      setManagingFeaturesInst(null);
+    } catch (err: any) {
+      setError(err.message || "Failed to update institution features.");
+    } finally {
+      setSavingFeatures(false);
     }
   };
 
@@ -721,6 +838,18 @@ export default function SuperAdminPage() {
           <Settings size={16} />
           Pricing & UPI QR Settings
         </button>
+
+        <button
+          onClick={() => setActiveTab("features")}
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 transition ${
+            activeTab === "features"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <Sliders size={16} />
+          Feature Controller & Matrix
+        </button>
       </div>
 
       {/* ============================================================== */}
@@ -835,6 +964,16 @@ export default function SuperAdminPage() {
                         </td>
                         <td className="px-5 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            {/* Feature Allocation Controller Button */}
+                            <button
+                              onClick={() => openManageFeaturesModal(inst)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 shadow-sm"
+                              title="Configure and allocate active features for this school"
+                            >
+                              <Sliders size={12} />
+                              Features ({Object.values(inst.enabled_features || getDefaultFeaturesMap()).filter(Boolean).length}/13)
+                            </button>
+
                             {/* Grant / Manage Free Trial Button */}
                             <button
                               onClick={() => openGrantTrialModal(inst)}
@@ -1224,6 +1363,142 @@ export default function SuperAdminPage() {
       )}
 
       {/* ============================================================== */}
+      {/* TAB 4: FEATURE ALLOCATION CONTROLLER & MATRIX                  */}
+      {/* ============================================================== */}
+      {activeTab === "features" && (
+        <section className="mt-6 space-y-6">
+          {/* Top Info Banner */}
+          <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 p-6 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700">
+                  <Sliders size={13} /> Super Admin Feature Controller
+                </div>
+                <h2 className="mt-2 text-xl font-extrabold text-slate-900">
+                  School Modules & Features Allocation Matrix
+                </h2>
+                <p className="mt-1 text-xs text-slate-600 max-w-2xl leading-relaxed">
+                  Decide exactly which tools each school gets access to. Disabled modules are automatically hidden from the school admin navigation and restricted if accessed directly.
+                </p>
+              </div>
+
+              {/* Quick stats */}
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl border border-white/60 bg-white/80 px-4 py-2 text-center backdrop-blur shadow-sm">
+                  <span className="block text-xl font-extrabold text-indigo-700">{institutions.length}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Schools</span>
+                </div>
+                <div className="rounded-xl border border-white/60 bg-white/80 px-4 py-2 text-center backdrop-blur shadow-sm">
+                  <span className="block text-xl font-extrabold text-emerald-600">
+                    {institutions.filter(i => Object.values(i.enabled_features || getDefaultFeaturesMap()).filter(Boolean).length === 13).length}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Full Enterprise (13/13)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Matrix Table Section */}
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Schools Feature Deployment Status</h3>
+                <p className="text-xs text-slate-500">Click &quot;Configure&quot; on any school row to toggle individual modules.</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Filter schools..."
+                    value={featureMatrixSearch}
+                    onChange={(e) => setFeatureMatrixSearch(e.target.value)}
+                    className="rounded-xl border border-slate-200 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-indigo-600 w-44 sm:w-56"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 font-bold text-slate-600 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3.5 whitespace-nowrap sticky left-0 bg-slate-50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                      Institution Name
+                    </th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center">Active Features</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Student Directory & Admission">Students</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Printable ID Cards">ID Cards</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="TC, Character & Bonafide">Certificates</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Academics, Classes & Sections">Academics</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Class Timetable Routine">Timetable</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Daily Homework Diary">Homework</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Teacher Directory">Teachers</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Daily Attendance Tracker">Attendance</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Fees Collection & Invoices">Fees</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Expenses & Kharcha Tracker">Expenses</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Exams & Report Cards">Exams</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Digital Noticeboard">Notices</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Staff Role Permissions">Staff</th>
+                    <th className="px-4 py-3.5 whitespace-nowrap text-right sticky right-0 bg-slate-50 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {institutions
+                    .filter(i => !featureMatrixSearch || i.name.toLowerCase().includes(featureMatrixSearch.toLowerCase()) || i.slug.toLowerCase().includes(featureMatrixSearch.toLowerCase()))
+                    .map((inst) => {
+                      const feat = inst.enabled_features || getDefaultFeaturesMap();
+                      const activeCount = Object.values(feat).filter(Boolean).length;
+                      return (
+                        <tr key={inst.id} className="hover:bg-slate-50/70 transition">
+                          <td className="px-4 py-3 font-bold text-slate-900 whitespace-nowrap sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                            <div className="flex flex-col">
+                              <span>{inst.name}</span>
+                              <span className="text-[10px] font-mono text-slate-400 font-normal">/{inst.slug}</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                              activeCount === 13 ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-purple-50 text-purple-700 border border-purple-200"
+                            }`}>
+                              {activeCount} / 13
+                            </span>
+                          </td>
+                          {(["students","id_cards","certificates","academics","timetable","homework","teachers","attendance","fees","expenses","exams","notices","staff"] as FeatureKey[]).map((k) => {
+                            const isEn = feat[k] !== false;
+                            return (
+                              <td key={k} className="px-3 py-3 text-center whitespace-nowrap">
+                                <span className={`inline-grid h-6 w-6 place-items-center rounded-lg text-xs font-bold ${
+                                  isEn ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-400 opacity-60"
+                                }`}>
+                                  {isEn ? "✓" : "—"}
+                                </span>
+                              </td>
+                            );
+                          })}
+                          <td className="px-4 py-3 text-right whitespace-nowrap sticky right-0 bg-white z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                            <button
+                              onClick={() => openManageFeaturesModal(inst)}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 shadow-sm hover:bg-indigo-100 transition"
+                            >
+                              <Sliders size={12} />
+                              Configure
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ============================================================== */}
       {/* MODAL 1: EDIT QUOTA / EXTEND PLAN (SUPER ADMIN OVERRIDE)       */}
       {/* ============================================================== */}
       {editingInst && (
@@ -1587,6 +1862,173 @@ export default function SuperAdminPage() {
               alt="Payment Slip Proof"
               className="max-h-[85vh] w-auto rounded-xl object-contain"
             />
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 5: FEATURE ALLOCATION CONTROLLER MODAL                   */}
+      {/* ============================================================== */}
+      {managingFeaturesInst && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-3xl border border-indigo-200 bg-white p-6 shadow-2xl my-8 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b pb-4 shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-indigo-100 text-indigo-700 shadow-sm">
+                  <Sliders size={20} />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-slate-900">Feature Allocation Controller</h3>
+                    <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-[10px] font-extrabold text-indigo-800 uppercase tracking-wider">
+                      {Object.values(currentFeatures).filter(Boolean).length} / 13 Active
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Configure accessible features for <strong>{managingFeaturesInst.name}</strong> ({managingFeaturesInst.slug})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setManagingFeaturesInst(null)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Quick Preset Bundles */}
+            <div className="mt-4 pt-1 shrink-0">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                1-Click Quick Preset Bundles:
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset("all")}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-sm"
+                >
+                  <Sparkles size={13} />
+                  Full Enterprise (13/13)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset("academic_standard")}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 transition shadow-sm"
+                >
+                  Standard School (9/13)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyPreset("basic_lite")}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 transition shadow-sm"
+                >
+                  Basic Lite (5/13)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleAllFeatures(true)}
+                  className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleAllFeatures(false)}
+                  className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Features List */}
+            <div className="mt-4 overflow-y-auto pr-1 space-y-4 flex-1">
+              {(["Core Operations", "Academics & Routine", "Administration & Security", "Finance & Accounts"] as const).map((cat) => {
+                const catFeatures = PLATFORM_FEATURES.filter((f) => f.category === cat);
+                return (
+                  <div key={cat} className="rounded-2xl border border-slate-200/80 bg-slate-50/50 p-3.5">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-2.5 block">
+                      {cat}
+                    </span>
+                    <div className="space-y-2">
+                      {catFeatures.map((feat) => {
+                        const isEnabled = currentFeatures[feat.key] !== false;
+                        return (
+                          <div
+                            key={feat.key}
+                            onClick={() => handleToggleSingleFeature(feat.key)}
+                            className={`flex items-center justify-between rounded-xl border p-3 cursor-pointer transition ${
+                              isEnabled
+                                ? "border-emerald-200 bg-white shadow-sm"
+                                : "border-slate-200 bg-slate-100/60 opacity-60"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={`mt-0.5 grid h-7 w-7 place-items-center rounded-lg text-xs font-bold ${
+                                isEnabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-500"
+                              }`}>
+                                {isEnabled ? "✓" : "✕"}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold text-slate-900">{feat.name}</span>
+                                  <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-mono text-slate-500">
+                                    {feat.path}
+                                  </span>
+                                </div>
+                                <p className="mt-0.5 text-[11px] text-slate-500 max-w-md">{feat.description}</p>
+                              </div>
+                            </div>
+
+                            {/* Toggle Switch */}
+                            <div className="flex items-center gap-2 shrink-0 ml-3">
+                              <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                                isEnabled ? "text-emerald-700" : "text-slate-400"
+                              }`}>
+                                {isEnabled ? "Active" : "Locked"}
+                              </span>
+                              <div className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                isEnabled ? "bg-emerald-600" : "bg-slate-300"
+                              }`}>
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  isEnabled ? "translate-x-6" : "translate-x-1"
+                                }`} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="mt-4 pt-4 border-t flex items-center justify-between shrink-0">
+              <span className="text-xs text-slate-500">
+                Changes take effect instantly on school login.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setManagingFeaturesInst(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={savingFeatures}
+                  onClick={handleSaveFeatures}
+                  className="rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-indigo-500 transition disabled:opacity-50"
+                >
+                  {savingFeatures ? "Saving Features..." : "Save Feature Allocation"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

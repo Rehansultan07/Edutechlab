@@ -6,6 +6,8 @@ import { ArrowLeft, Printer, Award, FileCheck, Search, Users, Calendar, CheckCir
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
 
 type Student = {
   id: string;
@@ -41,6 +43,7 @@ export default function CertificatesPage() {
   const [orgSettings, setOrgSettings] = useState<OrgSettings | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [featureActive, setFeatureActive] = useState(true);
 
   // Certificate Form Data
   const [certNo, setCertNo] = useState(`TC-${new Date().getFullYear()}-001`);
@@ -56,6 +59,8 @@ export default function CertificatesPage() {
     if (!orgId || !hasAccess) return;
     (async () => {
       setLoading(true);
+      const feat = await fetchInstitutionFeatures(supabase, orgId);
+      if (feat && feat.certificates === false) { setFeatureActive(false); setLoading(false); return; }
       const [stRes, clRes, orgRes, setRes] = await Promise.all([
         supabase
           .from("students")
@@ -99,6 +104,14 @@ export default function CertificatesPage() {
     const prefix = type === "tc" ? "TC" : type === "character" ? "CC" : "BNF";
     setCertNo(`${prefix}-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
   };
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="certificates" instituteName={orgName} />
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (

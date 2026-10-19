@@ -6,6 +6,8 @@ import { ArrowLeft, Printer, Search, Users, Download, Filter, CheckSquare, Squar
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
 
 type Student = {
   id: string;
@@ -43,6 +45,7 @@ export default function IdCardGenerator() {
   const [orgName, setOrgName] = useState("Your Institution");
   const [orgSettings, setOrgSettings] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [featureActive, setFeatureActive] = useState(true);
 
   // Filters
   const [selectedClass, setSelectedClass] = useState<string>("all");
@@ -59,6 +62,8 @@ export default function IdCardGenerator() {
     if (!orgId || !hasAccess) return;
     (async () => {
       setLoading(true);
+      const feat = await fetchInstitutionFeatures(supabase, orgId);
+      if (feat && feat.id_cards === false) { setFeatureActive(false); setLoading(false); return; }
       const [stRes, clRes, secRes, orgRes, setRes] = await Promise.all([
         supabase
           .from("students")
@@ -117,6 +122,14 @@ export default function IdCardGenerator() {
     else next.add(id);
     setSelectedIds(next);
   };
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="id_cards" instituteName={orgName} />
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (

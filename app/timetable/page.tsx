@@ -6,6 +6,8 @@ import { ArrowLeft, Plus, Calendar, Clock, BookOpen, Users, Printer, Trash2, Edi
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import FeatureGate from "@/components/FeatureGate";
+import { fetchInstitutionFeatures } from "@/lib/features";
 
 type TimetableSlot = {
   id: string;
@@ -61,6 +63,7 @@ export default function TimetablePage() {
   const [activeDay, setActiveDay] = useState<string>("Monday");
   const [slots, setSlots] = useState<TimetableSlot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [featureActive, setFeatureActive] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -83,6 +86,8 @@ export default function TimetablePage() {
     if (!orgId || !hasAccess) return;
     (async () => {
       setLoading(true);
+      const feat = await fetchInstitutionFeatures(supabase, orgId);
+      if (feat && feat.timetable === false) { setFeatureActive(false); setLoading(false); return; }
       const [clRes, tchRes] = await Promise.all([
         supabase.from("classes").select("id,name").eq("organization_id", orgId).order("sort_order"),
         supabase.from("teachers").select("id,full_name").eq("organization_id", orgId),
@@ -225,6 +230,14 @@ export default function TimetablePage() {
       localStorage.setItem(`edutechlab_timetable_${orgId}`, JSON.stringify(updated));
     }
   };
+
+  if (!featureActive) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <FeatureGate featureKey="timetable" instituteName={"Your School"} />
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (
