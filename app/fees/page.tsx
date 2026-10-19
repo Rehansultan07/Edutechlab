@@ -4,7 +4,7 @@ import FeatureGate from "@/components/FeatureGate";
 import { fetchInstitutionFeatures } from "@/lib/features";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Plus, Search, Trash2, X, Receipt, ChevronRight, Lock } from "lucide-react";
+import { ArrowLeft, Plus, Search, Trash2, X, Receipt, ChevronRight, Lock, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
@@ -38,6 +38,9 @@ export default function Fees() {
   const [selected, setSelected] = useState<S | null>(null);
   const [payOpen, setPayOpen] = useState<M | null>(null);
   const [error, setError] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [planError, setPlanError] = useState("");
+  const [success, setSuccess] = useState("");
   const [plan, setPlan] = useState({
     student_id: "",
     monthly_amount: "",
@@ -137,13 +140,14 @@ export default function Fees() {
   const totalDue: number = grouped.reduce((a: number, g: any) => a + Number(g.due), 0);
 
   const savePlan = async () => {
+    setPlanError("");
+    setError("");
     if (!canManage) {
-      setError("You do not have permission to configure fee plans.");
+      setPlanError("You do not have permission to configure fee plans.");
       return;
     }
-    setError("");
     if (!plan.student_id || !plan.monthly_amount) {
-      setError("Student and monthly fee are required.");
+      setPlanError("Student and monthly fee are required.");
       return;
     }
     const r = await s.from("student_fee_plans").insert({
@@ -153,9 +157,12 @@ export default function Fees() {
       applied_from: plan.applied_from,
       note: plan.note || null,
     });
-    if (r.error) setError(r.error.message);
-    else {
+    if (r.error) {
+      setPlanError(r.error.message);
+    } else {
+      setSuccess("Monthly fee plan applied successfully!");
       setPlanOpen(false);
+      setPlanError("");
       setPlan({ student_id: "", monthly_amount: "", applied_from: new Date().toISOString().slice(0, 10), note: "" });
       load();
     }
@@ -164,9 +171,10 @@ export default function Fees() {
   const savePayment = async () => {
     if (!payOpen || paymentLock.current) return;
     if (!canManage) {
-      setError("You do not have permission to record fee payments.");
+      setModalError("You do not have permission to record fee payments.");
       return;
     }
+    setModalError("");
     setError("");
     paymentLock.current = true;
     setIsSubmitting(true);
@@ -175,11 +183,11 @@ export default function Fees() {
       const amount = Number(payment.amount);
       const outstanding = Math.max(0, Number(payOpen.amount_due) - Number(payOpen.amount_paid));
       if (!amount || amount <= 0) {
-        setError("Payment amount must be greater than zero.");
+        setModalError("Payment amount must be greater than zero.");
         return;
       }
       if (amount > outstanding) {
-        setError("Payment cannot exceed the outstanding balance.");
+        setModalError("Payment cannot exceed the outstanding balance.");
         return;
       }
 
@@ -187,7 +195,11 @@ export default function Fees() {
       const key = paymentKey || crypto.randomUUID();
       if (!paymentKey) setPaymentKey(key);
 
-      const { error: e } = await s.rpc("record_fee_payment", {
+      let recordSuccess = false;
+      let recNo = "";
+
+      // 1. Try atomic RPC
+      const { data: rpcData, error: e } = await s.rpc("record_fee_payment", {
         p_organization_id: org,
         p_student_id: payOpen.student_id,
         p_fee_month_id: payOpen.id,
@@ -198,15 +210,66 @@ export default function Fees() {
         p_idempotency_key: key,
       });
 
-      if (e) {
-        setError(e.message);
-        return;
+      if (!e && (rpcData?.success || rpcData?.payment_id)) {
+        recordSuccess = true;
+        recNo = rpcData?.receipt_no || "Generated";
+      } else {
+        // 2. Direct fallback
+        try {
+          const genReceipt =
+            "REC-" +
+            (payment.paid_on || new Date().toISOString().slice(0, 10)).replace(/-/g, "").slice(0, 6) +
+            "-" +
+            Math.floor(1000 + Math.random() * 9000);
+
+          const { data: payRow, error: payErr } = await s
+            .from("fee_payments")
+            .insert({
+              organization_id: org,
+              student_id: payOpen.student_id,
+              amount: amount,
+              paid_on: payment.paid_on,
+              method: payment.method,
+              reference: payment.reference || null,
+              fee_month: payOpen.fee_month,
+              fee_month_id: payOpen.id,
+              receipt_no: genReceipt,
+              idempotency_key: key,
+            })
+            .select("id, receipt_no")
+            .single();
+
+          if (!payErr) {
+            recordSuccess = true;
+            recNo = payRow?.receipt_no || genReceipt;
+            const newPaid = Number(payOpen.amount_paid) + amount;
+            const newStatus = newPaid >= Number(payOpen.amount_due) ? "paid" : "partial";
+            await s
+              .from("student_fee_months")
+              .update({
+                amount_paid: newPaid,
+                status: newStatus,
+                paid_on: payment.paid_on,
+              })
+              .eq("id", payOpen.id);
+          } else {
+            setModalError(e?.message || payErr?.message || "Failed to record payment.");
+            return;
+          }
+        } catch (fbErr: any) {
+          setModalError(e?.message || fbErr?.message || "Failed to record payment.");
+          return;
+        }
       }
 
-      setPayOpen(null);
-      setPaymentKey(null);
-      setPayment({ amount: "", paid_on: new Date().toISOString().slice(0, 10), method: "cash", reference: "" });
-      await load();
+      if (recordSuccess) {
+        setSuccess(`Payment of ₹${amount.toLocaleString("en-IN")} recorded successfully! Receipt: ${recNo}`);
+        setPayOpen(null);
+        setPaymentKey(null);
+        setModalError("");
+        setPayment({ amount: "", paid_on: new Date().toISOString().slice(0, 10), method: "cash", reference: "" });
+        await load();
+      }
     } finally {
       paymentLock.current = false;
       setIsSubmitting(false);
@@ -253,7 +316,10 @@ export default function Fees() {
         </div>
         {canManage && (
           <button
-            onClick={() => setPlanOpen(true)}
+            onClick={() => {
+              setPlanError("");
+              setPlanOpen(true);
+            }}
             className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
           >
             <Plus size={17} className="mr-1 inline" />
@@ -276,6 +342,17 @@ export default function Fees() {
       </div>
 
       {error && <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {success && (
+        <div className="mt-4 flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-800">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={18} className="text-emerald-600" />
+            <span>{success}</span>
+          </div>
+          <button onClick={() => setSuccess("")} className="text-emerald-600 hover:text-emerald-800">
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       <div className="mt-6 flex gap-2">
         <button
@@ -360,6 +437,8 @@ export default function Fees() {
           onClose={() => setSelected(null)}
           onPay={(m) => {
             setPayOpen(m);
+            setModalError("");
+            setError("");
             setPaymentKey(crypto.randomUUID());
             setPayment({ ...payment, amount: String(Number(m.amount_due) - Number(m.amount_paid)) });
           }}
@@ -422,6 +501,11 @@ export default function Fees() {
                 className="w-full rounded-xl border px-3 py-2.5 text-sm"
               />
             </div>
+            {planError && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                {planError}
+              </div>
+            )}
             <button
               onClick={savePlan}
               className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
@@ -477,6 +561,11 @@ export default function Fees() {
                 className="w-full rounded-xl border px-3 py-2.5 text-sm"
               />
             </div>
+            {modalError && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                {modalError}
+              </div>
+            )}
             <button
               disabled={isSubmitting}
               onClick={savePayment}

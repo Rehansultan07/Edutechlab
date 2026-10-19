@@ -240,7 +240,7 @@ begin
   insert into public.fee_payments(
     organization_id, student_id, amount, paid_on, method, reference, receipt_no, fee_month, fee_month_id, idempotency_key
   ) values (
-    p_organization_id, p_student_id, p_amount, coalesce(p_paid_on, current_date), coalesce(p_method, 'cash'), p_reference, v_receipt_no, to_char(v_month.fee_month, 'YYYY-MM-DD'), p_fee_month_id, p_idempotency_key
+    p_organization_id, p_student_id, p_amount, coalesce(p_paid_on, current_date), coalesce(p_method, 'cash'), p_reference, v_receipt_no, v_month.fee_month, p_fee_month_id, p_idempotency_key
   ) returning id into v_payment_id;
 
   -- Update month record
