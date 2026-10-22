@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, FileText, Bell, Settings, Menu, X, ChevronRight, Search, ShieldCheck, BookOpen, CreditCard, Sparkles, AlertCircle, Printer, Award, Receipt, Calendar, Cake, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, GraduationCap, ClipboardCheck, WalletCards, FileText, Bell, Settings, Menu, X, ChevronRight, Search, ShieldCheck, BookOpen, CreditCard, Sparkles, AlertCircle, Printer, Award, Receipt, Calendar, Cake, LogOut, Video } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import InstallButton from "@/components/pwa/InstallButton";
@@ -195,6 +195,20 @@ export default function Dashboard(){
                     <div>
                       <p className="font-semibold text-slate-800">Subscription & Quota</p>
                       <p className="text-[10px] text-slate-400 font-normal">Plan status & Student limits</p>
+                    </div>
+                  </Link>
+
+                  <Link
+                    href="/preview"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-purple-700 hover:bg-purple-50 transition"
+                  >
+                    <div className="grid h-7 w-7 place-items-center rounded-lg bg-purple-100 text-purple-700">
+                      <Video size={15} />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-purple-900">Video Presentation Hub</p>
+                      <p className="text-[10px] text-purple-600/80 font-normal">10-Sec Animated Demos & Reels</p>
                     </div>
                   </Link>
                 </div>
