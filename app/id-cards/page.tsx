@@ -298,7 +298,8 @@ export default function IdCardGenerator() {
               const sectionName = s.section_id ? sectionMap[s.section_id] || "" : "";
               const fullName = `${s.first_name} ${s.last_name || ""}`.trim();
               const initials = `${s.first_name[0] || ""}${(s.last_name || "")[0] || ""}`.toUpperCase();
-              const qrData = `https://edutechlab.vercel.app/parent-portal?id=${encodeURIComponent(s.admission_no)}`;
+              const origin = typeof window !== "undefined" ? window.location.origin : "https://edutechlab-9fz4.vercel.app";
+              const qrData = `${origin}/parent-portal?id=${encodeURIComponent(s.admission_no)}`;
               const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
 
               return (

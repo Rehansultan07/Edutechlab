@@ -818,7 +818,7 @@ export default function SuperAdminPage() {
       const origin =
         typeof window !== "undefined" && window.location.origin
           ? window.location.origin
-          : "https://edutechlab.vercel.app";
+          : "https://edutechlab-9fz4.vercel.app";
       const portalUrl = `${origin}/login`;
 
       setDemoSuccess({
