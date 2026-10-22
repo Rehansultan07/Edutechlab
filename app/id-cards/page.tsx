@@ -734,7 +734,10 @@ export default function IdCardGenerator() {
                   <div
                     className="pt-5 pb-3 px-3.5 text-center text-white relative shadow-sm"
                     style={{
-                      background: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
+                      backgroundColor: themeColor,
+                      backgroundImage: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
+                      WebkitPrintColorAdjust: "exact",
+                      printColorAdjust: "exact",
                     }}
                   >
                     <div className="flex items-center justify-center gap-2.5">
@@ -915,7 +918,10 @@ export default function IdCardGenerator() {
                   <div
                     className="pt-4 pb-2 px-4 text-white relative shadow-sm"
                     style={{
-                      background: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
+                      backgroundColor: themeColor,
+                      backgroundImage: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
+                      WebkitPrintColorAdjust: "exact",
+                      printColorAdjust: "exact",
                     }}
                   >
                     <div className="flex items-center justify-between">
@@ -1317,6 +1323,19 @@ export default function IdCardGenerator() {
               </div>
             </div>
 
+            {/* Crucial Color Printing Notice */}
+            <div className="mt-3.5 rounded-2xl bg-amber-50 border border-amber-300 p-3 text-xs text-amber-950 flex items-start gap-2.5 shadow-xs">
+              <span className="text-base shrink-0">🎨</span>
+              <div className="space-y-1">
+                <p className="font-bold text-amber-900">
+                  Color Printout Guideline (Chrome / Edge / Windows):
+                </p>
+                <p className="text-[11px] leading-relaxed text-amber-800">
+                  Jab printer window khule, toh <strong>&ldquo;Color&rdquo;</strong> select karein aur <strong>&ldquo;More settings&rdquo; (अधिक सेटिंग्स)</strong> ke andar <strong>&ldquo;Background graphics&rdquo; (पृष्ठभूमि ग्राफिक्स)</strong> check/tick hona zaroori hai, tabhi poora colorful gradient aur card design print hoga!
+                </p>
+              </div>
+            </div>
+
             {/* Actions */}
             <div className="mt-5 flex items-center justify-end gap-2.5">
               <button
@@ -1440,13 +1459,25 @@ export default function IdCardGenerator() {
         </div>
       )}
 
-      {/* Print Specific CSS Styles for exact A4 layout */}
+      {/* Print Specific CSS Styles for exact A4 layout & vibrant color preservation */}
       <style jsx global>{`
         @media print {
-          body {
-            background-color: white !important;
-            color: black !important;
+          *,
+          *::before,
+          *::after {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
           }
+
+          html,
+          body {
+            background-color: #ffffff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
+
           @page {
             size: A4 portrait;
             margin: 8mm;
@@ -1488,6 +1519,23 @@ export default function IdCardGenerator() {
             page-break-inside: avoid !important;
             box-shadow: none !important;
             border: 1px solid #cbd5e1 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
+
+          /* Force all colored headers and badges to print in full color */
+          .id-card [style*="background"],
+          .id-card-horizontal [style*="background"],
+          .id-card-back [style*="background"],
+          .bg-purple-50,
+          .bg-emerald-100,
+          .bg-amber-100,
+          .bg-red-50,
+          .bg-slate-100 {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
           }
 
           .cut-guide-border {
