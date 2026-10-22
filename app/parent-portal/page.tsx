@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   GraduationCap,
@@ -17,6 +17,12 @@ import {
   Building2,
   Printer,
   ChevronRight,
+  QrCode,
+  ShieldCheck,
+  Phone,
+  MapPin,
+  CreditCard,
+  UserCheck,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -91,6 +97,29 @@ export default function ParentPortalPage() {
   const [error, setError] = useState("");
   const [data, setData] = useState<PortalData | null>(null);
   const [activeTab, setActiveTab] = useState<"attendance" | "fees" | "exams" | "notices">("attendance");
+  const [qrProfile, setQrProfile] = useState<any>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const idParam = params.get("id") || params.get("adm");
+    if (idParam) {
+      setAdmissionNo(idParam);
+      setQrLoading(true);
+      (async () => {
+        try {
+          const { data: res, error: rpcErr } = await supabase.rpc("get_student_qr_profile", {
+            p_admission_no: idParam.trim(),
+          });
+          if (!rpcErr && res?.success) {
+            setQrProfile(res);
+          }
+        } catch {}
+        setQrLoading(false);
+      })();
+    }
+  }, []);
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,24 +159,168 @@ export default function ParentPortalPage() {
     setError("");
   };
 
-  // If not verified, show lookup card
+  // If not verified, show lookup card or QR Scan Live Verification Card
   if (!data) {
     return (
       <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 sm:py-12">
         <div className="mx-auto max-w-lg">
-          <div className="mb-8 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-md">
-              <GraduationCap size={24} />
+          {/* If scanned via QR code and profile verified */}
+          {qrProfile && qrProfile.success ? (
+            <div className="mb-6 space-y-4">
+              {/* Verified Digital Card */}
+              <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
+                {/* Header with School Branding */}
+                <div
+                  className="p-4 text-white relative"
+                  style={{ backgroundColor: qrProfile.institution.primary_color || "#1e293b" }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="grid h-8 w-8 place-items-center rounded-xl bg-white/20 text-white font-bold text-xs backdrop-blur-sm">
+                        <GraduationCap size={18} />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-sm uppercase tracking-wide leading-tight">
+                          {qrProfile.institution.name}
+                        </h3>
+                        <p className="text-[10px] text-white/80 line-clamp-1">
+                          {qrProfile.institution.address || "Verified Educational Institution"}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[9px] font-bold text-emerald-300 border border-emerald-400/30 flex items-center gap-1">
+                      <ShieldCheck size={11} /> Verified ID
+                    </span>
+                  </div>
+                </div>
+
+                {/* Student Bio */}
+                <div className="p-5">
+                  <div className="flex items-start gap-4">
+                    <div className="relative h-18 w-18 rounded-2xl border-2 border-slate-100 bg-slate-100 shadow-sm overflow-hidden grid place-items-center shrink-0">
+                      {qrProfile.student.photo_url ? (
+                        <img
+                          src={qrProfile.student.photo_url}
+                          alt={qrProfile.student.full_name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xl font-black text-slate-400 uppercase">
+                          {qrProfile.student.full_name.slice(0, 2)}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700">
+                        Class: {qrProfile.student.class_name} {qrProfile.student.section_name ? `(${qrProfile.student.section_name})` : ""}
+                      </div>
+                      <h2 className="mt-1 text-lg font-black text-slate-900 leading-tight">
+                        {qrProfile.student.full_name}
+                      </h2>
+                      <p className="text-xs font-mono text-slate-500">
+                        Adm No: <strong className="text-slate-800">{qrProfile.student.admission_no}</strong>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* LIVE ATTENDANCE BADGE */}
+                  <div className="mt-4 rounded-2xl border p-3.5 flex items-center justify-between text-xs transition bg-slate-50 border-slate-200">
+                    <div className="flex items-center gap-2">
+                      <Clock size={16} className="text-slate-500" />
+                      <div>
+                        <span className="block text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                          Today&apos;s Attendance
+                        </span>
+                        <strong className="text-slate-800 capitalize">
+                          {qrProfile.attendance_today.status === "present"
+                            ? `Present ${qrProfile.attendance_today.time ? `(${qrProfile.attendance_today.time})` : ""} ✓`
+                            : qrProfile.attendance_today.status === "absent"
+                            ? "Marked Absent ✕"
+                            : "Not marked yet today"}
+                        </strong>
+                      </div>
+                    </div>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        qrProfile.attendance_today.status === "present"
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                          : qrProfile.attendance_today.status === "absent"
+                          ? "bg-rose-100 text-rose-800 border border-rose-300"
+                          : "bg-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {qrProfile.attendance_today.status}
+                    </span>
+                  </div>
+
+                  {/* LIVE FEE DUES STATUS ALERT */}
+                  <div
+                    className={`mt-3 rounded-2xl border p-4 text-xs ${
+                      qrProfile.fees.has_dues
+                        ? "border-amber-200 bg-amber-50 text-amber-950"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-950"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Wallet
+                          size={18}
+                          className={qrProfile.fees.has_dues ? "text-amber-600" : "text-emerald-600"}
+                        />
+                        <span className="font-extrabold text-sm">
+                          {qrProfile.fees.has_dues ? "Fee Dues Notice" : "Fee Status"}
+                        </span>
+                      </div>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider ${
+                          qrProfile.fees.has_dues
+                            ? "bg-amber-200 text-amber-900"
+                            : "bg-emerald-200 text-emerald-900"
+                        }`}
+                      >
+                        {qrProfile.fees.has_dues ? "Pending Dues" : "Paid ✓"}
+                      </span>
+                    </div>
+
+                    <p className="mt-2 text-xs font-semibold leading-relaxed">
+                      {qrProfile.fees.status_message}
+                    </p>
+
+                    {qrProfile.fees.has_dues && (
+                      <p className="mt-1 text-[11px] text-amber-800">
+                        Please deposit the pending fees at the school accounts desk or online via the school&apos;s UPI QR.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-            <h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-              Parent & Guardian Portal
-            </h1>
-            <p className="mt-2 text-sm text-slate-500">
-              Access your child's live attendance, fee receipts, marksheets, and school notices.
-            </p>
+          ) : null}
+
+          <div className="mb-6 text-center">
+            {!qrProfile && (
+              <>
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-md">
+                  <GraduationCap size={24} />
+                </div>
+                <h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                  Parent &amp; Guardian Portal
+                </h1>
+                <p className="mt-2 text-sm text-slate-500">
+                  Access live attendance, fee receipts, marksheets, and school notices.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl sm:p-8">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">
+              {qrProfile ? "Unlock Full Academic Records & Receipts" : "Student Verification"}
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Enter registered phone number or Date of Birth to view all term marksheets and receipts.
+            </p>
+
             <form onSubmit={handleLookup} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -192,7 +365,7 @@ export default function ParentPortalPage() {
                 disabled={loading}
                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
               >
-                {loading ? "Verifying..." : "View Student Portal"}
+                {loading ? "Verifying..." : "View Complete Portal"}
                 {!loading && <ArrowRight size={16} />}
               </button>
             </form>
