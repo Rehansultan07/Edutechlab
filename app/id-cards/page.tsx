@@ -26,6 +26,11 @@ import {
   FileText,
   AlertTriangle,
   RotateCcw,
+  ExternalLink,
+  CheckCircle2,
+  X,
+  CreditCard,
+  Maximize2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
@@ -66,24 +71,32 @@ type StudentFeeStatus = {
 };
 
 const THEME_COLORS = [
-  { name: "Royal Indigo", hex: "#4338ca" },
-  { name: "Deep Navy", hex: "#0f2746" },
-  { name: "Emerald Green", hex: "#047857" },
-  { name: "Crimson Maroon", hex: "#881337" },
-  { name: "Dark Slate", hex: "#1e293b" },
-  { name: "Deep Violet", hex: "#6b21a8" },
+  { name: "Royal Indigo", hex: "#312e81", accent: "#6366f1" },
+  { name: "Deep Navy", hex: "#0a192f", accent: "#38bdf8" },
+  { name: "Emerald Green", hex: "#064e3b", accent: "#10b981" },
+  { name: "Crimson Maroon", hex: "#831843", accent: "#f43f5e" },
+  { name: "Dark Slate", hex: "#0f172a", accent: "#94a3b8" },
+  { name: "Royal Purple", hex: "#581c87", accent: "#a855f7" },
 ];
 
-function QRCodeImage({ value, className }: { value: string; className?: string }) {
+function QRCodeImage({
+  value,
+  className,
+  size = 360,
+}: {
+  value: string;
+  className?: string;
+  size?: number;
+}) {
   const [dataUrl, setDataUrl] = useState<string>("");
 
   useEffect(() => {
     let active = true;
     QRCode.toDataURL(value, {
-      width: 220,
+      width: size,
       margin: 1,
       color: {
-        dark: "#0f172a",
+        dark: "#000000",
         light: "#ffffff",
       },
       errorCorrectionLevel: "M",
@@ -94,14 +107,16 @@ function QRCodeImage({ value, className }: { value: string; className?: string }
       .catch((err) => {
         console.error("QR Code generation fallback:", err);
         if (active) {
-          setDataUrl(`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(value)}`);
+          setDataUrl(
+            `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(value)}`
+          );
         }
       });
 
     return () => {
       active = false;
     };
-  }, [value]);
+  }, [value, size]);
 
   if (!dataUrl) {
     return <div className={`animate-pulse bg-slate-200 ${className}`} />;
@@ -133,12 +148,16 @@ export default function IdCardGenerator() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Card Appearance Options
-  const [themeColor, setThemeColor] = useState<string>("#0f2746");
+  const [themeColor, setThemeColor] = useState<string>("#0a192f");
   const [sessionYear, setSessionYear] = useState<string>("2026-2027");
+  const [orientation, setOrientation] = useState<"vertical" | "horizontal">("vertical");
   const [cardLayout, setCardLayout] = useState<"front" | "dual">("front");
-  const [showQr, setShowQr] = useState(true);
-  const [showBarcode, setShowBarcode] = useState(true);
   const [printFeeStamp, setPrintFeeStamp] = useState(false);
+
+  // QR Inspection Modal
+  const [inspectStudent, setInspectStudent] = useState<Student | null>(null);
+  const [simulatingScan, setSimulatingScan] = useState(false);
+  const [scanResult, setScanResult] = useState<any>(null);
 
   useEffect(() => {
     if (!orgId || !hasAccess) return;
@@ -285,6 +304,31 @@ export default function IdCardGenerator() {
     setSelectedIds(next);
   };
 
+  // Live domain URL for QR codes (guarantees phones scan to public URL even when tested locally)
+  const originUrl =
+    typeof window !== "undefined" &&
+    !window.location.hostname.includes("localhost") &&
+    !window.location.hostname.includes("127.0.0.1")
+      ? window.location.origin
+      : "https://edutechlab-9fz4.vercel.app";
+
+  const handleSimulateGateScan = async (admissionNo: string) => {
+    setSimulatingScan(true);
+    setScanResult(null);
+    try {
+      const { data: res, error } = await supabase.rpc("mark_qr_attendance", {
+        p_admission_no: admissionNo,
+        p_organization_id: orgId,
+      });
+      if (error) throw error;
+      setScanResult(res);
+    } catch (err: any) {
+      setScanResult({ success: false, error: err.message || "Failed to mark attendance" });
+    } finally {
+      setSimulatingScan(false);
+    }
+  };
+
   if (!featureActive) {
     return (
       <div className="min-h-screen bg-slate-50 p-6">
@@ -305,11 +349,8 @@ export default function IdCardGenerator() {
     return <AccessDenied moduleName="ID Cards" />;
   }
 
-  const originUrl =
-    typeof window !== "undefined" ? window.location.origin : "https://edutechlab-9fz4.vercel.app";
-
   return (
-    <div className="min-h-screen bg-slate-100/70 pb-16">
+    <div className="min-h-screen bg-slate-100/70 pb-16 font-sans">
       {/* ============================================================== */}
       {/* TOP CONTROL BAR (Hidden during printing)                       */}
       {/* ============================================================== */}
@@ -318,27 +359,34 @@ export default function IdCardGenerator() {
           <div className="flex items-center gap-3">
             <Link
               href="/dashboard"
-              className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-xs"
             >
-              <ArrowLeft size={16} />
+              <ArrowLeft size={18} />
             </Link>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                   Student Identity Cards
                 </h1>
-                <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-bold text-purple-700">
-                  QR Smart ID Generator
+                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 border border-emerald-200">
+                  CR80 Smart PVC
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Generate high-resolution printable ID cards equipped with live attendance QR codes &amp; fee verification.
+                Professional PVC cards equipped with prominent, ultra-scannable QR codes for Gate Attendance &amp; Live Fee Verification.
               </p>
             </div>
           </div>
 
           {/* Quick Actions */}
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/attendance"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50 transition"
+            >
+              <QrCode size={15} className="text-purple-600" />
+              <span>Gate QR Scanner Kiosk</span>
+            </Link>
             <button
               onClick={() => window.print()}
               disabled={cardsToPrint.length === 0}
@@ -351,7 +399,34 @@ export default function IdCardGenerator() {
         </div>
 
         {/* Customization Toolbar */}
-        <div className="mx-auto max-w-7xl mt-4 pt-4 border-t border-slate-100 grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-center text-xs">
+        <div className="mx-auto max-w-7xl mt-4 pt-4 border-t border-slate-100 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-center text-xs">
+          {/* Card Orientation */}
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+              Card Orientation
+            </label>
+            <div className="flex rounded-xl border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => setOrientation("vertical")}
+                className={`flex-1 rounded-lg py-1.5 transition ${
+                  orientation === "vertical" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
+                }`}
+              >
+                Vertical (CR80)
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrientation("horizontal")}
+                className={`flex-1 rounded-lg py-1.5 transition ${
+                  orientation === "horizontal" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
+                }`}
+              >
+                Horizontal (Wide)
+              </button>
+            </div>
+          </div>
+
           {/* Class Filter */}
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
@@ -399,7 +474,7 @@ export default function IdCardGenerator() {
                   type="button"
                   onClick={() => setThemeColor(tc.hex)}
                   className={`h-7 w-7 rounded-xl transition-transform ${
-                    themeColor === tc.hex ? "scale-110 ring-2 ring-purple-600 ring-offset-2" : "opacity-80"
+                    themeColor === tc.hex ? "scale-115 ring-2 ring-purple-600 ring-offset-2" : "opacity-80"
                   }`}
                   style={{ backgroundColor: tc.hex }}
                   title={tc.name}
@@ -425,14 +500,14 @@ export default function IdCardGenerator() {
           {/* Dual Side Toggle */}
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Card Format
+              Card Sides
             </label>
             <div className="flex rounded-xl border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-bold">
               <button
                 type="button"
                 onClick={() => setCardLayout("front")}
                 className={`flex-1 rounded-lg py-1.5 transition ${
-                  cardLayout === "front" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                  cardLayout === "front" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
                 }`}
               >
                 Front Only
@@ -441,7 +516,7 @@ export default function IdCardGenerator() {
                 type="button"
                 onClick={() => setCardLayout("dual")}
                 className={`flex-1 rounded-lg py-1.5 transition ${
-                  cardLayout === "dual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                  cardLayout === "dual" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
                 }`}
               >
                 Front &amp; Back
@@ -548,14 +623,20 @@ export default function IdCardGenerator() {
             </button>
           </div>
         ) : (
-          <div className="id-card-sheet grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 print:grid-cols-2 print:gap-4">
+          <div
+            className={`id-card-sheet grid gap-6 ${
+              orientation === "horizontal"
+                ? "grid-cols-1 md:grid-cols-2 print:grid-cols-2 print:gap-4"
+                : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 print:grid-cols-2 print:gap-4"
+            }`}
+          >
             {cardsToPrint.map((s) => {
               const className = s.class_id ? classMap[s.class_id] || "Standard" : "Standard";
               const sectionName = s.section_id ? sectionMap[s.section_id] || "" : "";
               const fullName = `${s.first_name} ${s.last_name || ""}`.trim();
               const initials = `${s.first_name[0] || ""}${(s.last_name || "")[0] || ""}`.toUpperCase();
 
-              // QR encodes direct verification portal URL
+              // QR encodes direct parent portal / attendance scan verification URL
               const qrData = `${originUrl}/parent-portal?id=${encodeURIComponent(s.admission_no)}`;
 
               const sFee = feeMap[s.id];
@@ -581,6 +662,16 @@ export default function IdCardGenerator() {
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
+                        onClick={() => setInspectStudent(s)}
+                        className="inline-flex items-center gap-1 rounded-md bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-0.5 text-[10px] font-bold text-purple-700 transition"
+                        title="Test & Inspect QR Code"
+                      >
+                        <QrCode size={11} />
+                        <span>Test QR</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => {
                           setSelectedIds(new Set([s.id]));
                           setTimeout(() => window.print(), 100);
@@ -597,7 +688,7 @@ export default function IdCardGenerator() {
                           Fee Due: ₹{sFee.dueAmount}
                         </span>
                       ) : (
-                        <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                        <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
                           Fee Paid ✓
                         </span>
                       )}
@@ -605,203 +696,359 @@ export default function IdCardGenerator() {
                   </div>
 
                   {/* ========================================================== */}
-                  {/* CARD FRONT: PROFESSIONAL PVC SMART IDENTITY CARD           */}
+                  {/* FORMAT 1: VERTICAL CR80 SMART PVC ID CARD                  */}
                   {/* ========================================================== */}
-                  <div
-                    className="id-card relative mx-auto w-full max-w-[325px] rounded-2xl border border-slate-300 bg-white shadow-lg overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[320px] print:h-[490px]"
-                    style={{ minHeight: "490px" }}
-                  >
-                    {/* Top Lanyard Slot Guide Mark */}
-                    <div className="absolute top-1.5 left-1/2 -translate-x-1/2 z-20 w-8 h-1.5 rounded-full bg-white/40 border border-white/60 pointer-events-none" />
-
-                    {/* Card Header with School Crest Branding */}
+                  {orientation === "vertical" ? (
                     <div
-                      className="pt-4 pb-2.5 px-3 text-center text-white relative shadow-sm"
-                      style={{ backgroundColor: themeColor }}
+                      className="id-card relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300/80 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[510px]"
+                      style={{ minHeight: "510px" }}
                     >
-                      <div className="flex items-center justify-center gap-2">
-                        {orgSettings?.logo_url ? (
-                          <img
-                            src={orgSettings.logo_url}
-                            alt=""
-                            className="h-8 w-8 rounded-lg object-contain bg-white/10 p-0.5"
-                          />
-                        ) : (
-                          <div className="grid h-8 w-8 place-items-center rounded-lg bg-white/20 text-white font-bold text-xs backdrop-blur-sm">
-                            <GraduationCap size={18} />
-                          </div>
-                        )}
-                        <div className="text-left">
-                          <h4 className="font-black text-xs uppercase tracking-wide leading-tight line-clamp-1">
-                            {orgName}
-                          </h4>
-                          <p className="text-[9px] text-white/80 font-medium line-clamp-1">
-                            {orgSettings?.address || "Recognized Educational Institution"}
-                          </p>
-                        </div>
-                      </div>
+                      {/* Top Lanyard Slot Guide Mark */}
+                      <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 w-9 h-1.5 rounded-full bg-slate-800/60 border border-white/50 pointer-events-none" />
 
-                      <div className="mt-1.5 flex items-center justify-between px-2 text-[8px] font-black uppercase tracking-widest text-white/90 border-t border-white/20 pt-1">
-                        <span>STUDENT SMART ID</span>
-                        <span>SESSION {sessionYear}</span>
-                      </div>
-                    </div>
-
-                    {/* Student Photo & Identity Pill */}
-                    <div className="px-4 pt-2.5 text-center relative">
-                      {/* Photo Frame */}
-                      <div className="relative mx-auto h-22 w-22 rounded-2xl border-2 border-white shadow-md overflow-hidden bg-slate-100 grid place-items-center">
-                        {s.photo_url ? (
-                          <img
-                            src={s.photo_url}
-                            alt={fullName}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div
-                            className="h-full w-full grid place-items-center text-2xl font-black text-white"
-                            style={{ backgroundColor: themeColor }}
-                          >
-                            {initials || "ST"}
-                          </div>
-                        )}
-                      </div>
-
-                      <h3 className="mt-2 text-base font-black text-slate-900 leading-tight uppercase tracking-tight">
-                        {fullName}
-                      </h3>
-
-                      <div className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-purple-50 px-2.5 py-0.5 text-[10px] font-bold text-purple-800 border border-purple-200">
-                        <span>Class: {className} {sectionName ? `(${sectionName})` : ""}</span>
-                        <span>&bull;</span>
-                        <span>Adm No: <strong className="font-mono text-purple-900">{s.admission_no}</strong></span>
-                      </div>
-                    </div>
-
-                    {/* Student Details Grid */}
-                    <div className="px-4 py-2 text-[11px] text-slate-700 space-y-1">
-                      {s.father_name && (
-                        <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                          <span className="font-semibold text-slate-400">Father / Guardian:</span>
-                          <span className="font-bold text-slate-800 truncate max-w-[170px]">
-                            {s.father_name}
-                          </span>
-                        </div>
-                      )}
-                      {s.date_of_birth && (
-                        <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                          <span className="font-semibold text-slate-400">Date of Birth:</span>
-                          <span className="font-bold text-slate-800">{s.date_of_birth}</span>
-                        </div>
-                      )}
-                      {s.phone && (
-                        <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                          <span className="font-semibold text-slate-400">Emergency Contact:</span>
-                          <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
-                        </div>
-                      )}
-                      {s.blood_group && (
-                        <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                          <span className="font-semibold text-slate-400">Blood Group:</span>
-                          <span className="font-bold text-red-600">{s.blood_group}</span>
-                        </div>
-                      )}
-                      {s.address && (
-                        <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                          <span className="font-semibold text-slate-400">Address:</span>
-                          <span className="font-medium text-slate-800 truncate max-w-[190px]">
-                            {s.address}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Optional Fee Status Watermark Stamp */}
-                    {printFeeStamp && hasFeeDues && (
-                      <div className="mx-4 my-1 rounded-md bg-amber-50 border border-amber-300 p-1 text-center text-[9px] font-bold text-amber-800">
-                        ⚠️ Pending Fee Dues: ₹{sFee.dueAmount}
-                      </div>
-                    )}
-
-                    {/* Card Bottom: High-Res QR + Signature + Barcode */}
-                    <div className="px-4 pb-3 pt-1.5 border-t border-slate-200 bg-slate-50/70">
-                      <div className="flex items-center justify-between">
-                        {/* High-Resolution QR Code */}
-                        {showQr && (
-                          <div className="flex items-center gap-2">
-                            <QRCodeImage
-                              value={qrData}
-                              className="h-12 w-12 rounded-lg border border-slate-300 bg-white p-0.5 shadow-sm"
+                      {/* Header with Deep Modern Gradient */}
+                      <div
+                        className="pt-5 pb-3 px-3.5 text-center text-white relative shadow-sm"
+                        style={{
+                          background: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
+                        }}
+                      >
+                        <div className="flex items-center justify-center gap-2.5">
+                          {orgSettings?.logo_url ? (
+                            <img
+                              src={orgSettings.logo_url}
+                              alt=""
+                              className="h-9 w-9 rounded-xl object-contain bg-white/10 p-0.5 border border-white/20 shadow-xs"
                             />
-                            <div className="text-[8px] text-slate-500 font-semibold leading-tight">
-                              <span className="font-bold text-slate-800 block">Scan for Gate</span>
-                              <span>Attendance &amp; Dues</span>
+                          ) : (
+                            <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/20 text-white font-bold text-xs backdrop-blur-sm border border-white/20 shadow-xs">
+                              <GraduationCap size={20} />
                             </div>
+                          )}
+                          <div className="text-left">
+                            <h4 className="font-black text-xs sm:text-sm uppercase tracking-wide leading-tight line-clamp-1">
+                              {orgName}
+                            </h4>
+                            <p className="text-[9px] text-white/80 font-medium line-clamp-1">
+                              {orgSettings?.address || "Recognized Educational Institution"}
+                            </p>
                           </div>
-                        )}
+                        </div>
 
-                        {/* Principal Signature & Seal */}
-                        <div className="text-right">
-                          <div className="h-6 w-24 border-b border-dashed border-slate-400 flex items-center justify-center">
-                            <span className="text-[8px] text-purple-700 font-serif italic opacity-75">
-                              Authorized
+                        {/* Metallic / Ribbon Sub-Bar */}
+                        <div className="mt-2 flex items-center justify-between px-2 text-[8px] font-black uppercase tracking-widest text-white/90 border-t border-white/15 pt-1">
+                          <span className="flex items-center gap-1">
+                            <ShieldCheck size={10} className="text-amber-300" />
+                            <span>STUDENT SMART PASS</span>
+                          </span>
+                          <span className="rounded bg-white/15 px-1.5 py-0.2">SESSION {sessionYear}</span>
+                        </div>
+                      </div>
+
+                      {/* Student Photo & Identity Section */}
+                      <div className="px-4 pt-3 text-center relative">
+                        {/* Photo Frame with Dual Ring */}
+                        <div className="relative mx-auto h-22 w-22 rounded-2xl border-3 border-white shadow-md overflow-hidden bg-slate-100 grid place-items-center ring-2 ring-slate-200">
+                          {s.photo_url ? (
+                            <img
+                              src={s.photo_url}
+                              alt={fullName}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div
+                              className="h-full w-full grid place-items-center text-2xl font-black text-white"
+                              style={{ backgroundColor: themeColor }}
+                            >
+                              {initials || "ST"}
+                            </div>
+                          )}
+                          {/* Active Dot */}
+                          <div
+                            className="absolute bottom-1 right-1 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white shadow-xs"
+                            title="Active Student"
+                          />
+                        </div>
+
+                        <h3 className="mt-2 text-base font-black text-slate-900 leading-tight uppercase tracking-tight">
+                          {fullName}
+                        </h3>
+
+                        <div className="mt-1 flex items-center justify-center gap-1.5 flex-wrap">
+                          <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-900 border border-purple-200">
+                            Class: {className} {sectionName ? `(${sectionName})` : ""}
+                          </span>
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-800 font-mono border border-slate-200">
+                            ID: {s.admission_no}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Bio Details Grid */}
+                      <div className="px-4 py-2 text-[10.5px] text-slate-700 space-y-1">
+                        {s.father_name && (
+                          <div className="flex justify-between border-b border-slate-100 pb-0.5">
+                            <span className="font-semibold text-slate-400">Father&apos;s Name:</span>
+                            <span className="font-bold text-slate-800 truncate max-w-[170px]">
+                              {s.father_name}
                             </span>
                           </div>
-                          <span className="text-[8px] font-extrabold text-slate-500 uppercase tracking-tighter block mt-0.5">
-                            Principal Sign
-                          </span>
+                        )}
+                        {s.date_of_birth && (
+                          <div className="flex justify-between border-b border-slate-100 pb-0.5">
+                            <span className="font-semibold text-slate-400">Date of Birth:</span>
+                            <span className="font-bold text-slate-800">{s.date_of_birth}</span>
+                          </div>
+                        )}
+                        {s.phone && (
+                          <div className="flex justify-between border-b border-slate-100 pb-0.5">
+                            <span className="font-semibold text-slate-400">Emergency Contact:</span>
+                            <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
+                          </div>
+                        )}
+                        {s.blood_group && (
+                          <div className="flex justify-between border-b border-slate-100 pb-0.5">
+                            <span className="font-semibold text-slate-400">Blood Group:</span>
+                            <span className="font-bold text-red-600 bg-red-50 px-1.5 rounded">
+                              {s.blood_group}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Optional Fee Status Watermark Stamp */}
+                      {printFeeStamp && hasFeeDues && (
+                        <div className="mx-4 my-1 rounded-md bg-amber-50 border border-amber-300 p-1 text-center text-[9px] font-bold text-amber-800">
+                          ⚠️ Pending Fee Dues: ₹{sFee.dueAmount}
+                        </div>
+                      )}
+
+                      {/* ==================================================== */}
+                      {/* PROMINENT HIGH-VISIBILITY QR SCAN HUB (THE KEY FIX)  */}
+                      {/* ==================================================== */}
+                      <div className="px-3.5 pb-3 pt-2 border-t border-slate-200 bg-slate-50/90">
+                        <div className="flex items-center justify-between gap-3">
+                          {/* Dedicated Large High-Contrast QR Code */}
+                          <div
+                            onClick={() => setInspectStudent(s)}
+                            className="group relative cursor-pointer flex flex-col items-center bg-white p-1.5 rounded-2xl border-2 border-slate-200 shadow-sm hover:border-purple-500 hover:shadow-md transition"
+                            title="Click to test QR Code & Attendance scan"
+                          >
+                            {/* Scanning reticle visual brackets */}
+                            <div className="absolute top-0.5 left-0.5 w-2 h-2 border-t-2 border-l-2 border-slate-800 pointer-events-none rounded-tl-sm" />
+                            <div className="absolute top-0.5 right-0.5 w-2 h-2 border-t-2 border-r-2 border-slate-800 pointer-events-none rounded-tr-sm" />
+                            <div className="absolute bottom-0.5 left-0.5 w-2 h-2 border-b-2 border-l-2 border-slate-800 pointer-events-none rounded-bl-sm" />
+                            <div className="absolute bottom-0.5 right-0.5 w-2 h-2 border-b-2 border-r-2 border-slate-800 pointer-events-none rounded-br-sm" />
+
+                            <QRCodeImage
+                              value={qrData}
+                              className="h-24 w-24 object-contain rounded-lg"
+                              size={360}
+                            />
+                            <span className="mt-1 text-[7.5px] font-black uppercase tracking-tight text-slate-800 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
+                              📷 GATE ATTENDANCE
+                            </span>
+                          </div>
+
+                          {/* Right Side: Authority Seal & Sign */}
+                          <div className="flex-1 flex flex-col justify-between h-24 text-right py-0.5">
+                            <div className="flex items-center justify-end gap-1 text-[8px] text-slate-500 font-bold uppercase tracking-wider">
+                              <ShieldCheck size={12} className="text-purple-600" />
+                              <span>Verified Card</span>
+                            </div>
+
+                            {/* Principal Signature Container */}
+                            <div>
+                              <div className="h-9 border-b border-dashed border-slate-400 flex items-end justify-center pb-0.5">
+                                <span className="text-[12px] text-purple-800 font-serif italic font-bold">
+                                  Authorized Sign
+                                </span>
+                              </div>
+                              <span className="text-[8px] font-extrabold text-slate-600 uppercase tracking-tight block mt-0.5">
+                                Principal Signature
+                              </span>
+                            </div>
+
+                            <div className="text-[7.5px] font-mono text-slate-400 tracking-widest">
+                              *{s.admission_no}*
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ========================================================== */
+                    /* FORMAT 2: HORIZONTAL / LANDSCAPE SMART PVC ID CARD         */
+                    /* ========================================================== */
+                    <div
+                      className="id-card-horizontal relative mx-auto w-full max-w-[460px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[450px] print:h-[280px]"
+                      style={{ minHeight: "280px" }}
+                    >
+                      {/* Top Lanyard Slot Guide Mark */}
+                      <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 w-10 h-1.5 rounded-full bg-slate-800/50 border border-white/60 pointer-events-none" />
+
+                      {/* Header with Institution Banner */}
+                      <div
+                        className="pt-4 pb-2 px-4 text-white relative shadow-sm"
+                        style={{
+                          background: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
+                        }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {orgSettings?.logo_url ? (
+                              <img
+                                src={orgSettings.logo_url}
+                                alt=""
+                                className="h-8 w-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/20"
+                              />
+                            ) : (
+                              <div className="grid h-8 w-8 place-items-center rounded-lg bg-white/20 text-white font-bold text-xs backdrop-blur-sm">
+                                <GraduationCap size={18} />
+                              </div>
+                            )}
+                            <div>
+                              <h4 className="font-black text-xs uppercase tracking-wide leading-tight">
+                                {orgName}
+                              </h4>
+                              <p className="text-[8.5px] text-white/80 font-medium line-clamp-1">
+                                {orgSettings?.address || "Recognized Educational Institution"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <span className="rounded bg-white/20 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-amber-300">
+                              SMART PASS {sessionYear}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Barcode Representation */}
-                      {showBarcode && (
-                        <div className="mt-2 text-center">
-                          <div className="h-3.5 flex justify-center items-center gap-0.5 overflow-hidden opacity-80">
-                            {s.admission_no.split("").map((ch, i) => (
-                              <div
-                                key={i}
-                                className="h-full bg-slate-900"
-                                style={{ width: (ch.charCodeAt(0) % 3) + 1 + "px" }}
+                      {/* Card Body: 3-Column Layout (Photo | Bio Info | Large QR Scan) */}
+                      <div className="p-3.5 flex items-center justify-between gap-3">
+                        {/* Left: Photo Frame */}
+                        <div className="shrink-0 flex flex-col items-center">
+                          <div className="relative h-24 w-24 rounded-2xl border-2 border-white shadow-md overflow-hidden bg-slate-100 ring-2 ring-slate-200">
+                            {s.photo_url ? (
+                              <img
+                                src={s.photo_url}
+                                alt={fullName}
+                                className="h-full w-full object-cover"
                               />
-                            ))}
-                            <div className="h-full w-1 bg-slate-900" />
-                            <div className="h-full w-0.5 bg-slate-900" />
-                            <div className="h-full w-2 bg-slate-900" />
+                            ) : (
+                              <div
+                                className="h-full w-full grid place-items-center text-2xl font-black text-white"
+                                style={{ backgroundColor: themeColor }}
+                              >
+                                {initials || "ST"}
+                              </div>
+                            )}
                           </div>
-                          <span className="text-[8px] font-mono tracking-widest text-slate-500 block">
-                            *{s.admission_no}*
+                          <span className="mt-1.5 rounded-md bg-purple-50 px-2 py-0.5 text-[9px] font-bold text-purple-900 font-mono border border-purple-200">
+                            ADM: {s.admission_no}
                           </span>
                         </div>
-                      )}
+
+                        {/* Middle: Student Details */}
+                        <div className="flex-1 min-w-0 text-[10px] space-y-1">
+                          <h3 className="text-sm font-black text-slate-900 leading-tight uppercase tracking-tight truncate">
+                            {fullName}
+                          </h3>
+                          <div className="inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-800">
+                            Class: {className} {sectionName ? `(${sectionName})` : ""}
+                          </div>
+
+                          <div className="pt-1 space-y-0.5 text-slate-600">
+                            {s.father_name && (
+                              <div className="truncate">
+                                <span className="font-semibold text-slate-400">Father: </span>
+                                <span className="font-bold text-slate-800">{s.father_name}</span>
+                              </div>
+                            )}
+                            {s.date_of_birth && (
+                              <div>
+                                <span className="font-semibold text-slate-400">DOB: </span>
+                                <span className="font-bold text-slate-800">{s.date_of_birth}</span>
+                              </div>
+                            )}
+                            {s.phone && (
+                              <div>
+                                <span className="font-semibold text-slate-400">Contact: </span>
+                                <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
+                              </div>
+                            )}
+                            {s.blood_group && (
+                              <div>
+                                <span className="font-semibold text-slate-400">Blood: </span>
+                                <span className="font-bold text-red-600">{s.blood_group}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Right: Dedicated Large QR Code & Sign */}
+                        <div className="shrink-0 flex flex-col items-center">
+                          <div
+                            onClick={() => setInspectStudent(s)}
+                            className="group relative cursor-pointer bg-white p-1 rounded-2xl border-2 border-slate-200 shadow-sm hover:border-purple-500 hover:shadow-md transition"
+                            title="Click to test QR Code"
+                          >
+                            <QRCodeImage
+                              value={qrData}
+                              className="h-24 w-24 object-contain rounded-lg"
+                              size={360}
+                            />
+                            <span className="mt-0.5 block text-center text-[7.5px] font-black uppercase text-slate-700">
+                              GATE SCAN
+                            </span>
+                          </div>
+
+                          <div className="mt-1 text-center">
+                            <span className="text-[9px] text-purple-800 font-serif italic font-bold block">
+                              Authorized
+                            </span>
+                            <span className="text-[7px] font-extrabold text-slate-400 uppercase tracking-tighter">
+                              Principal Sign
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bottom Micro Footer */}
+                      <div className="px-4 py-1 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[8px] text-slate-400">
+                        <span>OFFICIAL STUDENT SMART IDENTITY CARD</span>
+                        <span className="font-mono">{orgSettings?.phone ? `Helpline: ${orgSettings.phone}` : ""}</span>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* ========================================================== */}
                   {/* CARD BACK SIDE (If Dual Side Format is selected)           */}
                   {/* ========================================================== */}
                   {cardLayout === "dual" && (
                     <div
-                      className="id-card-back relative mx-auto w-full max-w-[325px] rounded-2xl border border-slate-300 bg-white shadow-lg overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[320px] print:h-[490px] p-4 text-xs"
-                      style={{ minHeight: "490px" }}
+                      className="id-card-back relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[510px] p-5 text-xs"
+                      style={{ minHeight: "510px" }}
                     >
                       <div>
                         {/* Header */}
-                        <div className="text-center border-b border-slate-200 pb-2">
-                          <h4 className="font-extrabold text-xs uppercase text-slate-900">
+                        <div className="text-center border-b border-slate-200 pb-2.5">
+                          <h4 className="font-extrabold text-xs uppercase text-slate-900 tracking-wider">
                             {orgName}
                           </h4>
-                          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                          <span className="text-[9px] text-purple-700 font-bold uppercase tracking-wider block mt-0.5">
                             Card Holder Guidelines &bull; Terms
                           </span>
                         </div>
 
                         {/* Rules List */}
-                        <div className="mt-3 space-y-2 text-[10px] text-slate-600 leading-relaxed">
+                        <div className="mt-3.5 space-y-2 text-[10px] text-slate-600 leading-relaxed">
                           <p>
-                            1. <strong>Mandatory Attendance:</strong> Student must carry this card daily and scan at the gate QR kiosk upon arrival.
+                            1. <strong>Mandatory Attendance:</strong> Student must carry this card daily and scan at the gate QR kiosk upon arrival for automated attendance.
                           </p>
                           <p>
-                            2. <strong>Non-Transferable:</strong> This card is issued exclusively for {fullName} and cannot be transferred or lent.
+                            2. <strong>Non-Transferable:</strong> This card is issued exclusively for <strong>{fullName}</strong> and cannot be transferred or lent to anyone.
                           </p>
                           <p>
                             3. <strong>Loss or Damage:</strong> In case of loss or damage, immediately inform the school administration office for a replacement card.
@@ -809,6 +1056,21 @@ export default function IdCardGenerator() {
                           <p>
                             4. <strong>Live Verification:</strong> Parents can scan the front QR code from any smartphone to view live attendance records and fee dues status.
                           </p>
+                        </div>
+
+                        {/* Giant Gate Attendance Fast-Pass QR */}
+                        <div className="mt-4 flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+                          <span className="text-[9px] font-black uppercase tracking-wider text-slate-700 mb-1">
+                            GATE SCANNER PASS
+                          </span>
+                          <QRCodeImage
+                            value={qrData}
+                            className="h-28 w-28 object-contain rounded-xl bg-white p-1 border border-slate-200 shadow-xs"
+                            size={400}
+                          />
+                          <span className="text-[8px] text-slate-400 font-mono mt-1">
+                            Adm No: {s.admission_no}
+                          </span>
                         </div>
                       </div>
 
@@ -822,7 +1084,7 @@ export default function IdCardGenerator() {
                           )}
                         </div>
 
-                        <div className="mt-3 text-center text-[9px] text-slate-400 font-mono">
+                        <div className="mt-2 text-center text-[9px] text-slate-400 font-mono">
                           VALID FOR ACADEMIC SESSION {sessionYear}
                         </div>
                       </div>
@@ -834,6 +1096,107 @@ export default function IdCardGenerator() {
           </div>
         )}
       </main>
+
+      {/* ============================================================== */}
+      {/* QR TEST & INSPECTION MODAL (Lets user test with 1-click)       */}
+      {/* ============================================================== */}
+      {inspectStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  QR Code Inspection &amp; Live Test
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {inspectStudent.first_name} {inspectStudent.last_name || ""} &bull; Adm: {inspectStudent.admission_no}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setInspectStudent(null);
+                  setScanResult(null);
+                }}
+                className="rounded-xl p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Huge QR Code View */}
+            <div className="my-5 flex flex-col items-center">
+              <div className="rounded-2xl border-2 border-purple-200 bg-white p-4 shadow-lg">
+                <QRCodeImage
+                  value={`${originUrl}/parent-portal?id=${encodeURIComponent(inspectStudent.admission_no)}`}
+                  className="h-44 w-44 object-contain"
+                  size={500}
+                />
+              </div>
+              <p className="mt-2 text-xs font-semibold text-slate-600">
+                Point your phone camera here to scan instantly!
+              </p>
+              <div className="mt-1 flex items-center gap-1.5 text-[11px] font-mono text-purple-700 bg-purple-50 px-3 py-1 rounded-lg border border-purple-200">
+                <span>{`${originUrl}/parent-portal?id=${inspectStudent.admission_no}`}</span>
+              </div>
+            </div>
+
+            {/* Live Scan Results */}
+            {scanResult && (
+              <div
+                className={`mb-4 rounded-2xl p-3.5 text-xs ${
+                  scanResult.success
+                    ? "bg-emerald-50 text-emerald-900 border border-emerald-200"
+                    : "bg-red-50 text-red-900 border border-red-200"
+                }`}
+              >
+                {scanResult.success ? (
+                  <div>
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <CheckCircle2 size={16} className="text-emerald-600" />
+                      <span>{scanResult.message || "Attendance Marked Present!"}</span>
+                    </div>
+                    <div className="mt-1 text-[11px]">
+                      Student: <strong>{scanResult.student?.name}</strong> ({scanResult.student?.class_name})
+                    </div>
+                    {scanResult.fees?.has_dues && (
+                      <div className="mt-1 font-bold text-amber-700">
+                        {scanResult.fees?.status_message}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <span className="font-bold">Error:</span> {scanResult.error}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="space-y-2">
+              <a
+                href={`${originUrl}/parent-portal?id=${encodeURIComponent(inspectStudent.admission_no)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-purple-700 transition shadow-sm"
+              >
+                <ExternalLink size={14} />
+                <span>Open Parent Verification Portal (New Tab)</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => handleSimulateGateScan(inspectStudent.admission_no)}
+                disabled={simulatingScan}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+              >
+                <QrCode size={14} />
+                <span>{simulatingScan ? "Marking Attendance..." : "Simulate Gate Kiosk Scan"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Print Specific CSS Styles for exact A4 layout */}
       <style jsx global>{`
@@ -852,6 +1215,7 @@ export default function IdCardGenerator() {
             gap: 12px !important;
           }
           .id-card,
+          .id-card-horizontal,
           .id-card-back {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
