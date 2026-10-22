@@ -31,6 +31,9 @@ import {
   X,
   CreditCard,
   Maximize2,
+  Scissors,
+  Settings2,
+  SlidersHorizontal,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
@@ -69,6 +72,64 @@ type StudentFeeStatus = {
   dueAmount: number;
   dueMonthsCount: number;
 };
+
+export type SheetPresetId = "8_standard" | "10_horizontal" | "9_vertical" | "dragon_fold";
+
+interface SheetPresetDef {
+  id: SheetPresetId;
+  title: string;
+  badge: string;
+  capacity: number;
+  description: string;
+  screenGrid: string;
+  printClass: string;
+  orientation: "vertical" | "horizontal";
+  isDragon?: boolean;
+}
+
+const SHEET_PRESETS: SheetPresetDef[] = [
+  {
+    id: "8_standard",
+    title: "Standard 8 Cards / A4 (Recommended)",
+    badge: "⭐ Recommended • 2×4 Grid",
+    capacity: 8,
+    description: "2 columns × 4 rows. Safe 4mm cutting gaps. 100% compatible with all desktop printers without edge clipping.",
+    screenGrid: "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4",
+    printClass: "sheet-preset-8_standard",
+    orientation: "vertical",
+  },
+  {
+    id: "10_horizontal",
+    title: "Economy 10 Cards / A4 (Horizontal)",
+    badge: "📄 Max Paper Saving • 2×5 Grid",
+    capacity: 10,
+    description: "2 columns × 5 rows in Landscape format. Fits 10 students per page for lowest cost per student.",
+    screenGrid: "grid-cols-1 md:grid-cols-2",
+    printClass: "sheet-preset-10_horizontal",
+    orientation: "horizontal",
+  },
+  {
+    id: "9_vertical",
+    title: "Compact 9 Cards / A4 (Vertical 3×3)",
+    badge: "📐 High Density • 3×3 Grid",
+    capacity: 9,
+    description: "3 columns × 3 rows vertical layout. Maximizes portrait card count per sheet.",
+    screenGrid: "grid-cols-1 md:grid-cols-2 lg:grid-cols-3",
+    printClass: "sheet-preset-9_vertical",
+    orientation: "vertical",
+  },
+  {
+    id: "dragon_fold",
+    title: "PVC Dragon Sheet (Front + Back Paired)",
+    badge: "🛡️ Heavy Thermal PVC Foldable",
+    capacity: 4,
+    description: "Front & Back paired side-by-side with a center fold line. 4 students (8 sides) per sheet for heavy thermal pouch lamination.",
+    screenGrid: "grid-cols-1 lg:grid-cols-2",
+    printClass: "sheet-preset-dragon_fold",
+    orientation: "vertical",
+    isDragon: true,
+  },
+];
 
 const THEME_COLORS = [
   { name: "Royal Indigo", hex: "#312e81", accent: "#6366f1" },
@@ -153,6 +214,11 @@ export default function IdCardGenerator() {
   const [orientation, setOrientation] = useState<"vertical" | "horizontal">("vertical");
   const [cardLayout, setCardLayout] = useState<"front" | "dual">("front");
   const [printFeeStamp, setPrintFeeStamp] = useState(false);
+
+  // A4 Sheet Layout & Print Settings
+  const [sheetPreset, setSheetPreset] = useState<SheetPresetId>("8_standard");
+  const [showCutGuides, setShowCutGuides] = useState(true);
+  const [showPrintModal, setShowPrintModal] = useState(false);
 
   // QR Inspection Modal
   const [inspectStudent, setInspectStudent] = useState<Student | null>(null);
@@ -263,6 +329,24 @@ export default function IdCardGenerator() {
   const classMap = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c.name])), [classes]);
   const sectionMap = useMemo(() => Object.fromEntries(sections.map((s) => [s.id, s.name])), [sections]);
 
+  // Current active preset definition
+  const activePreset = useMemo(
+    () => SHEET_PRESETS.find((p) => p.id === sheetPreset) || SHEET_PRESETS[0],
+    [sheetPreset]
+  );
+
+  // Sync orientation with preset selection
+  const handleSelectPreset = (presetId: SheetPresetId) => {
+    setSheetPreset(presetId);
+    const p = SHEET_PRESETS.find((x) => x.id === presetId);
+    if (p) {
+      setOrientation(p.orientation);
+      if (p.isDragon) {
+        setCardLayout("dual");
+      }
+    }
+  };
+
   // Filtered Students
   const displayedStudents = useMemo(() => {
     return students.filter((s) => {
@@ -329,6 +413,16 @@ export default function IdCardGenerator() {
     }
   };
 
+  const handleProceedPrint = () => {
+    setShowPrintModal(false);
+    setTimeout(() => {
+      window.print();
+    }, 150);
+  };
+
+  // Estimated sheets needed
+  const estimatedSheets = Math.ceil(cardsToPrint.length / activePreset.capacity) || 1;
+
   if (!featureActive) {
     return (
       <div className="min-h-screen bg-slate-50 p-6">
@@ -369,11 +463,11 @@ export default function IdCardGenerator() {
                   Student Identity Cards
                 </h1>
                 <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 border border-emerald-200">
-                  CR80 Smart PVC
+                  {activePreset.badge}
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Professional PVC cards equipped with prominent, ultra-scannable QR codes for Gate Attendance &amp; Live Fee Verification.
+                Generate high-resolution printable ID cards equipped with live attendance QR codes &amp; fee verification.
               </p>
             </div>
           </div>
@@ -387,44 +481,48 @@ export default function IdCardGenerator() {
               <QrCode size={15} className="text-purple-600" />
               <span>Gate QR Scanner Kiosk</span>
             </Link>
+
+            {/* Print Settings Button */}
             <button
-              onClick={() => window.print()}
+              onClick={() => setShowPrintModal(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-2.5 text-xs font-bold text-purple-700 shadow-xs hover:bg-purple-100 transition"
+              title="Configure A4 Sheet Layout & Cut Guides"
+            >
+              <Settings2 size={15} />
+              <span>A4 Print Setup</span>
+            </button>
+
+            {/* Main Print Button */}
+            <button
+              onClick={() => setShowPrintModal(true)}
               disabled={cardsToPrint.length === 0}
               className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-slate-800 transition disabled:opacity-50"
             >
               <Printer size={15} />
-              <span>Print {cardsToPrint.length} Selected Cards</span>
+              <span>Print {cardsToPrint.length} Cards ({estimatedSheets} Sheet{estimatedSheets > 1 ? "s" : ""})</span>
             </button>
           </div>
         </div>
 
         {/* Customization Toolbar */}
         <div className="mx-auto max-w-7xl mt-4 pt-4 border-t border-slate-100 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-center text-xs">
-          {/* Card Orientation */}
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Card Orientation
+          {/* A4 Sheet Layout Selector (The Requested Feature) */}
+          <div className="lg:col-span-2">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-purple-700 mb-1 flex items-center gap-1">
+              <Printer size={12} />
+              <span>A4 Sheet Print Layout</span>
             </label>
-            <div className="flex rounded-xl border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-bold">
-              <button
-                type="button"
-                onClick={() => setOrientation("vertical")}
-                className={`flex-1 rounded-lg py-1.5 transition ${
-                  orientation === "vertical" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
-                }`}
-              >
-                Vertical (CR80)
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrientation("horizontal")}
-                className={`flex-1 rounded-lg py-1.5 transition ${
-                  orientation === "horizontal" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
-                }`}
-              >
-                Horizontal (Wide)
-              </button>
-            </div>
+            <select
+              value={sheetPreset}
+              onChange={(e) => handleSelectPreset(e.target.value as SheetPresetId)}
+              className="w-full rounded-xl border-2 border-purple-300 bg-purple-50/50 px-3 py-2 text-xs font-bold text-purple-950 outline-none focus:border-purple-600"
+            >
+              {SHEET_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Class Filter */}
@@ -496,36 +594,9 @@ export default function IdCardGenerator() {
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-purple-600"
             />
           </div>
-
-          {/* Dual Side Toggle */}
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Card Sides
-            </label>
-            <div className="flex rounded-xl border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-bold">
-              <button
-                type="button"
-                onClick={() => setCardLayout("front")}
-                className={`flex-1 rounded-lg py-1.5 transition ${
-                  cardLayout === "front" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
-                }`}
-              >
-                Front Only
-              </button>
-              <button
-                type="button"
-                onClick={() => setCardLayout("dual")}
-                className={`flex-1 rounded-lg py-1.5 transition ${
-                  cardLayout === "dual" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
-                }`}
-              >
-                Front &amp; Back
-              </button>
-            </div>
-          </div>
         </div>
 
-        {/* Search & Selection Sub-Bar */}
+        {/* Search, Layout Presets, & Cutting Guides Sub-Bar */}
         <div className="mx-auto max-w-7xl mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="relative flex-1 min-w-[220px] max-w-md">
             <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
@@ -538,7 +609,7 @@ export default function IdCardGenerator() {
             />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4 flex-wrap">
             <button
               onClick={toggleSelectAll}
               className="inline-flex items-center gap-1.5 font-bold text-slate-700 hover:text-slate-900"
@@ -553,15 +624,29 @@ export default function IdCardGenerator() {
               </span>
             </button>
 
+            {/* Scissor Cutting Guidelines Toggle */}
+            <label className="inline-flex items-center gap-1.5 cursor-pointer text-slate-700 font-semibold select-none">
+              <input
+                type="checkbox"
+                checked={showCutGuides}
+                onChange={(e) => setShowCutGuides(e.target.checked)}
+                className="rounded border-slate-300 text-purple-600"
+              />
+              <span className="flex items-center gap-1">
+                <Scissors size={13} className="text-slate-500" />
+                <span>Show Cut Guides (✂️ Lines)</span>
+              </span>
+            </label>
+
             {/* Optional Print Watermark Toggle */}
-            <label className="inline-flex items-center gap-1.5 cursor-pointer text-slate-600">
+            <label className="inline-flex items-center gap-1.5 cursor-pointer text-slate-600 select-none">
               <input
                 type="checkbox"
                 checked={printFeeStamp}
                 onChange={(e) => setPrintFeeStamp(e.target.checked)}
                 className="rounded border-slate-300 text-purple-600"
               />
-              <span>Print Fee Due Stamp on Defaulters</span>
+              <span>Fee Due Stamp</span>
             </label>
           </div>
         </div>
@@ -623,13 +708,7 @@ export default function IdCardGenerator() {
             </button>
           </div>
         ) : (
-          <div
-            className={`id-card-sheet grid gap-6 ${
-              orientation === "horizontal"
-                ? "grid-cols-1 md:grid-cols-2 print:grid-cols-2 print:gap-4"
-                : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 print:grid-cols-2 print:gap-4"
-            }`}
-          >
+          <div className={`id-card-sheet ${activePreset.printClass} grid gap-6 ${activePreset.screenGrid}`}>
             {cardsToPrint.map((s) => {
               const className = s.class_id ? classMap[s.class_id] || "Standard" : "Standard";
               const sectionName = s.section_id ? sectionMap[s.section_id] || "" : "";
@@ -642,8 +721,400 @@ export default function IdCardGenerator() {
               const sFee = feeMap[s.id];
               const hasFeeDues = sFee && sFee.hasDues;
 
+              // Card Front Element
+              const CardFront = (
+                <div
+                  className="id-card relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300/80 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[500px]"
+                  style={{ minHeight: "500px" }}
+                >
+                  {/* Top Lanyard Slot Guide Mark */}
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 w-9 h-1.5 rounded-full bg-slate-800/60 border border-white/50 pointer-events-none" />
+
+                  {/* Header with Deep Modern Gradient */}
+                  <div
+                    className="pt-5 pb-3 px-3.5 text-center text-white relative shadow-sm"
+                    style={{
+                      background: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
+                    }}
+                  >
+                    <div className="flex items-center justify-center gap-2.5">
+                      {orgSettings?.logo_url ? (
+                        <img
+                          src={orgSettings.logo_url}
+                          alt=""
+                          className="h-9 w-9 rounded-xl object-contain bg-white/10 p-0.5 border border-white/20 shadow-xs"
+                        />
+                      ) : (
+                        <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/20 text-white font-bold text-xs backdrop-blur-sm border border-white/20 shadow-xs">
+                          <GraduationCap size={20} />
+                        </div>
+                      )}
+                      <div className="text-left">
+                        <h4 className="font-black text-xs sm:text-sm uppercase tracking-wide leading-tight line-clamp-1">
+                          {orgName}
+                        </h4>
+                        <p className="text-[9px] text-white/80 font-medium line-clamp-1">
+                          {orgSettings?.address || "Recognized Educational Institution"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Metallic / Ribbon Sub-Bar */}
+                    <div className="mt-2 flex items-center justify-between px-2 text-[8px] font-black uppercase tracking-widest text-white/90 border-t border-white/15 pt-1">
+                      <span className="flex items-center gap-1">
+                        <ShieldCheck size={10} className="text-amber-300" />
+                        <span>STUDENT SMART PASS</span>
+                      </span>
+                      <span className="rounded bg-white/15 px-1.5 py-0.2">SESSION {sessionYear}</span>
+                    </div>
+                  </div>
+
+                  {/* Student Photo & Identity Section */}
+                  <div className="px-4 pt-3 text-center relative">
+                    {/* Photo Frame with Dual Ring */}
+                    <div className="relative mx-auto h-22 w-22 rounded-2xl border-3 border-white shadow-md overflow-hidden bg-slate-100 grid place-items-center ring-2 ring-slate-200">
+                      {s.photo_url ? (
+                        <img
+                          src={s.photo_url}
+                          alt={fullName}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div
+                          className="h-full w-full grid place-items-center text-2xl font-black text-white"
+                          style={{ backgroundColor: themeColor }}
+                        >
+                          {initials || "ST"}
+                        </div>
+                      )}
+                      {/* Active Dot */}
+                      <div
+                        className="absolute bottom-1 right-1 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white shadow-xs"
+                        title="Active Student"
+                      />
+                    </div>
+
+                    <h3 className="mt-2 text-base font-black text-slate-900 leading-tight uppercase tracking-tight">
+                      {fullName}
+                    </h3>
+
+                    <div className="mt-1 flex items-center justify-center gap-1.5 flex-wrap">
+                      <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-900 border border-purple-200">
+                        Class: {className} {sectionName ? `(${sectionName})` : ""}
+                      </span>
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-800 font-mono border border-slate-200">
+                        ID: {s.admission_no}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bio Details Grid */}
+                  <div className="px-4 py-2 text-[10.5px] text-slate-700 space-y-1">
+                    {s.father_name && (
+                      <div className="flex justify-between border-b border-slate-100 pb-0.5">
+                        <span className="font-semibold text-slate-400">Father&apos;s Name:</span>
+                        <span className="font-bold text-slate-800 truncate max-w-[170px]">
+                          {s.father_name}
+                        </span>
+                      </div>
+                    )}
+                    {s.date_of_birth && (
+                      <div className="flex justify-between border-b border-slate-100 pb-0.5">
+                        <span className="font-semibold text-slate-400">Date of Birth:</span>
+                        <span className="font-bold text-slate-800">{s.date_of_birth}</span>
+                      </div>
+                    )}
+                    {s.phone && (
+                      <div className="flex justify-between border-b border-slate-100 pb-0.5">
+                        <span className="font-semibold text-slate-400">Emergency Contact:</span>
+                        <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
+                      </div>
+                    )}
+                    {s.blood_group && (
+                      <div className="flex justify-between border-b border-slate-100 pb-0.5">
+                        <span className="font-semibold text-slate-400">Blood Group:</span>
+                        <span className="font-bold text-red-600 bg-red-50 px-1.5 rounded">
+                          {s.blood_group}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Optional Fee Status Watermark Stamp */}
+                  {printFeeStamp && hasFeeDues && (
+                    <div className="mx-4 my-1 rounded-md bg-amber-50 border border-amber-300 p-1 text-center text-[9px] font-bold text-amber-800">
+                      ⚠️ Pending Fee Dues: ₹{sFee.dueAmount}
+                    </div>
+                  )}
+
+                  {/* ==================================================== */}
+                  {/* PROMINENT HIGH-VISIBILITY QR SCAN HUB (THE KEY FIX)  */}
+                  {/* ==================================================== */}
+                  <div className="px-3.5 pb-3 pt-2 border-t border-slate-200 bg-slate-50/90">
+                    <div className="flex items-center justify-between gap-3">
+                      {/* Dedicated Large High-Contrast QR Code */}
+                      <div
+                        onClick={() => setInspectStudent(s)}
+                        className="group relative cursor-pointer flex flex-col items-center bg-white p-1.5 rounded-2xl border-2 border-slate-200 shadow-sm hover:border-purple-500 hover:shadow-md transition"
+                        title="Click to test QR Code & Attendance scan"
+                      >
+                        {/* Scanning reticle visual brackets */}
+                        <div className="absolute top-0.5 left-0.5 w-2 h-2 border-t-2 border-l-2 border-slate-800 pointer-events-none rounded-tl-sm" />
+                        <div className="absolute top-0.5 right-0.5 w-2 h-2 border-t-2 border-r-2 border-slate-800 pointer-events-none rounded-tr-sm" />
+                        <div className="absolute bottom-0.5 left-0.5 w-2 h-2 border-b-2 border-l-2 border-slate-800 pointer-events-none rounded-bl-sm" />
+                        <div className="absolute bottom-0.5 right-0.5 w-2 h-2 border-b-2 border-r-2 border-slate-800 pointer-events-none rounded-br-sm" />
+
+                        <QRCodeImage
+                          value={qrData}
+                          className="h-24 w-24 object-contain rounded-lg"
+                          size={360}
+                        />
+                        <span className="mt-1 text-[7.5px] font-black uppercase tracking-tight text-slate-800 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
+                          📷 GATE ATTENDANCE
+                        </span>
+                      </div>
+
+                      {/* Right Side: Authority Seal & Sign */}
+                      <div className="flex-1 flex flex-col justify-between h-24 text-right py-0.5">
+                        <div className="flex items-center justify-end gap-1 text-[8px] text-slate-500 font-bold uppercase tracking-wider">
+                          <ShieldCheck size={12} className="text-purple-600" />
+                          <span>Verified Card</span>
+                        </div>
+
+                        {/* Principal Signature Container */}
+                        <div>
+                          <div className="h-9 border-b border-dashed border-slate-400 flex items-end justify-center pb-0.5">
+                            <span className="text-[12px] text-purple-800 font-serif italic font-bold">
+                              Authorized Sign
+                            </span>
+                          </div>
+                          <span className="text-[8px] font-extrabold text-slate-600 uppercase tracking-tight block mt-0.5">
+                            Principal Signature
+                          </span>
+                        </div>
+
+                        <div className="text-[7.5px] font-mono text-slate-400 tracking-widest">
+                          *{s.admission_no}*
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+
+              // Card Horizontal Element
+              const CardHorizontal = (
+                <div
+                  className="id-card-horizontal relative mx-auto w-full max-w-[460px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[440px] print:h-[265px]"
+                  style={{ minHeight: "265px" }}
+                >
+                  {/* Top Lanyard Slot Guide Mark */}
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 w-10 h-1.5 rounded-full bg-slate-800/50 border border-white/60 pointer-events-none" />
+
+                  {/* Header with Institution Banner */}
+                  <div
+                    className="pt-4 pb-2 px-4 text-white relative shadow-sm"
+                    style={{
+                      background: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {orgSettings?.logo_url ? (
+                          <img
+                            src={orgSettings.logo_url}
+                            alt=""
+                            className="h-8 w-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/20"
+                          />
+                        ) : (
+                          <div className="grid h-8 w-8 place-items-center rounded-lg bg-white/20 text-white font-bold text-xs backdrop-blur-sm">
+                            <GraduationCap size={18} />
+                          </div>
+                        )}
+                        <div>
+                          <h4 className="font-black text-xs uppercase tracking-wide leading-tight">
+                            {orgName}
+                          </h4>
+                          <p className="text-[8.5px] text-white/80 font-medium line-clamp-1">
+                            {orgSettings?.address || "Recognized Educational Institution"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="rounded bg-white/20 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-amber-300">
+                          SMART PASS {sessionYear}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Body: 3-Column Layout (Photo | Bio Info | Large QR Scan) */}
+                  <div className="p-3.5 flex items-center justify-between gap-3">
+                    {/* Left: Photo Frame */}
+                    <div className="shrink-0 flex flex-col items-center">
+                      <div className="relative h-24 w-24 rounded-2xl border-2 border-white shadow-md overflow-hidden bg-slate-100 ring-2 ring-slate-200">
+                        {s.photo_url ? (
+                          <img
+                            src={s.photo_url}
+                            alt={fullName}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div
+                            className="h-full w-full grid place-items-center text-2xl font-black text-white"
+                            style={{ backgroundColor: themeColor }}
+                          >
+                            {initials || "ST"}
+                          </div>
+                        )}
+                      </div>
+                      <span className="mt-1.5 rounded-md bg-purple-50 px-2 py-0.5 text-[9px] font-bold text-purple-900 font-mono border border-purple-200">
+                        ADM: {s.admission_no}
+                      </span>
+                    </div>
+
+                    {/* Middle: Student Details */}
+                    <div className="flex-1 min-w-0 text-[10px] space-y-1">
+                      <h3 className="text-sm font-black text-slate-900 leading-tight uppercase tracking-tight truncate">
+                        {fullName}
+                      </h3>
+                      <div className="inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-800">
+                        Class: {className} {sectionName ? `(${sectionName})` : ""}
+                      </div>
+
+                      <div className="pt-1 space-y-0.5 text-slate-600">
+                        {s.father_name && (
+                          <div className="truncate">
+                            <span className="font-semibold text-slate-400">Father: </span>
+                            <span className="font-bold text-slate-800">{s.father_name}</span>
+                          </div>
+                        )}
+                        {s.date_of_birth && (
+                          <div>
+                            <span className="font-semibold text-slate-400">DOB: </span>
+                            <span className="font-bold text-slate-800">{s.date_of_birth}</span>
+                          </div>
+                        )}
+                        {s.phone && (
+                          <div>
+                            <span className="font-semibold text-slate-400">Contact: </span>
+                            <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
+                          </div>
+                        )}
+                        {s.blood_group && (
+                          <div>
+                            <span className="font-semibold text-slate-400">Blood: </span>
+                            <span className="font-bold text-red-600">{s.blood_group}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right: Dedicated Large QR Code & Sign */}
+                    <div className="shrink-0 flex flex-col items-center">
+                      <div
+                        onClick={() => setInspectStudent(s)}
+                        className="group relative cursor-pointer bg-white p-1 rounded-2xl border-2 border-slate-200 shadow-sm hover:border-purple-500 hover:shadow-md transition"
+                        title="Click to test QR Code"
+                      >
+                        <QRCodeImage
+                          value={qrData}
+                          className="h-24 w-24 object-contain rounded-lg"
+                          size={360}
+                        />
+                        <span className="mt-0.5 block text-center text-[7.5px] font-black uppercase text-slate-700">
+                          GATE SCAN
+                        </span>
+                      </div>
+
+                      <div className="mt-1 text-center">
+                        <span className="text-[9px] text-purple-800 font-serif italic font-bold block">
+                          Authorized
+                        </span>
+                        <span className="text-[7px] font-extrabold text-slate-400 uppercase tracking-tighter">
+                          Principal Sign
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bottom Micro Footer */}
+                  <div className="px-4 py-1 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[8px] text-slate-400">
+                    <span>OFFICIAL STUDENT SMART IDENTITY CARD</span>
+                    <span className="font-mono">{orgSettings?.phone ? `Helpline: ${orgSettings.phone}` : ""}</span>
+                  </div>
+                </div>
+              );
+
+              // Card Back Element
+              const CardBack = (
+                <div
+                  className="id-card-back relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[500px] p-5 text-xs"
+                  style={{ minHeight: "500px" }}
+                >
+                  <div>
+                    {/* Header */}
+                    <div className="text-center border-b border-slate-200 pb-2.5">
+                      <h4 className="font-extrabold text-xs uppercase text-slate-900 tracking-wider">
+                        {orgName}
+                      </h4>
+                      <span className="text-[9px] text-purple-700 font-bold uppercase tracking-wider block mt-0.5">
+                        Card Holder Guidelines &bull; Terms
+                      </span>
+                    </div>
+
+                    {/* Rules List */}
+                    <div className="mt-3.5 space-y-2 text-[10px] text-slate-600 leading-relaxed">
+                      <p>
+                        1. <strong>Mandatory Attendance:</strong> Student must carry this card daily and scan at the gate QR kiosk upon arrival for automated attendance.
+                      </p>
+                      <p>
+                        2. <strong>Non-Transferable:</strong> This card is issued exclusively for <strong>{fullName}</strong> and cannot be transferred or lent to anyone.
+                      </p>
+                      <p>
+                        3. <strong>Loss or Damage:</strong> In case of loss or damage, immediately inform the school administration office for a replacement card.
+                      </p>
+                      <p>
+                        4. <strong>Live Verification:</strong> Parents can scan the front QR code from any smartphone to view live attendance records and fee dues status.
+                      </p>
+                    </div>
+
+                    {/* Giant Gate Attendance Fast-Pass QR */}
+                    <div className="mt-4 flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-slate-700 mb-1">
+                        GATE SCANNER PASS
+                      </span>
+                      <QRCodeImage
+                        value={qrData}
+                        className="h-28 w-28 object-contain rounded-xl bg-white p-1 border border-slate-200 shadow-xs"
+                        size={400}
+                      />
+                      <span className="text-[8px] text-slate-400 font-mono mt-1">
+                        Adm No: {s.admission_no}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Contact & Return Notice */}
+                  <div className="border-t border-slate-200 pt-3">
+                    <div className="rounded-xl bg-slate-50 p-2.5 text-[10px] text-slate-700 space-y-1">
+                      <p className="font-bold text-slate-900">If found, please return to:</p>
+                      <p>{orgSettings?.address || orgName}</p>
+                      {orgSettings?.phone && (
+                        <p className="font-mono">Helpline: {orgSettings.phone}</p>
+                      )}
+                    </div>
+
+                    <div className="mt-2 text-center text-[9px] text-slate-400 font-mono">
+                      VALID FOR ACADEMIC SESSION {sessionYear}
+                    </div>
+                  </div>
+                </div>
+              );
+
               return (
-                <div key={s.id} className="flex flex-col gap-3">
+                <div key={s.id} className="relative flex flex-col gap-3">
                   {/* Selection Checkbox for Admin (Hidden during print) */}
                   <div className="flex items-center justify-between text-xs print:hidden px-1">
                     <button
@@ -695,407 +1166,178 @@ export default function IdCardGenerator() {
                     </div>
                   </div>
 
-                  {/* ========================================================== */}
-                  {/* FORMAT 1: VERTICAL CR80 SMART PVC ID CARD                  */}
-                  {/* ========================================================== */}
-                  {orientation === "vertical" ? (
-                    <div
-                      className="id-card relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300/80 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[510px]"
-                      style={{ minHeight: "510px" }}
-                    >
-                      {/* Top Lanyard Slot Guide Mark */}
-                      <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 w-9 h-1.5 rounded-full bg-slate-800/60 border border-white/50 pointer-events-none" />
-
-                      {/* Header with Deep Modern Gradient */}
-                      <div
-                        className="pt-5 pb-3 px-3.5 text-center text-white relative shadow-sm"
-                        style={{
-                          background: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
-                        }}
-                      >
-                        <div className="flex items-center justify-center gap-2.5">
-                          {orgSettings?.logo_url ? (
-                            <img
-                              src={orgSettings.logo_url}
-                              alt=""
-                              className="h-9 w-9 rounded-xl object-contain bg-white/10 p-0.5 border border-white/20 shadow-xs"
-                            />
-                          ) : (
-                            <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/20 text-white font-bold text-xs backdrop-blur-sm border border-white/20 shadow-xs">
-                              <GraduationCap size={20} />
-                            </div>
-                          )}
-                          <div className="text-left">
-                            <h4 className="font-black text-xs sm:text-sm uppercase tracking-wide leading-tight line-clamp-1">
-                              {orgName}
-                            </h4>
-                            <p className="text-[9px] text-white/80 font-medium line-clamp-1">
-                              {orgSettings?.address || "Recognized Educational Institution"}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Metallic / Ribbon Sub-Bar */}
-                        <div className="mt-2 flex items-center justify-between px-2 text-[8px] font-black uppercase tracking-widest text-white/90 border-t border-white/15 pt-1">
-                          <span className="flex items-center gap-1">
-                            <ShieldCheck size={10} className="text-amber-300" />
-                            <span>STUDENT SMART PASS</span>
-                          </span>
-                          <span className="rounded bg-white/15 px-1.5 py-0.2">SESSION {sessionYear}</span>
-                        </div>
+                  {/* Scissor Cut Guide Marks (✂️ Dotted Outline for Trimming) */}
+                  <div className="relative">
+                    {showCutGuides && (
+                      <div className="cut-guide-border absolute -inset-1 border border-dashed border-slate-300 pointer-events-none rounded-2xl print:border-slate-400 print:opacity-75 z-10">
+                        <span className="absolute -top-2 left-4 bg-white px-1 text-[8px] font-mono text-slate-400 print:text-black">
+                          ✂ CUT
+                        </span>
                       </div>
+                    )}
 
-                      {/* Student Photo & Identity Section */}
-                      <div className="px-4 pt-3 text-center relative">
-                        {/* Photo Frame with Dual Ring */}
-                        <div className="relative mx-auto h-22 w-22 rounded-2xl border-3 border-white shadow-md overflow-hidden bg-slate-100 grid place-items-center ring-2 ring-slate-200">
-                          {s.photo_url ? (
-                            <img
-                              src={s.photo_url}
-                              alt={fullName}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div
-                              className="h-full w-full grid place-items-center text-2xl font-black text-white"
-                              style={{ backgroundColor: themeColor }}
-                            >
-                              {initials || "ST"}
-                            </div>
-                          )}
-                          {/* Active Dot */}
-                          <div
-                            className="absolute bottom-1 right-1 h-3 w-3 rounded-full bg-emerald-500 border-2 border-white shadow-xs"
-                            title="Active Student"
-                          />
-                        </div>
-
-                        <h3 className="mt-2 text-base font-black text-slate-900 leading-tight uppercase tracking-tight">
-                          {fullName}
-                        </h3>
-
-                        <div className="mt-1 flex items-center justify-center gap-1.5 flex-wrap">
-                          <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-900 border border-purple-200">
-                            Class: {className} {sectionName ? `(${sectionName})` : ""}
-                          </span>
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-800 font-mono border border-slate-200">
-                            ID: {s.admission_no}
+                    {/* Rendering Mode */}
+                    {activePreset.id === "dragon_fold" ? (
+                      /* PVC Dragon Sheet: Front & Back Paired Side-by-Side */
+                      <div className="dragon-pair-card flex flex-col md:flex-row items-center justify-center gap-2 p-1 bg-slate-50/50 rounded-2xl border border-slate-200 print:border-none print:p-0">
+                        <div className="w-full flex-1">{CardFront}</div>
+                        {/* Fold center guide */}
+                        <div className="hidden md:flex flex-col items-center justify-center py-2 px-1 text-[8px] font-bold text-purple-700 print:flex">
+                          <span className="rotate-90 my-2 whitespace-nowrap bg-purple-50 px-1 rounded border border-purple-200 font-mono">
+                            ✂ FOLD LINE
                           </span>
                         </div>
+                        <div className="w-full flex-1">{CardBack}</div>
                       </div>
-
-                      {/* Bio Details Grid */}
-                      <div className="px-4 py-2 text-[10.5px] text-slate-700 space-y-1">
-                        {s.father_name && (
-                          <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                            <span className="font-semibold text-slate-400">Father&apos;s Name:</span>
-                            <span className="font-bold text-slate-800 truncate max-w-[170px]">
-                              {s.father_name}
-                            </span>
-                          </div>
-                        )}
-                        {s.date_of_birth && (
-                          <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                            <span className="font-semibold text-slate-400">Date of Birth:</span>
-                            <span className="font-bold text-slate-800">{s.date_of_birth}</span>
-                          </div>
-                        )}
-                        {s.phone && (
-                          <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                            <span className="font-semibold text-slate-400">Emergency Contact:</span>
-                            <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
-                          </div>
-                        )}
-                        {s.blood_group && (
-                          <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                            <span className="font-semibold text-slate-400">Blood Group:</span>
-                            <span className="font-bold text-red-600 bg-red-50 px-1.5 rounded">
-                              {s.blood_group}
-                            </span>
-                          </div>
-                        )}
+                    ) : orientation === "horizontal" ? (
+                      <div>{CardHorizontal}</div>
+                    ) : (
+                      <div className="space-y-4">
+                        {CardFront}
+                        {cardLayout === "dual" && CardBack}
                       </div>
-
-                      {/* Optional Fee Status Watermark Stamp */}
-                      {printFeeStamp && hasFeeDues && (
-                        <div className="mx-4 my-1 rounded-md bg-amber-50 border border-amber-300 p-1 text-center text-[9px] font-bold text-amber-800">
-                          ⚠️ Pending Fee Dues: ₹{sFee.dueAmount}
-                        </div>
-                      )}
-
-                      {/* ==================================================== */}
-                      {/* PROMINENT HIGH-VISIBILITY QR SCAN HUB (THE KEY FIX)  */}
-                      {/* ==================================================== */}
-                      <div className="px-3.5 pb-3 pt-2 border-t border-slate-200 bg-slate-50/90">
-                        <div className="flex items-center justify-between gap-3">
-                          {/* Dedicated Large High-Contrast QR Code */}
-                          <div
-                            onClick={() => setInspectStudent(s)}
-                            className="group relative cursor-pointer flex flex-col items-center bg-white p-1.5 rounded-2xl border-2 border-slate-200 shadow-sm hover:border-purple-500 hover:shadow-md transition"
-                            title="Click to test QR Code & Attendance scan"
-                          >
-                            {/* Scanning reticle visual brackets */}
-                            <div className="absolute top-0.5 left-0.5 w-2 h-2 border-t-2 border-l-2 border-slate-800 pointer-events-none rounded-tl-sm" />
-                            <div className="absolute top-0.5 right-0.5 w-2 h-2 border-t-2 border-r-2 border-slate-800 pointer-events-none rounded-tr-sm" />
-                            <div className="absolute bottom-0.5 left-0.5 w-2 h-2 border-b-2 border-l-2 border-slate-800 pointer-events-none rounded-bl-sm" />
-                            <div className="absolute bottom-0.5 right-0.5 w-2 h-2 border-b-2 border-r-2 border-slate-800 pointer-events-none rounded-br-sm" />
-
-                            <QRCodeImage
-                              value={qrData}
-                              className="h-24 w-24 object-contain rounded-lg"
-                              size={360}
-                            />
-                            <span className="mt-1 text-[7.5px] font-black uppercase tracking-tight text-slate-800 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
-                              📷 GATE ATTENDANCE
-                            </span>
-                          </div>
-
-                          {/* Right Side: Authority Seal & Sign */}
-                          <div className="flex-1 flex flex-col justify-between h-24 text-right py-0.5">
-                            <div className="flex items-center justify-end gap-1 text-[8px] text-slate-500 font-bold uppercase tracking-wider">
-                              <ShieldCheck size={12} className="text-purple-600" />
-                              <span>Verified Card</span>
-                            </div>
-
-                            {/* Principal Signature Container */}
-                            <div>
-                              <div className="h-9 border-b border-dashed border-slate-400 flex items-end justify-center pb-0.5">
-                                <span className="text-[12px] text-purple-800 font-serif italic font-bold">
-                                  Authorized Sign
-                                </span>
-                              </div>
-                              <span className="text-[8px] font-extrabold text-slate-600 uppercase tracking-tight block mt-0.5">
-                                Principal Signature
-                              </span>
-                            </div>
-
-                            <div className="text-[7.5px] font-mono text-slate-400 tracking-widest">
-                              *{s.admission_no}*
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    /* ========================================================== */
-                    /* FORMAT 2: HORIZONTAL / LANDSCAPE SMART PVC ID CARD         */
-                    /* ========================================================== */
-                    <div
-                      className="id-card-horizontal relative mx-auto w-full max-w-[460px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[450px] print:h-[280px]"
-                      style={{ minHeight: "280px" }}
-                    >
-                      {/* Top Lanyard Slot Guide Mark */}
-                      <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 w-10 h-1.5 rounded-full bg-slate-800/50 border border-white/60 pointer-events-none" />
-
-                      {/* Header with Institution Banner */}
-                      <div
-                        className="pt-4 pb-2 px-4 text-white relative shadow-sm"
-                        style={{
-                          background: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
-                        }}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {orgSettings?.logo_url ? (
-                              <img
-                                src={orgSettings.logo_url}
-                                alt=""
-                                className="h-8 w-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/20"
-                              />
-                            ) : (
-                              <div className="grid h-8 w-8 place-items-center rounded-lg bg-white/20 text-white font-bold text-xs backdrop-blur-sm">
-                                <GraduationCap size={18} />
-                              </div>
-                            )}
-                            <div>
-                              <h4 className="font-black text-xs uppercase tracking-wide leading-tight">
-                                {orgName}
-                              </h4>
-                              <p className="text-[8.5px] text-white/80 font-medium line-clamp-1">
-                                {orgSettings?.address || "Recognized Educational Institution"}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="text-right">
-                            <span className="rounded bg-white/20 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-amber-300">
-                              SMART PASS {sessionYear}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Card Body: 3-Column Layout (Photo | Bio Info | Large QR Scan) */}
-                      <div className="p-3.5 flex items-center justify-between gap-3">
-                        {/* Left: Photo Frame */}
-                        <div className="shrink-0 flex flex-col items-center">
-                          <div className="relative h-24 w-24 rounded-2xl border-2 border-white shadow-md overflow-hidden bg-slate-100 ring-2 ring-slate-200">
-                            {s.photo_url ? (
-                              <img
-                                src={s.photo_url}
-                                alt={fullName}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div
-                                className="h-full w-full grid place-items-center text-2xl font-black text-white"
-                                style={{ backgroundColor: themeColor }}
-                              >
-                                {initials || "ST"}
-                              </div>
-                            )}
-                          </div>
-                          <span className="mt-1.5 rounded-md bg-purple-50 px-2 py-0.5 text-[9px] font-bold text-purple-900 font-mono border border-purple-200">
-                            ADM: {s.admission_no}
-                          </span>
-                        </div>
-
-                        {/* Middle: Student Details */}
-                        <div className="flex-1 min-w-0 text-[10px] space-y-1">
-                          <h3 className="text-sm font-black text-slate-900 leading-tight uppercase tracking-tight truncate">
-                            {fullName}
-                          </h3>
-                          <div className="inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-800">
-                            Class: {className} {sectionName ? `(${sectionName})` : ""}
-                          </div>
-
-                          <div className="pt-1 space-y-0.5 text-slate-600">
-                            {s.father_name && (
-                              <div className="truncate">
-                                <span className="font-semibold text-slate-400">Father: </span>
-                                <span className="font-bold text-slate-800">{s.father_name}</span>
-                              </div>
-                            )}
-                            {s.date_of_birth && (
-                              <div>
-                                <span className="font-semibold text-slate-400">DOB: </span>
-                                <span className="font-bold text-slate-800">{s.date_of_birth}</span>
-                              </div>
-                            )}
-                            {s.phone && (
-                              <div>
-                                <span className="font-semibold text-slate-400">Contact: </span>
-                                <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
-                              </div>
-                            )}
-                            {s.blood_group && (
-                              <div>
-                                <span className="font-semibold text-slate-400">Blood: </span>
-                                <span className="font-bold text-red-600">{s.blood_group}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Right: Dedicated Large QR Code & Sign */}
-                        <div className="shrink-0 flex flex-col items-center">
-                          <div
-                            onClick={() => setInspectStudent(s)}
-                            className="group relative cursor-pointer bg-white p-1 rounded-2xl border-2 border-slate-200 shadow-sm hover:border-purple-500 hover:shadow-md transition"
-                            title="Click to test QR Code"
-                          >
-                            <QRCodeImage
-                              value={qrData}
-                              className="h-24 w-24 object-contain rounded-lg"
-                              size={360}
-                            />
-                            <span className="mt-0.5 block text-center text-[7.5px] font-black uppercase text-slate-700">
-                              GATE SCAN
-                            </span>
-                          </div>
-
-                          <div className="mt-1 text-center">
-                            <span className="text-[9px] text-purple-800 font-serif italic font-bold block">
-                              Authorized
-                            </span>
-                            <span className="text-[7px] font-extrabold text-slate-400 uppercase tracking-tighter">
-                              Principal Sign
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Bottom Micro Footer */}
-                      <div className="px-4 py-1 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[8px] text-slate-400">
-                        <span>OFFICIAL STUDENT SMART IDENTITY CARD</span>
-                        <span className="font-mono">{orgSettings?.phone ? `Helpline: ${orgSettings.phone}` : ""}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ========================================================== */}
-                  {/* CARD BACK SIDE (If Dual Side Format is selected)           */}
-                  {/* ========================================================== */}
-                  {cardLayout === "dual" && (
-                    <div
-                      className="id-card-back relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[510px] p-5 text-xs"
-                      style={{ minHeight: "510px" }}
-                    >
-                      <div>
-                        {/* Header */}
-                        <div className="text-center border-b border-slate-200 pb-2.5">
-                          <h4 className="font-extrabold text-xs uppercase text-slate-900 tracking-wider">
-                            {orgName}
-                          </h4>
-                          <span className="text-[9px] text-purple-700 font-bold uppercase tracking-wider block mt-0.5">
-                            Card Holder Guidelines &bull; Terms
-                          </span>
-                        </div>
-
-                        {/* Rules List */}
-                        <div className="mt-3.5 space-y-2 text-[10px] text-slate-600 leading-relaxed">
-                          <p>
-                            1. <strong>Mandatory Attendance:</strong> Student must carry this card daily and scan at the gate QR kiosk upon arrival for automated attendance.
-                          </p>
-                          <p>
-                            2. <strong>Non-Transferable:</strong> This card is issued exclusively for <strong>{fullName}</strong> and cannot be transferred or lent to anyone.
-                          </p>
-                          <p>
-                            3. <strong>Loss or Damage:</strong> In case of loss or damage, immediately inform the school administration office for a replacement card.
-                          </p>
-                          <p>
-                            4. <strong>Live Verification:</strong> Parents can scan the front QR code from any smartphone to view live attendance records and fee dues status.
-                          </p>
-                        </div>
-
-                        {/* Giant Gate Attendance Fast-Pass QR */}
-                        <div className="mt-4 flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
-                          <span className="text-[9px] font-black uppercase tracking-wider text-slate-700 mb-1">
-                            GATE SCANNER PASS
-                          </span>
-                          <QRCodeImage
-                            value={qrData}
-                            className="h-28 w-28 object-contain rounded-xl bg-white p-1 border border-slate-200 shadow-xs"
-                            size={400}
-                          />
-                          <span className="text-[8px] text-slate-400 font-mono mt-1">
-                            Adm No: {s.admission_no}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Contact & Return Notice */}
-                      <div className="border-t border-slate-200 pt-3">
-                        <div className="rounded-xl bg-slate-50 p-2.5 text-[10px] text-slate-700 space-y-1">
-                          <p className="font-bold text-slate-900">If found, please return to:</p>
-                          <p>{orgSettings?.address || orgName}</p>
-                          {orgSettings?.phone && (
-                            <p className="font-mono">Helpline: {orgSettings.phone}</p>
-                          )}
-                        </div>
-
-                        <div className="mt-2 text-center text-[9px] text-slate-400 font-mono">
-                          VALID FOR ACADEMIC SESSION {sessionYear}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
       </main>
+
+      {/* ============================================================== */}
+      {/* A4 PRINT SETUP MODAL (The Main Feature Request)               */}
+      {/* ============================================================== */}
+      {showPrintModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 sm:p-7 shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <Printer size={20} className="text-purple-600" />
+                  <span>A4 Print Sheet Layout Setup</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Select the optimal layout preset for your printer, paper type, and cutting method.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowPrintModal(false)}
+                className="rounded-xl p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Presets Selection Cards */}
+            <div className="my-5 space-y-3">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                Choose A4 Printing Format:
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {SHEET_PRESETS.map((p) => {
+                  const isSelected = sheetPreset === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => handleSelectPreset(p.id)}
+                      className={`cursor-pointer rounded-2xl border-2 p-3.5 transition flex flex-col justify-between ${
+                        isSelected
+                          ? "border-purple-600 bg-purple-50/60 shadow-sm ring-2 ring-purple-600/20"
+                          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[9px] font-black uppercase text-purple-800">
+                            {p.badge}
+                          </span>
+                          {isSelected && <CheckCircle2 size={16} className="text-purple-600" />}
+                        </div>
+                        <h4 className="mt-2 text-sm font-black text-slate-900">{p.title}</h4>
+                        <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
+                          {p.description}
+                        </p>
+                      </div>
+
+                      <div className="mt-3 pt-2 border-t border-slate-100/80 flex items-center justify-between text-[10px] font-bold text-slate-600">
+                        <span>Capacity: {p.capacity} Cards/Sheet</span>
+                        <span className="font-mono text-purple-700">
+                          {Math.ceil(cardsToPrint.length / p.capacity) || 1} Sheet(s) Needed
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Print Options & Guidelines */}
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-3 text-xs">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <label className="inline-flex items-center gap-2 cursor-pointer font-bold text-slate-800 select-none">
+                  <input
+                    type="checkbox"
+                    checked={showCutGuides}
+                    onChange={(e) => setShowCutGuides(e.target.checked)}
+                    className="rounded border-slate-300 text-purple-600"
+                  />
+                  <span className="flex items-center gap-1.5">
+                    <Scissors size={14} className="text-purple-600" />
+                    <span>Print Dotted Scissor Guidelines (✂️ Trimming Lines)</span>
+                  </span>
+                </label>
+
+                <label className="inline-flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                  <input
+                    type="checkbox"
+                    checked={printFeeStamp}
+                    onChange={(e) => setPrintFeeStamp(e.target.checked)}
+                    className="rounded border-slate-300 text-purple-600"
+                  />
+                  <span>Stamp Pending Fee Watermark on Defaulters</span>
+                </label>
+              </div>
+
+              {/* Summary Stats */}
+              <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-600">
+                <span>
+                  Selected Students: <strong className="text-slate-900">{cardsToPrint.length}</strong>
+                </span>
+                <span>
+                  Estimated A4 Paper:{" "}
+                  <strong className="text-purple-700 font-bold">
+                    {estimatedSheets} Page{estimatedSheets > 1 ? "s" : ""}
+                  </strong>
+                </span>
+                <span>
+                  Paper Size: <strong className="text-slate-900">Standard A4 (8mm Margin)</strong>
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowPrintModal(false)}
+                className="rounded-xl border border-slate-300 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleProceedPrint}
+                className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-6 py-2.5 text-xs font-bold text-white shadow-md hover:bg-purple-700 transition"
+              >
+                <Printer size={15} />
+                <span>Open System Print Dialog (A4 Ready)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ============================================================== */}
       {/* QR TEST & INSPECTION MODAL (Lets user test with 1-click)       */}
@@ -1206,22 +1448,50 @@ export default function IdCardGenerator() {
             color: black !important;
           }
           @page {
-            size: A4;
+            size: A4 portrait;
             margin: 8mm;
           }
-          .id-card-sheet {
+
+          /* Preset: 8 Standard (Recommended: 2x4) */
+          .sheet-preset-8_standard {
             display: grid !important;
             grid-template-columns: repeat(2, 1fr) !important;
-            gap: 12px !important;
+            gap: 10px 14px !important;
           }
+
+          /* Preset: 10 Horizontal (2x5) */
+          .sheet-preset-10_horizontal {
+            display: grid !important;
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 6px 10px !important;
+          }
+
+          /* Preset: 9 Vertical (3x3) */
+          .sheet-preset-9_vertical {
+            display: grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 6px 6px !important;
+          }
+
+          /* Preset: Dragon Fold */
+          .sheet-preset-dragon_fold {
+            display: grid !important;
+            grid-template-columns: 1fr !important;
+            gap: 10px !important;
+          }
+
           .id-card,
           .id-card-horizontal,
-          .id-card-back {
+          .id-card-back,
+          .dragon-pair-card {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
             box-shadow: none !important;
             border: 1px solid #cbd5e1 !important;
-            margin-bottom: 8px !important;
+          }
+
+          .cut-guide-border {
+            border: 1px dashed #64748b !important;
           }
         }
       `}</style>
