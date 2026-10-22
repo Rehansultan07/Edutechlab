@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import QRCode from "qrcode";
 import {
   ArrowLeft,
   Printer,
@@ -24,6 +25,7 @@ import {
   Layers,
   FileText,
   AlertTriangle,
+  RotateCcw,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
@@ -72,6 +74,42 @@ const THEME_COLORS = [
   { name: "Deep Violet", hex: "#6b21a8" },
 ];
 
+function QRCodeImage({ value, className }: { value: string; className?: string }) {
+  const [dataUrl, setDataUrl] = useState<string>("");
+
+  useEffect(() => {
+    let active = true;
+    QRCode.toDataURL(value, {
+      width: 220,
+      margin: 1,
+      color: {
+        dark: "#0f172a",
+        light: "#ffffff",
+      },
+      errorCorrectionLevel: "M",
+    })
+      .then((url) => {
+        if (active) setDataUrl(url);
+      })
+      .catch((err) => {
+        console.error("QR Code generation fallback:", err);
+        if (active) {
+          setDataUrl(`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(value)}`);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [value]);
+
+  if (!dataUrl) {
+    return <div className={`animate-pulse bg-slate-200 ${className}`} />;
+  }
+
+  return <img src={dataUrl} alt="Attendance & Verification QR" className={className} />;
+}
+
 export default function IdCardGenerator() {
   const supabase = createClient();
   const { loading: authLoading, orgId, hasAccess } = useUserAccess(["students.view"]);
@@ -82,6 +120,7 @@ export default function IdCardGenerator() {
   const [orgName, setOrgName] = useState("Your Institution");
   const [orgSettings, setOrgSettings] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState("");
   const [featureActive, setFeatureActive] = useState(true);
 
   // Fee status map: student_id -> { hasDues, dueAmount, dueMonthsCount }
@@ -105,63 +144,100 @@ export default function IdCardGenerator() {
     if (!orgId || !hasAccess) return;
     (async () => {
       setLoading(true);
-      const feat = await fetchInstitutionFeatures(supabase, orgId);
-      if (feat && feat.id_cards === false) {
-        setFeatureActive(false);
-        setLoading(false);
-        return;
-      }
+      setErrorMsg("");
+      try {
+        const feat = await fetchInstitutionFeatures(supabase, orgId);
+        if (feat && feat.id_cards === false) {
+          setFeatureActive(false);
+          setLoading(false);
+          return;
+        }
 
-      const [stRes, clRes, secRes, orgRes, setRes, feeRes] = await Promise.all([
-        supabase
+        // Check URL search parameters (e.g. ?id=01)
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          const qParam = params.get("id") || params.get("adm") || params.get("search");
+          if (qParam) {
+            setSearchQuery(qParam);
+          }
+        }
+
+        // Query students with safety fallback
+        let stData: Student[] = [];
+        const stRes = await supabase
           .from("students")
           .select(
             "id,admission_no,first_name,last_name,class_id,section_id,phone,father_name,photo_url,address,date_of_birth,blood_group,gender"
           )
           .eq("organization_id", orgId)
           .eq("status", "active")
-          .order("admission_no"),
-        supabase.from("classes").select("id,name").eq("organization_id", orgId).order("sort_order"),
-        supabase.from("sections").select("id,class_id,name").eq("organization_id", orgId),
-        supabase.from("organizations").select("name").eq("id", orgId).single(),
-        supabase
-          .from("organization_settings")
-          .select("phone,address,logo_url,primary_color,secondary_color")
-          .eq("organization_id", orgId)
-          .maybeSingle(),
-        supabase
-          .from("student_fee_months")
-          .select("student_id,amount_due,amount_paid,status")
-          .eq("organization_id", orgId),
-      ]);
+          .order("admission_no");
 
-      if (stRes.data) {
-        setStudents(stRes.data as Student[]);
-        // Select all by default
-        setSelectedIds(new Set(stRes.data.map((s) => s.id)));
-      }
-      if (clRes.data) setClasses(clRes.data);
-      if (secRes.data) setSections(secRes.data);
-      if (orgRes.data?.name) setOrgName(orgRes.data.name);
-      if (setRes.data) setOrgSettings(setRes.data);
+        if (stRes.error) {
+          console.warn("Retrying students query without blood_group:", stRes.error.message);
+          const fallbackRes = await supabase
+            .from("students")
+            .select(
+              "id,admission_no,first_name,last_name,class_id,section_id,phone,father_name,photo_url,address,date_of_birth,gender"
+            )
+            .eq("organization_id", orgId)
+            .eq("status", "active")
+            .order("admission_no");
 
-      // Compute student fee dues
-      if (feeRes.data) {
-        const computedMap: Record<string, StudentFeeStatus> = {};
-        feeRes.data.forEach((row: any) => {
-          if (row.status === "due" || row.status === "partial") {
-            const dueBal = Math.max(0, Number(row.amount_due || 0) - Number(row.amount_paid || 0));
-            if (!computedMap[row.student_id]) {
-              computedMap[row.student_id] = { hasDues: true, dueAmount: 0, dueMonthsCount: 0 };
-            }
-            computedMap[row.student_id].dueAmount += dueBal;
-            computedMap[row.student_id].dueMonthsCount += 1;
+          if (fallbackRes.data) {
+            stData = fallbackRes.data as Student[];
+          } else if (fallbackRes.error) {
+            setErrorMsg(fallbackRes.error.message);
           }
-        });
-        setFeeMap(computedMap);
-      }
+        } else if (stRes.data) {
+          stData = stRes.data as Student[];
+        }
 
-      setLoading(false);
+        setStudents(stData);
+        setSelectedIds(new Set(stData.map((s) => s.id)));
+
+        // Metadata queries
+        const [clRes, secRes, orgRes, setRes, feeRes] = await Promise.all([
+          supabase.from("classes").select("id,name").eq("organization_id", orgId).order("sort_order"),
+          supabase.from("sections").select("id,class_id,name").eq("organization_id", orgId),
+          supabase.from("organizations").select("name").eq("id", orgId).single(),
+          supabase
+            .from("organization_settings")
+            .select("phone,address,logo_url,primary_color,secondary_color")
+            .eq("organization_id", orgId)
+            .maybeSingle(),
+          supabase
+            .from("student_fee_months")
+            .select("student_id,amount_due,amount_paid,status")
+            .eq("organization_id", orgId),
+        ]);
+
+        if (clRes.data) setClasses(clRes.data);
+        if (secRes.data) setSections(secRes.data);
+        if (orgRes.data?.name) setOrgName(orgRes.data.name);
+        if (setRes.data) setOrgSettings(setRes.data);
+
+        // Compute student fee dues
+        if (feeRes.data) {
+          const computedMap: Record<string, StudentFeeStatus> = {};
+          feeRes.data.forEach((row: any) => {
+            if (row.status === "due" || row.status === "partial") {
+              const dueBal = Math.max(0, Number(row.amount_due || 0) - Number(row.amount_paid || 0));
+              if (!computedMap[row.student_id]) {
+                computedMap[row.student_id] = { hasDues: true, dueAmount: 0, dueMonthsCount: 0 };
+              }
+              computedMap[row.student_id].dueAmount += dueBal;
+              computedMap[row.student_id].dueMonthsCount += 1;
+            }
+          });
+          setFeeMap(computedMap);
+        }
+      } catch (err: any) {
+        console.error("ID Cards load exception:", err);
+        setErrorMsg(err.message || "Failed to load ID card records.");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [orgId, hasAccess, supabase]);
 
@@ -420,8 +496,38 @@ export default function IdCardGenerator() {
       {/* PRINT SHEET: PVC CR80 SMART ID CARDS GRID                      */}
       {/* ============================================================== */}
       <main className="mx-auto max-w-7xl p-5 sm:p-8 print:p-0 print:max-w-none">
+        {errorMsg && (
+          <div className="mb-6 rounded-2xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center gap-1 font-bold text-amber-900 hover:underline"
+            >
+              <RotateCcw size={12} />
+              <span>Retry</span>
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <div className="py-24 text-center text-sm text-slate-400">Loading student records &amp; fee balances...</div>
+        ) : students.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center my-8">
+            <Users size={36} className="mx-auto text-purple-600" />
+            <h3 className="mt-3 text-base font-bold text-slate-800">No students enrolled yet</h3>
+            <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+              You need to admit students in your school database before generating printable Smart ID cards.
+            </p>
+            <Link
+              href="/students"
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-bold text-white shadow hover:bg-purple-700 transition"
+            >
+              Go to Student Admission →
+            </Link>
+          </div>
         ) : cardsToPrint.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center my-8">
             <Users size={36} className="mx-auto text-slate-400" />
@@ -429,6 +535,17 @@ export default function IdCardGenerator() {
             <p className="mt-1 text-xs text-slate-500">
               Try resetting the fee filter or class search, or click &quot;Select All&quot; above.
             </p>
+            <button
+              onClick={() => {
+                setSelectedClass("all");
+                setFeeFilter("all");
+                setSearchQuery("");
+                setSelectedIds(new Set(students.map((s) => s.id)));
+              }}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
+            >
+              Reset All Filters
+            </button>
           </div>
         ) : (
           <div className="id-card-sheet grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 print:grid-cols-2 print:gap-4">
@@ -440,7 +557,6 @@ export default function IdCardGenerator() {
 
               // QR encodes direct verification portal URL
               const qrData = `${originUrl}/parent-portal?id=${encodeURIComponent(s.admission_no)}`;
-              const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(qrData)}`;
 
               const sFee = feeMap[s.id];
               const hasFeeDues = sFee && sFee.hasDues;
@@ -452,7 +568,7 @@ export default function IdCardGenerator() {
                     <button
                       type="button"
                       onClick={() => toggleStudent(s.id)}
-                      className="flex items-center gap-1.5 font-bold text-slate-700"
+                      className="flex items-center gap-1.5 font-bold text-slate-700 hover:text-slate-900"
                     >
                       {selectedIds.has(s.id) ? (
                         <CheckSquare size={16} className="text-purple-600" />
@@ -462,15 +578,30 @@ export default function IdCardGenerator() {
                       <span>Select</span>
                     </button>
 
-                    {hasFeeDues ? (
-                      <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-300">
-                        Fee Due: ₹{sFee.dueAmount}
-                      </span>
-                    ) : (
-                      <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                        Fee Paid ✓
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedIds(new Set([s.id]));
+                          setTimeout(() => window.print(), 100);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-md bg-slate-100 hover:bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700 transition"
+                        title="Print only this ID card"
+                      >
+                        <Printer size={11} />
+                        <span>Print</span>
+                      </button>
+
+                      {hasFeeDues ? (
+                        <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-300">
+                          Fee Due: ₹{sFee.dueAmount}
+                        </span>
+                      ) : (
+                        <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                          Fee Paid ✓
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* ========================================================== */}
@@ -598,9 +729,8 @@ export default function IdCardGenerator() {
                         {/* High-Resolution QR Code */}
                         {showQr && (
                           <div className="flex items-center gap-2">
-                            <img
-                              src={qrUrl}
-                              alt="Gate Attendance & Verification QR"
+                            <QRCodeImage
+                              value={qrData}
                               className="h-12 w-12 rounded-lg border border-slate-300 bg-white p-0.5 shadow-sm"
                             />
                             <div className="text-[8px] text-slate-500 font-semibold leading-tight">

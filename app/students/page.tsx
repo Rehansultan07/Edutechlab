@@ -5,7 +5,7 @@ import { fetchInstitutionFeatures } from "@/lib/features";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Search, Trash2, X, Pencil, ArrowLeft, Upload, Users, Printer, Download, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
+import { Plus, Search, Trash2, X, Pencil, ArrowLeft, Upload, Users, Printer, Download, FileSpreadsheet, CheckCircle2, AlertCircle, CreditCard, Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
@@ -483,6 +483,29 @@ export default function Students() {
                 }
                 setEditing(null);
                 setFiles({ photo: null, aadhaar: null, birth: null });
+                const nextNum = rows.length + 1;
+                const autoAdm = `ADM-${new Date().getFullYear()}-${String(nextNum).padStart(3, "0")}`;
+                setForm({
+                  admission_no: autoAdm,
+                  first_name: "",
+                  last_name: "",
+                  class_id: classes[0]?.id || "",
+                  section_id: "",
+                  phone: "",
+                  email: "",
+                  status: "active",
+                  father_name: "",
+                  mother_name: "",
+                  guardian_name: "",
+                  guardian_phone: "",
+                  aadhaar_number: "",
+                  photo_url: "",
+                  aadhaar_document_url: "",
+                  birth_certificate_url: "",
+                  address: "",
+                  date_of_birth: "",
+                  gender: "",
+                });
                 setOpen(true);
               }}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-slate-800 transition"
@@ -573,6 +596,13 @@ export default function Students() {
                   </td>
                   {canManage && (
                     <td className="px-5 py-4 text-right">
+                      <Link
+                        href={`/id-cards?id=${encodeURIComponent(r.admission_no)}`}
+                        className="mr-3 text-purple-600 hover:text-purple-800 inline-flex items-center"
+                        title="Generate / Print ID Card"
+                      >
+                        <CreditCard size={17} />
+                      </Link>
                       <button
                         onClick={() => editRow(r)}
                         className="mr-3 text-slate-600 hover:text-slate-900"
@@ -618,12 +648,28 @@ export default function Students() {
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <label className="text-sm font-medium">
-                Admission No. *
+                <span className="flex items-center justify-between">
+                  <span>Admission No. *</span>
+                  {!editing && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextNum = rows.length + 1;
+                        const autoAdm = `ADM-${new Date().getFullYear()}-${String(nextNum).padStart(3, "0")}`;
+                        setForm((prev) => ({ ...prev, admission_no: autoAdm }));
+                      }}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-600 hover:text-purple-700"
+                    >
+                      <Sparkles size={12} />
+                      <span>Auto Generate ID</span>
+                    </button>
+                  )}
+                </span>
                 <input
                   required
                   value={form.admission_no}
                   onChange={(e) => setForm({ ...form, admission_no: e.target.value })}
-                  className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
+                  className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm font-mono outline-none focus:border-purple-600"
                   placeholder="e.g. ADM-2026-001"
                 />
               </label>
