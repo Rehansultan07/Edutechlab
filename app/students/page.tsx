@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
 import { createWhatsAppUrl } from "@/lib/whatsapp";
+import { compressAvatarPhoto, compressDocumentScan } from "@/lib/imageCompression";
 
 type Student = {
   id: string;
@@ -304,12 +305,17 @@ export default function Students() {
   };
 
   const upload = async (file: File, kind: string) => {
-    if (file.size > 5 * 1024 * 1024) throw new Error("Each document must be under 5 MB.");
-    const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+    // Auto-compress images to WebP to save 90-95% Supabase Storage
+    const optimized =
+      kind === "photo" ? await compressAvatarPhoto(file) : await compressDocumentScan(file);
+    if (optimized.size > 5 * 1024 * 1024) throw new Error("Each document must be under 5 MB.");
+    const ext =
+      optimized.name.split(".").pop()?.toLowerCase() ||
+      (optimized.type.includes("webp") ? "webp" : "bin");
     const path = `${org}/students/${Date.now()}-${kind}.${ext}`;
-    const r = await s.storage.from("institution-assets").upload(path, file, {
+    const r = await s.storage.from("institution-assets").upload(path, optimized, {
       upsert: false,
-      contentType: file.type,
+      contentType: optimized.type,
     });
     if (r.error) throw new Error(r.error.message);
     return path;

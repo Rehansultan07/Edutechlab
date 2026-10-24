@@ -6,6 +6,7 @@ import { ArrowLeft, LogOut, Upload, KeyRound, Palette, BookOpen, ShieldAlert, Ar
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import { compressAvatarPhoto } from "@/lib/imageCompression";
 
 export default function Settings() {
   const s = createClient();
@@ -103,12 +104,14 @@ export default function Settings() {
     try {
       let logoUrl = form.logo_url;
       if (logo) {
-        const ext = logo.name.split(".").pop()?.toLowerCase() || "png";
+        // Compress school logo to lightweight WebP
+        const compressedLogo = await compressAvatarPhoto(logo);
+        const ext = compressedLogo.name.split(".").pop()?.toLowerCase() || "webp";
         const u = await s.storage
           .from("institution-assets")
-          .upload(`${org}/settings/logo.${ext}`, logo, {
+          .upload(`${org}/settings/logo.${ext}`, compressedLogo, {
             upsert: true,
-            contentType: logo.type,
+            contentType: compressedLogo.type,
           });
         if (u.error) throw u.error;
         logoUrl = u.data.path;

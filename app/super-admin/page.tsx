@@ -54,6 +54,7 @@ import {
   PRESET_BUNDLES,
 } from "@/lib/features";
 import { createClient } from "@/lib/supabase/client";
+import { compressAvatarPhoto } from "@/lib/imageCompression";
 import InstallButton from "@/components/pwa/InstallButton";
 
 type PlatformStats = {
@@ -663,12 +664,13 @@ export default function SuperAdminPage() {
     setUploadingQr(true);
     setError("");
     try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const compressedQr = await compressAvatarPhoto(file);
+      const ext = compressedQr.name.split(".").pop()?.toLowerCase() || "webp";
       const path = `platform/upi_qr_code_${Date.now()}.${ext}`;
 
       const { error: uploadErr } = await supabase.storage
         .from("platform-assets")
-        .upload(path, file, { upsert: true });
+        .upload(path, compressedQr, { upsert: true, contentType: compressedQr.type });
 
       if (uploadErr) throw uploadErr;
 

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
+import { compressDocumentScan } from "@/lib/imageCompression";
 import AccessDenied from "@/components/auth/AccessDenied";
 
 type PricingConfig = {
@@ -151,12 +152,13 @@ export default function SubscriptionPage() {
 
       // Upload screenshot if provided
       if (proofFile) {
-        const ext = proofFile.name.split(".").pop()?.toLowerCase() || "jpg";
+        const compressedProof = await compressDocumentScan(proofFile);
+        const ext = compressedProof.name.split(".").pop()?.toLowerCase() || "webp";
         const path = `${orgId}/${Date.now()}_payment_proof.${ext}`;
 
         const { error: uploadErr } = await supabase.storage
           .from("subscription-proofs")
-          .upload(path, proofFile, { upsert: true });
+          .upload(path, compressedProof, { upsert: true, contentType: compressedProof.type });
 
         if (uploadErr) throw uploadErr;
 
