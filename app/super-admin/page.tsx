@@ -56,6 +56,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { compressAvatarPhoto } from "@/lib/imageCompression";
 import InstallButton from "@/components/pwa/InstallButton";
+import { runSystemCleanup, CleanupResult } from "@/lib/cleanup";
 
 type PlatformStats = {
   total_institutions: number;
@@ -144,6 +145,8 @@ export default function SuperAdminPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
 
   // Modals state: Quota override
   const [editingInst, setEditingInst] = useState<InstitutionItem | null>(null);
@@ -625,6 +628,25 @@ export default function SuperAdminPage() {
       setError(err.message || "Failed to approve payment.");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // Automated System Cleanup Action
+  const handleRunCleanup = async () => {
+    setCleaningUp(true);
+    setError("");
+    setSuccess("");
+    try {
+      const res = await runSystemCleanup(supabase);
+      setCleanupResult(res);
+      setSuccess(
+        `System cleanup finished! Removed ${res.approved_payments_deleted} approved payments (7d+), ${res.storage_files_deleted} screenshots, ${res.homework_deleted} old homework (90d+), and ${res.notices_deleted} notices.`
+      );
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to execute automated cleanup.");
+    } finally {
+      setCleaningUp(false);
     }
   };
 
@@ -1260,13 +1282,56 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
       {/* TAB 2: SUBSCRIPTION APPROVALS QUEUE                            */}
       {/* ============================================================== */}
       {activeTab === "requests" && (
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 p-5">
-            <h2 className="text-lg font-bold text-slate-900">Subscription Payment Verifications</h2>
-            <p className="text-xs text-slate-500">
-              Review UPI transaction references (UTR) and payment screenshots. Approve to activate monthly access.
-            </p>
+        <section className="mt-6 space-y-5">
+          {/* Auto-Cleanup System Card */}
+          <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 p-5 text-white shadow-md">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="grid h-8 w-8 place-items-center rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                    <Sparkles size={16} />
+                  </span>
+                  <h3 className="font-bold text-base text-white">Automated Storage & Data Cleanup</h3>
+                  <span className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Scheduled Daily (2:00 AM)
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  Auto-purges approved subscription payment screenshots & UTRs after <strong>7 days (1 week)</strong>, and deletes homework & notices older than <strong>90 days</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRunCleanup}
+                  disabled={cleaningUp}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 px-4 py-2 text-xs font-bold text-white transition shadow-md disabled:opacity-50 active:scale-95"
+                >
+                  <RefreshCw size={13} className={cleaningUp ? "animate-spin" : ""} />
+                  <span>{cleaningUp ? "Running Cleanup..." : "Run System Cleanup Now"}</span>
+                </button>
+              </div>
+            </div>
+
+            {cleanupResult && (
+              <div className="mt-3.5 pt-3 border-t border-slate-800 text-xs text-slate-300 flex flex-wrap gap-4">
+                <span>✅ Approved Payments Purged (7d): <strong className="text-emerald-400">{cleanupResult.approved_payments_deleted}</strong></span>
+                <span>🗑️ Storage Screenshots Removed: <strong className="text-cyan-400">{cleanupResult.storage_files_deleted}</strong></span>
+                <span>📚 Old Homework Cleared (90d): <strong className="text-purple-300">{cleanupResult.homework_deleted}</strong></span>
+                <span>📢 Expired Notices Cleared (90d): <strong className="text-amber-300">{cleanupResult.notices_deleted}</strong></span>
+              </div>
+            )}
           </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="border-b border-slate-100 p-5">
+              <h2 className="text-lg font-bold text-slate-900">Subscription Payment Verifications</h2>
+              <p className="text-xs text-slate-500">
+                Review UPI transaction references (UTR) and payment screenshots. Approve to activate monthly access.
+              </p>
+            </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -1374,7 +1439,8 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
+      </section>
       )}
 
       {/* ============================================================== */}
