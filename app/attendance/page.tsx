@@ -3,7 +3,7 @@
 import FeatureGate from "@/components/FeatureGate";
 import { fetchInstitutionFeatures } from "@/lib/features";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -28,11 +28,20 @@ import {
   CheckSquare,
   Square,
   ShieldCheck,
+  MessageCircle,
+  Send,
+  Copy,
+  ExternalLink,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
 import jsQR from "jsqr";
+import {
+  createWhatsAppUrl,
+  formatAbsentAlertMessage,
+  formatAttendanceSuccessMessage,
+} from "@/lib/whatsapp";
 
 // Web Audio API Sound Synthesizer for self-contained UI effects
 function playSound(type: "ding" | "beep" | "warning") {
@@ -81,6 +90,9 @@ type Student = {
   admission_no: string;
   class_id?: string | null;
   photo_url?: string | null;
+  phone?: string | null;
+  guardian_phone?: string | null;
+  father_name?: string | null;
 };
 
 type A = { student_id: string; status: string };
@@ -137,12 +149,19 @@ export default function AttendancePage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedClass, setSelectedClass] = useState<string>("");
+  const [orgName, setOrgName] = useState("Your Institution");
+  const [orgPhone, setOrgPhone] = useState("");
   const [state, setState] = useState<Record<string, string>>({});
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // WhatsApp Absent Notification Modal
+  const [showAbsentModal, setShowAbsentModal] = useState(false);
+  const [notifiedStudents, setNotifiedStudents] = useState<Set<string>>(new Set());
+  const [copiedBroadcast, setCopiedBroadcast] = useState(false);
 
   // QR GATE SCANNER KIOSK STATE
   const [showScanner, setShowScanner] = useState(false);
@@ -176,7 +195,7 @@ export default function AttendancePage() {
 
     let studentQuery = s
       .from("students")
-      .select("id,first_name,last_name,admission_no,class_id,photo_url")
+      .select("id,first_name,last_name,admission_no,class_id,photo_url,phone,guardian_phone,father_name")
       .eq("organization_id", org)
       .eq("status", "active")
       .order("first_name");
@@ -185,15 +204,19 @@ export default function AttendancePage() {
       studentQuery = studentQuery.eq("class_id", selectedClass);
     }
 
-    const [stRes, attRes, clRes] = await Promise.all([
+    const [stRes, attRes, clRes, orgRes, setRes] = await Promise.all([
       studentQuery,
       s.from("attendance").select("student_id,status").eq("organization_id", org).eq("attendance_date", date),
       s.from("classes").select("id,name").eq("organization_id", org).order("sort_order"),
+      s.from("organizations").select("name").eq("id", org).single(),
+      s.from("organization_settings").select("phone").eq("organization_id", org).maybeSingle(),
     ]);
 
     if (stRes.error) setError(stRes.error.message);
     setStudents(stRes.data || []);
     setClasses(clRes.data || []);
+    if (orgRes.data?.name) setOrgName(orgRes.data.name);
+    if (setRes.data?.phone) setOrgPhone(setRes.data.phone);
 
     const loadedState: Record<string, string> = {};
     (attRes.data || []).forEach((x: A) => {
@@ -449,6 +472,39 @@ export default function AttendancePage() {
   const presentCount = Object.values(state).filter((v) => v === "present").length;
   const absentCount = Object.values(state).filter((v) => v === "absent").length;
 
+  const classMap = useMemo(() => {
+    const m = new Map<string, string>();
+    classes.forEach((c) => m.set(c.id, c.name));
+    return m;
+  }, [classes]);
+
+  const absentStudents = useMemo(() => {
+    return students.filter((st) => state[st.id] === "absent");
+  }, [students, state]);
+
+  const originUrl =
+    typeof window !== "undefined" && window.location.origin
+      ? window.location.origin
+      : "https://edutechlab-9fz4.vercel.app";
+
+  const markAsNotified = (id: string) => {
+    setNotifiedStudents((prev) => new Set(prev).add(id));
+  };
+
+  const copyAllAbsentBroadcast = () => {
+    if (absentStudents.length === 0) return;
+    const lines = absentStudents.map((st, i) => {
+      const parentPhone = st.guardian_phone || st.phone || "No Phone";
+      const cName = st.class_id ? classMap.get(st.class_id) || "Class" : "Class";
+      return `${i + 1}. ${st.first_name} ${st.last_name || ""} (${cName}, Roll/Adm: ${st.admission_no}) - Parent: ${parentPhone}`;
+    });
+    navigator.clipboard.writeText(
+      `ABSENT STUDENTS LIST - ${date}\n${orgName}\n\n${lines.join("\n")}`
+    );
+    setCopiedBroadcast(true);
+    setTimeout(() => setCopiedBroadcast(false), 2500);
+  };
+
   return (
     <main className="mx-auto max-w-7xl p-5 sm:p-8">
       {/* Top Header */}
@@ -507,10 +563,27 @@ export default function AttendancePage() {
           </span>
         </div>
 
-        <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 shadow-sm">
-          <span className="text-xs font-semibold text-red-700">Absent</span>
-          <p className="mt-1 text-2xl font-black text-red-700">{absentCount}</p>
-          <span className="text-[10px] text-red-600">SMS / WhatsApp Ready</span>
+        <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-red-700">Absent Today</span>
+              {absentCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAbsentModal(true)}
+                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm hover:bg-emerald-700 transition"
+                  title="Notify Absent Students Parents on WhatsApp"
+                >
+                  <MessageCircle size={11} />
+                  <span>Notify Parents</span>
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-2xl font-black text-red-700">{absentCount}</p>
+          </div>
+          <span className="text-[10px] text-red-600">
+            {absentCount > 0 ? "1-Click WhatsApp Assistant" : "All Students Present"}
+          </span>
         </div>
 
         <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-4 shadow-sm">
@@ -600,34 +673,78 @@ export default function AttendancePage() {
                     <span className="font-bold text-sm text-slate-900 block leading-tight">
                       {st.first_name} {st.last_name || ""}
                     </span>
-                    <span className="text-[11px] font-mono text-slate-400">
-                      Adm No: <strong className="text-slate-600">{st.admission_no}</strong>
-                    </span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[11px] font-mono text-slate-400">
+                        Adm: <strong className="text-slate-600">{st.admission_no}</strong>
+                      </span>
+                      {(st.guardian_phone || st.phone) && (
+                        <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                          &bull; 📞 {st.guardian_phone || st.phone}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Status Toggle Buttons */}
-                <div className="flex gap-1.5">
-                  {["present", "absent", "late", "leave"].map((x) => (
-                    <button
-                      key={x}
-                      disabled={!canManage}
-                      onClick={() => setState({ ...state, [st.id]: x })}
-                      className={`rounded-xl border px-3 py-1.5 text-xs font-bold capitalize transition ${
-                        state[st.id] === x
-                          ? x === "present"
-                            ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
-                            : x === "absent"
-                            ? "border-red-600 bg-red-600 text-white shadow-sm"
-                            : x === "late"
-                            ? "border-amber-600 bg-amber-600 text-white shadow-sm"
-                            : "border-slate-800 bg-slate-800 text-white shadow-sm"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-                      } ${!canManage ? "cursor-default opacity-80" : ""}`}
+                {/* Status Toggle Buttons & WhatsApp Action */}
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1.5">
+                    {["present", "absent", "late", "leave"].map((x) => (
+                      <button
+                        key={x}
+                        disabled={!canManage}
+                        onClick={() => setState({ ...state, [st.id]: x })}
+                        className={`rounded-xl border px-3 py-1.5 text-xs font-bold capitalize transition ${
+                          state[st.id] === x
+                            ? x === "present"
+                              ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
+                              : x === "absent"
+                              ? "border-red-600 bg-red-600 text-white shadow-sm"
+                              : x === "late"
+                              ? "border-amber-600 bg-amber-600 text-white shadow-sm"
+                              : "border-slate-800 bg-slate-800 text-white shadow-sm"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                        } ${!canManage ? "cursor-default opacity-80" : ""}`}
+                      >
+                        {x}
+                      </button>
+                    ))}
+                  </div>
+
+                  {state[st.id] === "absent" && (
+                    <a
+                      href={createWhatsAppUrl(
+                        st.guardian_phone || st.phone,
+                        formatAbsentAlertMessage({
+                          studentName: `${st.first_name} ${st.last_name || ""}`.trim(),
+                          admissionNo: st.admission_no,
+                          className: st.class_id ? classMap.get(st.class_id) || "Class" : "Class",
+                          schoolName: orgName,
+                          date: date,
+                          originUrl,
+                          studentId: st.id,
+                        })
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => markAsNotified(st.id)}
+                      className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-bold transition shadow-sm ${
+                        notifiedStudents.has(st.id)
+                          ? "bg-slate-100 text-slate-500 border border-slate-200"
+                          : "bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 shadow-emerald-600/20"
+                      }`}
+                      title={
+                        st.guardian_phone || st.phone
+                          ? `Send absent WhatsApp message to parent (${st.guardian_phone || st.phone})`
+                          : "No parent phone number registered"
+                      }
                     >
-                      {x}
-                    </button>
-                  ))}
+                      <MessageCircle size={13} />
+                      <span className="hidden sm:inline">
+                        {notifiedStudents.has(st.id) ? "Sent ✓" : "WhatsApp"}
+                      </span>
+                    </a>
+                  )}
                 </div>
               </div>
             ))}
@@ -818,6 +935,30 @@ export default function AttendancePage() {
                         </p>
                       </div>
 
+                      {/* Optional WhatsApp Arrival Alert to Parent */}
+                      {activeScan.student?.phone && (
+                        <a
+                          href={createWhatsAppUrl(
+                            activeScan.student.phone,
+                            formatAttendanceSuccessMessage({
+                              studentName: activeScan.student.full_name,
+                              admissionNo: activeScan.student.admission_no,
+                              className: activeScan.student.class_name,
+                              schoolName: orgName,
+                              time: activeScan.attendance?.time || new Date().toLocaleTimeString(),
+                              date: date,
+                              feeNotice: activeScan.fee?.has_dues ? activeScan.fee.status_text : undefined,
+                            })
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center gap-1.5 w-full rounded-xl bg-emerald-600/90 hover:bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-md transition"
+                        >
+                          <MessageCircle size={14} />
+                          <span>Send Arrival WhatsApp to Parent ({activeScan.student.phone})</span>
+                        </a>
+                      )}
+
                       {/* Auto-Next Progress indicator */}
                       <div className="pt-2 text-[10px] text-slate-500">
                         Camera re-arming in 2 seconds for next student...
@@ -914,6 +1055,159 @@ export default function AttendancePage() {
               <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-500">
                 💡 <strong>Kiosk Setup:</strong> Place this tablet or phone on a stand at the school entrance. As students enter, they show their ID card QR code. Attendance and fee status update in real-time.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: WHATSAPP ABSENT NOTIFIER ASSISTANT                       */}
+      {/* ============================================================== */}
+      {showAbsentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-2xl rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 bg-emerald-50/50 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30">
+                  <MessageCircle size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    WhatsApp Absent Assistant
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
+                      {absentStudents.length} Absent
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Notify parents on WhatsApp directly in 1 click &bull; Zero API Fees
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAbsentModal(false)}
+                className="grid h-8 w-8 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Quick Actions & Progress Bar */}
+            <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="text-slate-600 font-medium">
+                Notified: <strong className="text-emerald-700">{notifiedStudents.size}</strong> of {absentStudents.length}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyAllAbsentBroadcast}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-bold text-slate-700 hover:bg-slate-100 transition shadow-sm"
+                >
+                  {copiedBroadcast ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                  <span>{copiedBroadcast ? "List Copied!" : "Copy Broadcast List"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Student List */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-2.5">
+              {absentStudents.length === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-400">
+                  No students are marked absent for {date}.
+                </div>
+              ) : (
+                absentStudents.map((st) => {
+                  const targetPhone = st.guardian_phone || st.phone;
+                  const cName = st.class_id ? classMap.get(st.class_id) || "Class" : "Class";
+                  const isSent = notifiedStudents.has(st.id);
+                  const msg = formatAbsentAlertMessage({
+                    studentName: `${st.first_name} ${st.last_name || ""}`.trim(),
+                    admissionNo: st.admission_no,
+                    className: cName,
+                    schoolName: orgName,
+                    date: date,
+                    originUrl,
+                    studentId: st.id,
+                  });
+                  const waUrl = createWhatsAppUrl(targetPhone, msg);
+
+                  return (
+                    <div
+                      key={st.id}
+                      className={`flex items-center justify-between gap-3 p-3.5 rounded-2xl border transition ${
+                        isSent
+                          ? "bg-emerald-50/40 border-emerald-200"
+                          : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="grid h-10 w-10 place-items-center rounded-xl bg-purple-100 text-purple-700 font-bold text-xs shrink-0 overflow-hidden">
+                          {st.photo_url ? (
+                            <img src={st.photo_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            st.first_name[0]?.toUpperCase()
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-sm text-slate-900 truncate">
+                            {st.first_name} {st.last_name || ""}
+                          </h4>
+                          <p className="text-xs text-slate-500 font-medium">
+                            {cName} &bull; Adm No: {st.admission_no}
+                          </p>
+                          <p className="text-[11px] font-mono mt-0.5">
+                            {targetPhone ? (
+                              <span className="text-slate-600 font-semibold">📞 {targetPhone}</span>
+                            ) : (
+                              <span className="text-red-500 font-semibold">⚠️ No parent phone</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        {targetPhone ? (
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => markAsNotified(st.id)}
+                            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition shadow-sm ${
+                              isSent
+                                ? "bg-slate-100 text-slate-600 border border-slate-300 hover:bg-slate-200"
+                                : "bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 shadow-emerald-600/25"
+                            }`}
+                          >
+                            <MessageCircle size={14} />
+                            <span>{isSent ? "Sent ✓ (Resend)" : "Send WhatsApp"}</span>
+                          </a>
+                        ) : (
+                          <button
+                            disabled
+                            className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-400 cursor-not-allowed"
+                          >
+                            Missing Phone
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-200 bg-slate-50/80 px-6 py-3.5 flex items-center justify-between text-xs text-slate-500">
+              <span className="hidden sm:inline">
+                💡 Automatically opens WhatsApp with child&apos;s absence notice pre-typed.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAbsentModal(false)}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 hover:bg-slate-100 transition shadow-sm ml-auto"
+              >
+                Close Assistant
+              </button>
             </div>
           </div>
         </div>

@@ -4,12 +4,35 @@ import FeatureGate from "@/components/FeatureGate";
 import { fetchInstitutionFeatures } from "@/lib/features";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Plus, Search, Trash2, X, Receipt, ChevronRight, Lock, CheckCircle2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Search,
+  Trash2,
+  X,
+  Receipt,
+  ChevronRight,
+  Lock,
+  CheckCircle2,
+  MessageCircle,
+  Copy,
+  Check,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import { createWhatsAppUrl, formatFeeReminderMessage } from "@/lib/whatsapp";
 
-type S = { id: string; admission_no: string; first_name: string; last_name: string | null };
+type S = {
+  id: string;
+  admission_no: string;
+  first_name: string;
+  last_name: string | null;
+  phone?: string | null;
+  guardian_phone?: string | null;
+  father_name?: string | null;
+  class_id?: string | null;
+};
 type M = {
   id: string;
   student_id: string;
@@ -31,6 +54,8 @@ export default function Fees() {
 
   const [featureActive, setFeatureActive] = useState(true);
   const [students, setStudents] = useState<S[]>([]);
+  const [classes, setClasses] = useState<{ id: string; name: string }[]>([]);
+  const [orgName, setOrgName] = useState("Your Institution");
   const [months, setMonths] = useState<M[]>([]);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"dues" | "payments">("dues");
@@ -41,6 +66,12 @@ export default function Fees() {
   const [modalError, setModalError] = useState("");
   const [planError, setPlanError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Bulk WhatsApp Defaulters Assistant State
+  const [showDefaultersModal, setShowDefaultersModal] = useState(false);
+  const [notifiedDefaulters, setNotifiedDefaulters] = useState<Set<string>>(new Set());
+  const [copiedDefaulters, setCopiedDefaulters] = useState(false);
+
   const [plan, setPlan] = useState({
     student_id: "",
     monthly_amount: "",
@@ -63,13 +94,21 @@ export default function Fees() {
     if (!org) return;
     const feat = await fetchInstitutionFeatures(s, org);
     if (feat && feat.fees === false) { setFeatureActive(false); return; }
-    const { data: st } = await s
-      .from("students")
-      .select("id,admission_no,first_name,last_name")
-      .eq("organization_id", org)
-      .eq("status", "active")
-      .order("first_name");
-    setStudents(st || []);
+    
+    const [stRes, orgRes, clRes] = await Promise.all([
+      s
+        .from("students")
+        .select("id,admission_no,first_name,last_name,phone,guardian_phone,father_name,class_id")
+        .eq("organization_id", org)
+        .eq("status", "active")
+        .order("first_name"),
+      s.from("organizations").select("name").eq("id", org).single(),
+      s.from("classes").select("id,name").eq("organization_id", org),
+    ]);
+
+    setStudents(stRes.data || []);
+    if (orgRes.data?.name) setOrgName(orgRes.data.name);
+    setClasses(clRes.data || []);
 
     const { data: plans } = await s
       .from("student_fee_plans")
@@ -138,6 +177,35 @@ export default function Fees() {
   }, [months, map, q]);
 
   const totalDue: number = grouped.reduce((a: number, g: any) => a + Number(g.due), 0);
+
+  const classMap = useMemo(() => {
+    const m = new Map<string, string>();
+    classes.forEach((c) => m.set(c.id, c.name));
+    return m;
+  }, [classes]);
+
+  const defaulters = useMemo(() => {
+    return grouped.filter((g: any) => g.due > 0);
+  }, [grouped]);
+
+  const originUrl =
+    typeof window !== "undefined" && window.location.origin
+      ? window.location.origin
+      : "https://edutechlab-9fz4.vercel.app";
+
+  const copyDefaultersBroadcast = () => {
+    if (defaulters.length === 0) return;
+    const lines = defaulters.map((g: any, i: number) => {
+      const parentPhone = g.student.guardian_phone || g.student.phone || "No Phone";
+      const cName = g.student.class_id ? classMap.get(g.student.class_id) || "Class" : "Class";
+      return `${i + 1}. ${g.student.first_name} ${g.student.last_name || ""} (${cName}, Adm: ${g.student.admission_no}) - Due: ₹${g.due} (${g.months} mos) - Parent: ${parentPhone}`;
+    });
+    navigator.clipboard.writeText(
+      `FEE DEFAULTERS LIST\n${orgName}\nTotal Pending: ₹${totalDue.toLocaleString("en-IN")}\n\n${lines.join("\n")}`
+    );
+    setCopiedDefaulters(true);
+    setTimeout(() => setCopiedDefaulters(false), 2500);
+  };
 
   const savePlan = async () => {
     setPlanError("");
@@ -333,10 +401,28 @@ export default function Fees() {
           <p className="text-sm text-slate-500">Total outstanding</p>
           <p className="mt-2 text-2xl font-bold">₹{totalDue.toLocaleString("en-IN")}</p>
         </div>
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Students with dues</p>
-          <p className="mt-2 text-2xl font-bold">
-            {grouped.filter((g: any) => g.due > 0).length}
+        <div className="rounded-2xl border bg-white p-5 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-500">Students with dues</p>
+              {defaulters.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowDefaultersModal(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition active:scale-95"
+                  title="Send WhatsApp Fee Reminders to Parents"
+                >
+                  <MessageCircle size={13} />
+                  <span>WhatsApp Reminders</span>
+                </button>
+              )}
+            </div>
+            <p className="mt-2 text-2xl font-bold">
+              {defaulters.length}
+            </p>
+          </div>
+          <p className="text-xs text-slate-400 mt-2">
+            {defaulters.length > 0 ? "1-Click Reminders Assistant Ready" : "All Accounts Cleared"}
           </p>
         </div>
       </div>
@@ -393,26 +479,85 @@ export default function Fees() {
             <span>Student</span>
             <span>Months due</span>
             <span>Outstanding</span>
-            <span></span>
+            <span>Actions</span>
           </div>
           {grouped.map((g: any) => (
-            <button
+            <div
               key={g.student.id}
-              onClick={() => setSelected(g.student)}
-              className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-4 border-t px-5 py-4 text-left transition hover:bg-slate-50"
+              className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-4 border-t px-5 py-3.5 hover:bg-slate-50/70 transition"
             >
-              <span>
-                <span className="font-semibold">
+              <button
+                type="button"
+                onClick={() => setSelected(g.student)}
+                className="text-left min-w-0"
+              >
+                <div className="font-semibold text-sm text-slate-900">
                   {g.student.first_name} {g.student.last_name || ""}
-                </span>
-                <span className="ml-2 text-xs text-slate-400">{g.student.admission_no}</span>
-              </span>
-              <span className={g.months ? "font-semibold text-amber-700" : "text-slate-400"}>
+                  <span className="ml-2 text-xs font-normal text-slate-400 font-mono">
+                    {g.student.admission_no}
+                  </span>
+                </div>
+                {(g.student.guardian_phone || g.student.phone) && (
+                  <span className="text-[11px] text-slate-400 font-mono block mt-0.5">
+                    📞 {g.student.guardian_phone || g.student.phone}
+                  </span>
+                )}
+              </button>
+
+              <span className={g.months ? "font-semibold text-amber-700 text-xs" : "text-slate-400 text-xs"}>
                 {g.months} month{g.months === 1 ? "" : "s"}
               </span>
-              <span className="font-bold">₹{g.due.toLocaleString("en-IN")}</span>
-              <ChevronRight size={18} className="text-slate-400" />
-            </button>
+
+              <span className="font-bold text-sm text-slate-900">
+                ₹{g.due.toLocaleString("en-IN")}
+              </span>
+
+              <div className="flex items-center gap-2">
+                {g.due > 0 && (
+                  <a
+                    href={createWhatsAppUrl(
+                      g.student.guardian_phone || g.student.phone,
+                      formatFeeReminderMessage({
+                        studentName: `${g.student.first_name} ${g.student.last_name || ""}`.trim(),
+                        admissionNo: g.student.admission_no,
+                        className: g.student.class_id ? classMap.get(g.student.class_id) || "Class" : "Class",
+                        schoolName: orgName,
+                        dueAmount: g.due,
+                        dueMonthsCount: g.months,
+                        originUrl,
+                        studentId: g.student.id,
+                      })
+                    )}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setNotifiedDefaulters((prev) => new Set(prev).add(g.student.id))}
+                    className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-bold transition shadow-sm ${
+                      notifiedDefaulters.has(g.student.id)
+                        ? "bg-slate-100 text-slate-600 border border-slate-200"
+                        : "bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 shadow-emerald-600/20"
+                    }`}
+                    title={
+                      g.student.guardian_phone || g.student.phone
+                        ? `Send WhatsApp reminder to parent (${g.student.guardian_phone || g.student.phone})`
+                        : "No phone registered"
+                    }
+                  >
+                    <MessageCircle size={13} />
+                    <span className="hidden sm:inline">
+                      {notifiedDefaulters.has(g.student.id) ? "Sent ✓" : "WhatsApp"}
+                    </span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelected(g.student)}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
+                  title="View Student Fee Ledger"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </div>
           ))}
           {!grouped.length && (
             <div className="p-10 text-center text-sm text-slate-500">No students found.</div>
@@ -434,6 +579,9 @@ export default function Fees() {
           student={selected}
           months={months.filter((m) => m.student_id === selected.id)}
           canManage={canManage}
+          orgName={orgName}
+          originUrl={originUrl}
+          className={selected.class_id ? classMap.get(selected.class_id) : undefined}
           onClose={() => setSelected(null)}
           onPay={(m) => {
             setPayOpen(m);
@@ -577,6 +725,162 @@ export default function Fees() {
           </div>
         </div>
       )}
+      {/* ============================================================== */}
+      {/* MODAL: BULK WHATSAPP FEE DEFAULTERS ASSISTANT                   */}
+      {/* ============================================================== */}
+      {showDefaultersModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-2xl rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 bg-emerald-50/50 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/30">
+                  <MessageCircle size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    Fee Dues WhatsApp Assistant
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                      {defaulters.length} Defaulters
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Send 1-click personalized fee reminders to parents &bull; Zero API Fees
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDefaultersModal(false)}
+                className="grid h-8 w-8 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Quick Actions & Stats */}
+            <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="text-slate-600 font-medium">
+                Reminded: <strong className="text-emerald-700">{notifiedDefaulters.size}</strong> of {defaulters.length} &bull; Total Pending: <strong className="text-slate-900 font-bold">₹{totalDue.toLocaleString("en-IN")}</strong>
+              </div>
+              <button
+                type="button"
+                onClick={copyDefaultersBroadcast}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-bold text-slate-700 hover:bg-slate-100 transition shadow-sm"
+              >
+                {copiedDefaulters ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                <span>{copiedDefaulters ? "List Copied!" : "Copy Broadcast List"}</span>
+              </button>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-2.5">
+              {defaulters.length === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-400">
+                  🎉 All student fees are completely cleared! No pending dues.
+                </div>
+              ) : (
+                defaulters.map((g: any) => {
+                  const targetPhone = g.student.guardian_phone || g.student.phone;
+                  const cName = g.student.class_id ? classMap.get(g.student.class_id) || "Class" : "Class";
+                  const isSent = notifiedDefaulters.has(g.student.id);
+                  const msg = formatFeeReminderMessage({
+                    studentName: `${g.student.first_name} ${g.student.last_name || ""}`.trim(),
+                    admissionNo: g.student.admission_no,
+                    className: cName,
+                    schoolName: orgName,
+                    dueAmount: g.due,
+                    dueMonthsCount: g.months,
+                    originUrl,
+                    studentId: g.student.id,
+                  });
+                  const waUrl = createWhatsAppUrl(targetPhone, msg);
+
+                  return (
+                    <div
+                      key={g.student.id}
+                      className={`flex items-center justify-between gap-3 p-3.5 rounded-2xl border transition ${
+                        isSent
+                          ? "bg-emerald-50/40 border-emerald-200"
+                          : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-sm text-slate-900 truncate">
+                            {g.student.first_name} {g.student.last_name || ""}
+                          </h4>
+                          <span className="text-xs font-mono text-slate-400">
+                            {g.student.admission_no}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 font-medium">
+                          {cName} &bull; <strong className="text-amber-700">{g.months} mos due</strong>
+                        </p>
+                        <p className="text-[11px] font-mono mt-0.5">
+                          {targetPhone ? (
+                            <span className="text-slate-600 font-semibold">📞 {targetPhone}</span>
+                          ) : (
+                            <span className="text-red-500 font-semibold">⚠️ No parent phone</span>
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <span className="block text-sm font-bold text-slate-900">
+                            ₹{g.due.toLocaleString("en-IN")}
+                          </span>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold">
+                            Pending
+                          </span>
+                        </div>
+
+                        {targetPhone ? (
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => setNotifiedDefaulters((prev) => new Set(prev).add(g.student.id))}
+                            className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition shadow-sm ${
+                              isSent
+                                ? "bg-slate-100 text-slate-600 border border-slate-300 hover:bg-slate-200"
+                                : "bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 shadow-emerald-600/25"
+                            }`}
+                          >
+                            <MessageCircle size={14} />
+                            <span>{isSent ? "Sent ✓" : "Remind"}</span>
+                          </a>
+                        ) : (
+                          <button
+                            disabled
+                            className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-400 cursor-not-allowed"
+                          >
+                            Missing Phone
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-slate-200 bg-slate-50/80 px-6 py-3.5 flex items-center justify-between text-xs text-slate-500">
+              <span className="hidden sm:inline">
+                💡 Reminders contain student name, pending months, exact due amount, and parent fee portal link.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDefaultersModal(false)}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 hover:bg-slate-100 transition shadow-sm ml-auto"
+              >
+                Close Assistant
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -585,6 +889,9 @@ function StudentLedger({
   student,
   months,
   canManage,
+  orgName,
+  originUrl,
+  className,
   onClose,
   onPay,
   onDeletePlan,
@@ -592,6 +899,9 @@ function StudentLedger({
   student: S;
   months: M[];
   canManage: boolean;
+  orgName: string;
+  originUrl: string;
+  className?: string;
   onClose: () => void;
   onPay: (m: M) => void;
   onDeletePlan: () => void;
@@ -613,9 +923,37 @@ function StudentLedger({
               {student.admission_no} · Outstanding ₹{due.toLocaleString("en-IN")}
             </p>
           </div>
-          <button onClick={onClose}>
-            <X />
-          </button>
+          <div className="flex items-center gap-2">
+            {due > 0 && (student.guardian_phone || student.phone) && (
+              <a
+                href={createWhatsAppUrl(
+                  student.guardian_phone || student.phone,
+                  formatFeeReminderMessage({
+                    studentName: `${student.first_name} ${student.last_name || ""}`.trim(),
+                    admissionNo: student.admission_no,
+                    className: className || "Class",
+                    schoolName: orgName,
+                    dueAmount: due,
+                    dueMonthsCount: months.filter(
+                      (m) => Math.max(0, Number(m.amount_due) - Number(m.amount_paid)) > 0
+                    ).length,
+                    originUrl,
+                    studentId: student.id,
+                  })
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition"
+                title="Send WhatsApp Reminder to Parent"
+              >
+                <MessageCircle size={14} />
+                <span>WhatsApp Reminder</span>
+              </a>
+            )}
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700">
+              <X size={20} />
+            </button>
+          </div>
         </div>
         <div className="p-5">
           <div className="grid grid-cols-3 gap-3">

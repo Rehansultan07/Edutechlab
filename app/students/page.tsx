@@ -5,10 +5,11 @@ import { fetchInstitutionFeatures } from "@/lib/features";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Search, Trash2, X, Pencil, ArrowLeft, Upload, Users, Printer, Download, FileSpreadsheet, CheckCircle2, AlertCircle, CreditCard, Sparkles } from "lucide-react";
+import { Plus, Search, Trash2, X, Pencil, ArrowLeft, Upload, Users, Printer, Download, FileSpreadsheet, CheckCircle2, AlertCircle, CreditCard, Sparkles, MessageCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import { createWhatsAppUrl } from "@/lib/whatsapp";
 
 type Student = {
   id: string;
@@ -49,6 +50,7 @@ export default function Students() {
   const [rows, setRows] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
+  const [orgName, setOrgName] = useState("Your Institution");
   const [quota, setQuota] = useState<{ allowed: boolean; current: number; limit: number; is_expired: boolean; status: string } | null>(null);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -232,7 +234,7 @@ export default function Students() {
     if (!org) return;
     const feat = await fetchInstitutionFeatures(s, org);
     if (feat && feat.students === false) { setFeatureActive(false); return; }
-    const [stRes, clRes, secRes, quotaRes] = await Promise.all([
+    const [stRes, clRes, secRes, quotaRes, orgRes] = await Promise.all([
       s
         .from("students")
         .select(
@@ -243,12 +245,14 @@ export default function Students() {
       s.from("classes").select("id,name").eq("organization_id", org).order("sort_order"),
       s.from("sections").select("id,class_id,name").eq("organization_id", org),
       s.rpc("check_student_admission_quota", { p_org_id: org }),
+      s.from("organizations").select("name").eq("id", org).single(),
     ]);
 
     if (stRes.error) setError(stRes.error.message);
     else setRows(stRes.data || []);
     setClasses(clRes.data || []);
     setSections(secRes.data || []);
+    if (orgRes.data?.name) setOrgName(orgRes.data.name);
     if (quotaRes.data) setQuota(quotaRes.data as any);
   };
 
@@ -596,6 +600,20 @@ export default function Students() {
                   </td>
                   {canManage && (
                     <td className="px-5 py-4 text-right">
+                      {(r.guardian_phone || r.phone) && (
+                        <a
+                          href={createWhatsAppUrl(
+                            r.guardian_phone || r.phone,
+                            `Namaste, this message is from ${orgName} regarding student ${r.first_name} ${r.last_name || ""} (Adm No: ${r.admission_no}).`
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mr-3 text-emerald-600 hover:text-emerald-800 inline-flex items-center transition hover:scale-110"
+                          title={`Chat with Parent on WhatsApp (${r.guardian_phone || r.phone})`}
+                        >
+                          <MessageCircle size={17} />
+                        </a>
+                      )}
                       <Link
                         href={`/id-cards?id=${encodeURIComponent(r.admission_no)}`}
                         className="mr-3 text-purple-600 hover:text-purple-800 inline-flex items-center"
