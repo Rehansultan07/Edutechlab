@@ -129,3 +129,72 @@ ${pUrl ? `🔗 *Check Live Attendance History:* \n${pUrl}\n` : ""}
 _Regards,_
 *School Safety & Security Cell*`;
 }
+
+export interface StaffCredentialsParams {
+  institutionName?: string;
+  staffName: string;
+  roleTitle?: string;
+  loginId: string;
+  password?: string;
+  email?: string;
+  loginUrl?: string;
+  assignedCount?: number;
+}
+
+export function formatStaffCredentialsMessage(params: StaffCredentialsParams): string {
+  const org = (params.institutionName || "EduTechLab Institute").trim();
+  const loginUrl = params.loginUrl || "https://edutechlab-9fz4.vercel.app/login";
+  const role = params.roleTitle || "Staff Member";
+
+  return `🏫 *${org.toUpperCase()}*
+*Official Staff Portal Credentials*
+
+Dear *${params.staffName}*,
+
+Greetings! Your official staff portal account has been successfully configured. You have been granted access to manage your assigned institutional modules.
+
+*Your Login Credentials:*
+━━━━━━━━━━━━━━━━━━━━━
+👤 *Designation:* ${role}
+🆔 *Staff Login ID:* *${params.loginId}*
+${params.password ? `🔑 *Temporary Password:* *${params.password}*\n` : ""}${params.email ? `📧 *Registered Email:* ${params.email}\n` : ""}🌐 *Portal URL:* ${loginUrl}
+━━━━━━━━━━━━━━━━━━━━━
+
+📌 *Steps to Access:*
+1. Click on the Login Portal URL: ${loginUrl}
+2. Select the *'Staff Login'* tab.
+3. Enter your *Staff Login ID* (or registered email) and *Password*.
+
+_Note: For security reasons, please do not disclose or forward your login credentials to unauthorized persons._
+
+Warm regards,
+*Administration Office*
+*${org}*`;
+}
+
+export function formatStaffReminderMessage(params: {
+  institutionName?: string;
+  staffName: string;
+  loginId?: string | null;
+  roleTitle?: string;
+  loginUrl?: string;
+}): string {
+  const org = (params.institutionName || "EduTechLab Institute").trim();
+  const loginUrl = params.loginUrl || "https://edutechlab-9fz4.vercel.app/login";
+
+  return `🏫 *${org.toUpperCase()}*
+*Staff Portal Access Notification*
+
+Dear *${params.staffName}*,
+
+Here are your official staff portal login details for *${org}*:
+
+🆔 *Staff Login ID:* *${params.loginId || "N/A"}*
+${params.roleTitle ? `👤 *Designation:* ${params.roleTitle}\n` : ""}🌐 *Login Portal:* ${loginUrl}
+
+Please access the portal using the link above, select the *'Staff Login'* tab, and enter your credentials.
+
+Warm regards,
+*Administration Office*
+*${org}*`;
+}

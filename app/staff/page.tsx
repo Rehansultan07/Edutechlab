@@ -36,7 +36,11 @@ import {
   SystemPermissionDefinition,
   RolePreset,
 } from "@/lib/auth/permissions";
-import { createWhatsAppUrl } from "@/lib/whatsapp";
+import {
+  createWhatsAppUrl,
+  formatStaffCredentialsMessage,
+  formatStaffReminderMessage,
+} from "@/lib/whatsapp";
 
 type Staff = {
   id: string;
@@ -730,7 +734,12 @@ export default function StaffPage() {
                               <a
                                 href={createWhatsAppUrl(
                                   staff.phone,
-                                  `Namaste ${staff.full_name}, aapka EduTechLab staff portal link: https://edutechlab-9fz4.vercel.app/login (Login ID: ${staff.login_id || ""})`
+                                  formatStaffReminderMessage({
+                                    institutionName: orgName,
+                                    staffName: staff.full_name,
+                                    loginId: staff.login_id,
+                                    roleTitle: formatRoleName(staff.role),
+                                  })
                                 )}
                                 target="_blank"
                                 rel="noopener noreferrer"
@@ -1068,7 +1077,15 @@ export default function StaffPage() {
 
               {/* Preformatted WhatsApp Message Body */}
               {(() => {
-                const shareText = `🏫 *${orgName}*\nNamaste *${createdResult.staffName}*,\nAapka staff portal account taiyar kar diya gaya hai:\n\n🆔 *Staff Login ID:* ${createdResult.loginId}\n🔑 *Password:* ${createdResult.password}\n🌐 *Login Link:* https://edutechlab-9fz4.vercel.app/login\n\nKripya is link par jaakar 'Staff Login' me apna Login ID aur Password daal kar login karein.`;
+                const shareText = formatStaffCredentialsMessage({
+                  institutionName: orgName,
+                  staffName: createdResult.staffName,
+                  roleTitle: createdResult.role,
+                  loginId: createdResult.loginId,
+                  password: createdResult.password,
+                  email: createdResult.email,
+                  assignedCount: createdResult.assignedCount,
+                });
 
                 return (
                   <div className="mt-5 space-y-2.5">

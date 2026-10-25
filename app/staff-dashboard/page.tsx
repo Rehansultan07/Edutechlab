@@ -420,8 +420,7 @@ export default function StaffDashboard() {
                 <div className="mt-2 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-800">
                   <ShieldAlert size={16} className="text-amber-600 shrink-0" />
                   <span>
-                    Aapke account me abhi koi feature assign nahi kiya gaya hai. Kripya apne School Administrator se
-                    sampark karein taaki wo permissions enable karein.
+                    No modules or permissions have been assigned to your account yet. Please contact your School Administrator to grant feature access.
                   </span>
                 </div>
               )}
