@@ -40,7 +40,11 @@ const SUBJECT_COLORS: Record<string, string> = {
 
 export default function HomeworkPage() {
   const supabase = createClient();
-  const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess(["students.view"]);
+  const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess([
+    "homework.manage",
+    "students.view",
+    "teachers.manage",
+  ]);
 
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);

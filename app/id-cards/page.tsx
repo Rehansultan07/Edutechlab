@@ -188,7 +188,11 @@ function QRCodeImage({
 
 export default function IdCardGenerator() {
   const supabase = createClient();
-  const { loading: authLoading, orgId, hasAccess } = useUserAccess(["students.view"]);
+  const { loading: authLoading, orgId, hasAccess } = useUserAccess([
+    "idcards.manage",
+    "students.view",
+    "students.manage",
+  ]);
 
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);

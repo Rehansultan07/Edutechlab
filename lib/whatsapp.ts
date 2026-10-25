@@ -15,8 +15,14 @@ export function cleanIndianPhone(rawPhone?: string | null): string {
   return digits;
 }
 
-export function createWhatsAppUrl(phone?: string | null, text: string = ""): string {
-  const cleanPhone = cleanIndianPhone(phone);
+export function createWhatsAppUrl(
+  phoneOrParams?: string | null | { phone?: string | null; message?: string },
+  text: string = ""
+): string {
+  if (typeof phoneOrParams === "object" && phoneOrParams !== null) {
+    return createWhatsAppUrl(phoneOrParams.phone, phoneOrParams.message || "");
+  }
+  const cleanPhone = cleanIndianPhone(phoneOrParams);
   const encoded = encodeURIComponent(text);
   if (!cleanPhone) {
     // If no phone provided, opens WhatsApp with prefilled text so user can pick contact

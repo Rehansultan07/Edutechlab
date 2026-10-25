@@ -16,6 +16,9 @@ export default function Notices() {
   const s = createClient();
   const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
     "notices.manage",
+    "students.view",
+    "attendance.view",
+    "teachers.view",
   ]);
 
   const [featureActive, setFeatureActive] = useState(true);

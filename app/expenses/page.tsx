@@ -36,7 +36,12 @@ const CATEGORIES = [
 
 export default function ExpensesPage() {
   const supabase = createClient();
-  const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess(["settings.manage"]);
+  const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess([
+    "expenses.view",
+    "expenses.manage",
+    "fees.manage",
+    "settings.manage",
+  ]);
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [feeIncome, setFeeIncome] = useState<number>(0);

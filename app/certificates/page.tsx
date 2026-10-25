@@ -34,7 +34,11 @@ type OrgSettings = {
 
 export default function CertificatesPage() {
   const supabase = createClient();
-  const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess(["students.manage"]);
+  const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess([
+    "certificates.manage",
+    "students.manage",
+    "students.view",
+  ]);
 
   const [certType, setCertType] = useState<"tc" | "character" | "bonafide">("tc");
   const [students, setStudents] = useState<Student[]>([]);

@@ -55,7 +55,11 @@ const SUBJECT_COLORS: Record<string, string> = {
 
 export default function TimetablePage() {
   const supabase = createClient();
-  const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess(["settings.manage"]);
+  const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess([
+    "timetable.manage",
+    "settings.manage",
+    "teachers.manage",
+  ]);
 
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
