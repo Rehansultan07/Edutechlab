@@ -111,6 +111,7 @@ export default function Dashboard() {
   const [features, setFeatures] = useState<EnabledFeaturesMap>(getDefaultFeaturesMap());
 
   // Deep Data for Interactive Glassmorphic Reports
+  const [currentSessionName, setCurrentSessionName] = useState<string>("");
   const [activeStudents, setActiveStudents] = useState<any[]>([]);
   const [classesList, setClassesList] = useState<{ id: string; name: string }[]>([]);
   const [teachersCount, setTeachersCount] = useState<number>(0);
@@ -201,6 +202,7 @@ export default function Dashboard() {
           bdayRes,
           expRes,
           examRes,
+          sesRes,
         ] = await Promise.all([
           supabase
             .from("students")
@@ -216,7 +218,11 @@ export default function Dashboard() {
           supabase.from("students").select("id,first_name,last_name,date_of_birth,class_id").eq("organization_id", orgId).not("date_of_birth", "is", null),
           supabase.from("school_expenses").select("id,title,category,amount,expense_date").eq("organization_id", orgId).gte("expense_date", monthDate),
           supabase.from("exams").select("id,name,exam_date").eq("organization_id", orgId).order("created_at", { ascending: false }).limit(6),
+          supabase.from("academic_sessions").select("name,is_current").eq("organization_id", orgId),
         ]);
+
+        const currentSes = (sesRes.data || []).find((s: any) => s.is_current);
+        if (currentSes) setCurrentSessionName(currentSes.name);
 
         setActiveStudents(stRes.data || []);
         setClassesList(clRes.data || []);
@@ -484,6 +490,16 @@ export default function Dashboard() {
               <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200">
                 School Admin Console
               </span>
+              {currentSessionName && (
+                <Link
+                  href="/academics"
+                  title="Click to manage Academic Sessions & Promotions"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 transition"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Session: {currentSessionName}</span>
+                </Link>
+              )}
             </div>
           </div>
 
