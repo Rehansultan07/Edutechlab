@@ -42,6 +42,20 @@ export default function Home() {
   const [studentCount, setStudentCount] = useState(250);
   const [selectedPlanType, setSelectedPlanType] = useState<"standard" | "pro">("pro");
 
+  // Dynamic Platform Settings (WhatsApp, Email, Phone, Announcement, Brand)
+  const [platformSettings, setPlatformSettings] = useState({
+    whatsapp_number: "917903178550",
+    contact_phone: "+91 79031 78550",
+    contact_email: "edutechlab@gmail.com",
+    brand_name: "EduTechLab",
+    brand_tagline: "Bharat Ka Sabse Fast & Aasan School Management Software",
+    company_address: "India",
+    announcement_text: "NEW v2.0: Bharat Ka Sabse Fast & Aasan School Management Software • Risk-Free Trial!",
+    announcement_active: true,
+    standard_rate: 5,
+    pro_rate: 7,
+  });
+
   // Interactive Live Feature Mockup Tab
   const [activeTab, setActiveTab] = useState<"attendance" | "fees" | "exams" | "parents" | "app">("attendance");
 
@@ -51,11 +65,36 @@ export default function Home() {
   // FAQ Accordion State
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
-  // Auto-Redirect for Logged-In Users & Installed Standalone PWA
+  // Auto-Redirect for Logged-In Users, Standalone PWA & Load Dynamic Platform Settings
   useEffect(() => {
     (async () => {
       try {
         const supabase = createClient();
+
+        // 1. Fetch live platform settings (WhatsApp, Email, Announcement, Rates)
+        const { data: pSettings } = await supabase
+          .from("platform_settings")
+          .select("*")
+          .eq("id", "global")
+          .maybeSingle();
+
+        if (pSettings) {
+          setPlatformSettings((prev) => ({
+            ...prev,
+            whatsapp_number: pSettings.whatsapp_number || prev.whatsapp_number,
+            contact_phone: pSettings.contact_phone || prev.contact_phone,
+            contact_email: pSettings.contact_email || prev.contact_email,
+            brand_name: pSettings.brand_name || prev.brand_name,
+            brand_tagline: pSettings.brand_tagline || prev.brand_tagline,
+            company_address: pSettings.company_address || prev.company_address,
+            announcement_text: pSettings.announcement_text || prev.announcement_text,
+            announcement_active: pSettings.announcement_active !== false,
+            standard_rate: Number(pSettings.standard_rate || 5),
+            pro_rate: Number(pSettings.pro_rate || 7),
+          }));
+        }
+
+        // 2. Check Auth User
         const {
           data: { user },
         } = await supabase.auth.getUser();
@@ -119,8 +158,8 @@ export default function Home() {
     })();
   }, []);
 
-  // Pricing Calculation based on Transparent Model: Standard (₹5/child) vs Pro (₹7/child)
-  const ratePerStudent = selectedPlanType === "standard" ? 5 : 7;
+  // Pricing Calculation based on Transparent Model: Standard vs Pro
+  const ratePerStudent = selectedPlanType === "standard" ? platformSettings.standard_rate : platformSettings.pro_rate;
   const calculatedCost = studentCount * ratePerStudent;
   const legacySoftwareCost = Math.round(studentCount * 35);
   const estimatedSavings = Math.max(
@@ -137,27 +176,24 @@ export default function Home() {
         <div className="absolute top-[1900px] -right-48 h-[600px] w-[700px] rounded-full bg-purple-100/40 blur-[150px]" />
       </div>
 
-      {/* 1. TOP ANNOUNCEMENT TICKER (BRIGHT & ENGAGING) */}
-      <div className="relative z-30 border-b border-purple-100 bg-gradient-to-r from-purple-50 via-indigo-50/80 to-teal-50 px-4 py-2.5 text-center">
-        <div className="mx-auto flex max-w-7xl items-center justify-center gap-2 text-xs font-semibold text-purple-900 flex-wrap">
-          <span className="inline-flex items-center gap-1 rounded-full bg-purple-600 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
-            <Sparkles size={11} /> NEW v2.0
-          </span>
-          <span>
-            Bharat Ka Sabse Fast & Aasan School Management Software
-          </span>
-          <span className="hidden sm:inline text-purple-300">•</span>
-          <span className="hidden sm:inline font-bold text-teal-700">
-            Risk-Free Trial Bina Kisi Advance Fee Ke!
-          </span>
-          <Link
-            href="/register"
-            className="ml-1 inline-flex items-center gap-1 font-bold text-purple-700 underline underline-offset-4 hover:text-purple-950 transition"
-          >
-            Abhi Trial Shuru Karein <ArrowRight size={12} />
-          </Link>
+      {/* 1. TOP ANNOUNCEMENT TICKER (DYNAMICALLY CONTROLLED BY SUPER ADMIN) */}
+      {platformSettings.announcement_active && (
+        <div className="relative z-30 border-b border-purple-100 bg-gradient-to-r from-purple-50 via-indigo-50/80 to-teal-50 px-4 py-2.5 text-center">
+          <div className="mx-auto flex max-w-7xl items-center justify-center gap-2 text-xs font-semibold text-purple-900 flex-wrap">
+            <span className="inline-flex items-center gap-1 rounded-full bg-purple-600 px-2.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+              <Sparkles size={11} /> NEW
+            </span>
+            <span>{platformSettings.announcement_text}</span>
+            <Link
+              href="/register"
+              className="ml-1 inline-flex items-center gap-1 font-bold text-purple-700 underline underline-offset-4 hover:text-purple-950 transition"
+            >
+              <span>15-Day Free Trial</span>
+              <ArrowRight size={12} />
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 2. MODERN STICKY NAVBAR (CRISP & BRIGHT) */}
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl transition">
@@ -1240,18 +1276,33 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 10. CLEAN LIGHT FOOTER */}
+      {/* 10. CLEAN LIGHT FOOTER (DYNAMICALLY UPDATED BY SUPER ADMIN) */}
       <footer className="border-t border-slate-200 bg-white px-5 py-10 sm:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 font-medium">
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-7 w-7 place-items-center rounded-lg bg-slate-900 text-white">
-              <GraduationCap size={15} />
+        <div className="mx-auto flex max-w-7xl flex-col md:flex-row items-center justify-between gap-6 text-xs text-slate-500 font-medium">
+          <div className="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-left">
+            <div className="flex items-center gap-2">
+              <div className="grid h-7 w-7 place-items-center rounded-lg bg-slate-900 text-white">
+                <GraduationCap size={15} />
+              </div>
+              <span className="font-extrabold text-slate-900">{platformSettings.brand_name}</span>
             </div>
-            <span className="font-extrabold text-slate-800">EduTechLab Platform</span>
             <span>© 2026. All rights reserved.</span>
+            {platformSettings.company_address && (
+              <span className="text-slate-400 hidden sm:inline">&bull; 📍 {platformSettings.company_address}</span>
+            )}
           </div>
 
-          <div className="flex items-center gap-6 text-slate-600 font-semibold">
+          <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-slate-600 font-semibold">
+            {platformSettings.contact_phone && (
+              <a href={`tel:${platformSettings.contact_phone.replace(/\s+/g, "")}`} className="hover:text-purple-600 transition">
+                📞 {platformSettings.contact_phone}
+              </a>
+            )}
+            {platformSettings.contact_email && (
+              <a href={`mailto:${platformSettings.contact_email}`} className="hover:text-purple-600 transition">
+                ✉️ {platformSettings.contact_email}
+              </a>
+            )}
             <Link href="/parent-portal" className="hover:text-purple-600 transition">
               Parent Portal
             </Link>
@@ -1264,9 +1315,12 @@ export default function Home() {
           </div>
         </div>
       </footer>
-      {/* Floating Quick WhatsApp Consultation Button */}
+
+      {/* Floating Quick WhatsApp Consultation Button (LIVE FROM SUPER ADMIN) */}
       <a
-        href="https://wa.me/917903178550?text=Hello%20EduTechLab,%20mujhe%20apne%20institute%20ke%20liye%20software%20demo%20chahiye."
+        href={`https://wa.me/${platformSettings.whatsapp_number.replace(/\D/g, "")}?text=${encodeURIComponent(
+          `Hello ${platformSettings.brand_name}, mujhe apne institute ke liye software demo chahiye.`
+        )}`}
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Chat on WhatsApp"
@@ -1276,7 +1330,7 @@ export default function Home() {
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
           <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
         </span>
-        <MessageCircle size={18} className="text-white" />
+        <MessageCircle size={18} className="text-white fill-white" />
         <span className="hidden sm:inline font-bold">Ask Demo On WhatsApp</span>
       </a>
     </main>

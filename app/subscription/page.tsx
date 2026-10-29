@@ -20,6 +20,7 @@ import {
   HelpCircle,
   Phone,
   Mail,
+  MessageCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
@@ -36,6 +37,7 @@ type PricingConfig = {
   upi_qr_url: string | null;
   contact_phone: string;
   contact_email: string;
+  whatsapp_number?: string;
 };
 
 type SubscriptionData = {
@@ -588,6 +590,16 @@ export default function SubscriptionPage() {
                   student capacity in the middle of a month, please contact Platform Support:
                 </p>
                 <div className="mt-2 flex flex-wrap gap-4 font-semibold text-purple-900">
+                  {subData?.pricing.whatsapp_number && (
+                    <a
+                      href={`https://wa.me/${subData.pricing.whatsapp_number.replace(/\D/g, "")}?text=${encodeURIComponent("Hello EduTechLab Support, I need help with our school subscription.")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-emerald-800 hover:text-emerald-950 font-bold hover:underline"
+                    >
+                      <MessageCircle size={13} className="text-emerald-600 fill-emerald-600" /> WhatsApp Support
+                    </a>
+                  )}
                   {subData?.pricing.contact_phone && (
                     <span className="inline-flex items-center gap-1">
                       <Phone size={13} /> {subData.pricing.contact_phone}

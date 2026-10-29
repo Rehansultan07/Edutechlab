@@ -44,6 +44,13 @@ import {
   Send,
   Smartphone,
   KeyRound,
+  MessageCircle,
+  Globe,
+  Phone,
+  Mail,
+  MapPin,
+  Megaphone,
+  Youtube,
 } from "lucide-react";
 import {
   PLATFORM_FEATURES,
@@ -101,7 +108,7 @@ type PaymentRequest = {
   created_at: string;
 };
 
-type PlatformPricing = {
+type PlatformSettings = {
   base_price: number;
   base_students: number;
   extra_student_rate: number;
@@ -111,6 +118,15 @@ type PlatformPricing = {
   upi_qr_url: string | null;
   contact_phone: string;
   contact_email: string;
+  whatsapp_number: string;
+  brand_name: string;
+  brand_tagline: string;
+  company_address: string;
+  announcement_text: string;
+  announcement_active: boolean;
+  youtube_demo_url: string;
+  standard_rate: number;
+  pro_rate: number;
 };
 
 const MASTER_ACCESS_CODE = "Edutechlab@#78692";
@@ -122,7 +138,7 @@ export default function SuperAdminPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [institutions, setInstitutions] = useState<InstitutionItem[]>([]);
   const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>([]);
-  const [pricing, setPricing] = useState<PlatformPricing>({
+  const [pricing, setPricing] = useState<PlatformSettings>({
     base_price: 149,
     base_students: 20,
     extra_student_rate: 7,
@@ -130,8 +146,17 @@ export default function SuperAdminPage() {
     upi_id: "edutechlab@upi",
     upi_name: "EduTechLab Platform",
     upi_qr_url: null,
-    contact_phone: "+91 98765 43210",
+    contact_phone: "+91 79031 78550",
     contact_email: "edutechlab@gmail.com",
+    whatsapp_number: "917903178550",
+    brand_name: "EduTechLab",
+    brand_tagline: "Bharat Ka Sabse Fast & Aasan School Management Software",
+    company_address: "India",
+    announcement_text: "NEW v2.0: Bharat Ka Sabse Fast & Aasan School Management Software • Risk-Free Trial!",
+    announcement_active: true,
+    youtube_demo_url: "",
+    standard_rate: 5,
+    pro_rate: 7,
   });
 
   const [activeTab, setActiveTab] = useState<"institutions" | "requests" | "pricing" | "features">("institutions");
@@ -323,8 +348,17 @@ export default function SuperAdminPage() {
           upi_id: settingsRes.data.upi_id || "edutechlab@upi",
           upi_name: settingsRes.data.upi_name || "EduTechLab Platform",
           upi_qr_url: settingsRes.data.upi_qr_url || null,
-          contact_phone: settingsRes.data.contact_phone || "+91 98765 43210",
+          contact_phone: settingsRes.data.contact_phone || "+91 79031 78550",
           contact_email: settingsRes.data.contact_email || "edutechlab@gmail.com",
+          whatsapp_number: settingsRes.data.whatsapp_number || "917903178550",
+          brand_name: settingsRes.data.brand_name || "EduTechLab",
+          brand_tagline: settingsRes.data.brand_tagline || "Bharat Ka Sabse Fast & Aasan School Management Software",
+          company_address: settingsRes.data.company_address || "India",
+          announcement_text: settingsRes.data.announcement_text || "NEW v2.0: Bharat Ka Sabse Fast & Aasan School Management Software • Risk-Free Trial!",
+          announcement_active: settingsRes.data.announcement_active !== false,
+          youtube_demo_url: settingsRes.data.youtube_demo_url || "",
+          standard_rate: Number(settingsRes.data.standard_rate || 5),
+          pro_rate: Number(settingsRes.data.pro_rate || 7),
         });
       }
     } catch (err: any) {
@@ -725,7 +759,7 @@ export default function SuperAdminPage() {
     }
   };
 
-  // Save Pricing Settings
+  // Save Pricing & Website Platform Settings
   const handleSavePricing = async (e: FormEvent) => {
     e.preventDefault();
     setSavingPricing(true);
@@ -733,21 +767,76 @@ export default function SuperAdminPage() {
     setSuccess("");
 
     try {
-      const { data, error: err } = await supabase.rpc("admin_save_platform_settings", {
-        p_base_price: pricing.base_price,
-        p_base_students: pricing.base_students,
-        p_extra_student_rate: pricing.extra_student_rate,
-        p_default_trial_days: pricing.default_trial_days,
-        p_upi_id: pricing.upi_id.trim(),
-        p_upi_name: pricing.upi_name.trim(),
-        p_contact_phone: pricing.contact_phone.trim(),
-        p_contact_email: pricing.contact_email.trim(),
-        p_upi_qr_url: pricing.upi_qr_url,
-        p_master_code: MASTER_ACCESS_CODE,
-      });
+      let rpcSuccess = false;
+      try {
+        const { error: rpcErr } = await supabase.rpc("admin_save_platform_settings_v2", {
+          p_base_price: pricing.base_price,
+          p_base_students: pricing.base_students,
+          p_extra_student_rate: pricing.extra_student_rate,
+          p_default_trial_days: pricing.default_trial_days,
+          p_upi_id: pricing.upi_id.trim(),
+          p_upi_name: pricing.upi_name.trim(),
+          p_contact_phone: pricing.contact_phone.trim(),
+          p_contact_email: pricing.contact_email.trim(),
+          p_upi_qr_url: pricing.upi_qr_url,
+          p_whatsapp_number: pricing.whatsapp_number.trim(),
+          p_brand_name: pricing.brand_name.trim(),
+          p_brand_tagline: pricing.brand_tagline.trim(),
+          p_company_address: pricing.company_address.trim(),
+          p_announcement_text: pricing.announcement_text.trim(),
+          p_announcement_active: pricing.announcement_active,
+          p_youtube_demo_url: pricing.youtube_demo_url.trim(),
+          p_standard_rate: pricing.standard_rate,
+          p_pro_rate: pricing.pro_rate,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (!rpcErr) rpcSuccess = true;
+      } catch {}
 
-      if (err) throw err;
-      setSuccess("Platform pricing and UPI configurations saved successfully.");
+      if (!rpcSuccess) {
+        // Fallback: direct table update
+        const { error: directErr } = await supabase
+          .from("platform_settings")
+          .update({
+            base_price: pricing.base_price,
+            base_students: pricing.base_students,
+            extra_student_rate: pricing.extra_student_rate,
+            default_trial_days: pricing.default_trial_days,
+            upi_id: pricing.upi_id.trim(),
+            upi_name: pricing.upi_name.trim(),
+            contact_phone: pricing.contact_phone.trim(),
+            contact_email: pricing.contact_email.trim(),
+            upi_qr_url: pricing.upi_qr_url,
+            whatsapp_number: pricing.whatsapp_number.trim(),
+            brand_name: pricing.brand_name.trim(),
+            brand_tagline: pricing.brand_tagline.trim(),
+            company_address: pricing.company_address.trim(),
+            announcement_text: pricing.announcement_text.trim(),
+            announcement_active: pricing.announcement_active,
+            youtube_demo_url: pricing.youtube_demo_url.trim(),
+            standard_rate: pricing.standard_rate,
+            pro_rate: pricing.pro_rate,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", "global");
+
+        if (directErr) {
+          await supabase.rpc("admin_save_platform_settings", {
+            p_base_price: pricing.base_price,
+            p_base_students: pricing.base_students,
+            p_extra_student_rate: pricing.extra_student_rate,
+            p_default_trial_days: pricing.default_trial_days,
+            p_upi_id: pricing.upi_id.trim(),
+            p_upi_name: pricing.upi_name.trim(),
+            p_contact_phone: pricing.contact_phone.trim(),
+            p_contact_email: pricing.contact_email.trim(),
+            p_upi_qr_url: pricing.upi_qr_url,
+            p_master_code: MASTER_ACCESS_CODE,
+          });
+        }
+      }
+
+      setSuccess("Website branding, WhatsApp number, contact info, and pricing saved successfully!");
     } catch (err: any) {
       setError(err.message || "Failed to save platform settings.");
     } finally {
@@ -1081,8 +1170,8 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
-          <Settings size={16} />
-          Pricing & UPI QR Settings
+          <Globe size={16} />
+          Website, Contact & Pricing
         </button>
 
         <button
@@ -1444,212 +1533,389 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
       )}
 
       {/* ============================================================== */}
-      {/* TAB 3: PLATFORM PRICING & UPI CONFIGURATION                    */}
+      {/* TAB 3: PLATFORM PRICING, WHATSAPP & WEBSITE BRANDING SETTINGS  */}
       {/* ============================================================== */}
       {activeTab === "pricing" && (
-        <section className="mt-6 grid gap-6 lg:grid-cols-2">
-          {/* Pricing Rule Config */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="rounded-lg bg-purple-600 p-2 text-white">
-                <CreditCard size={18} />
-              </span>
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Per-Student Pricing Formula</h2>
-                <p className="text-xs text-slate-500">
-                  Configure default base tier and per-student incremental rates.
-                </p>
-              </div>
-            </div>
-
-            <form onSubmit={handleSavePricing} className="mt-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSavePricing} className="mt-6 space-y-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* CARD 1: PUBLIC CONTACT & WHATSAPP SUPPORT */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-emerald-600 p-2 text-white shadow-xs">
+                  <MessageCircle size={18} />
+                </span>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Base Plan Price (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={pricing.base_price}
-                    onChange={(e) =>
-                      setPricing({ ...pricing, base_price: Number(e.target.value) || 0 })
-                    }
-                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
-                  />
-                  <span className="text-[11px] text-slate-400">Default: ₹149</span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Base Student Limit
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={pricing.base_students}
-                    onChange={(e) =>
-                      setPricing({ ...pricing, base_students: Number(e.target.value) || 1 })
-                    }
-                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
-                  />
-                  <span className="text-[11px] text-slate-400">Default: 20 students</span>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    Website WhatsApp & Contact Info
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Ye details public website ke floating button, header aur footer me live update honge.
+                  </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="mt-6 space-y-4">
+                {/* WhatsApp Number */}
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Extra Student Rate (₹)
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Official WhatsApp Number
+                    </label>
+                    {pricing.whatsapp_number && (
+                      <a
+                        href={`https://wa.me/${pricing.whatsapp_number.replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-bold text-emerald-600 hover:underline flex items-center gap-1"
+                      >
+                        <ExternalLink size={12} /> Test WhatsApp
+                      </a>
+                    )}
+                  </div>
                   <input
-                    type="number"
-                    min={0}
-                    value={pricing.extra_student_rate}
-                    onChange={(e) =>
-                      setPricing({ ...pricing, extra_student_rate: Number(e.target.value) || 0 })
-                    }
-                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
-                  />
-                  <span className="text-[11px] text-slate-400">Default: ₹7 / extra student</span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Default Auto-Trial on Signup (Days)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={pricing.default_trial_days}
-                    onChange={(e) =>
-                      setPricing({ ...pricing, default_trial_days: Number(e.target.value) || 0 })
-                    }
-                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                    type="text"
+                    value={pricing.whatsapp_number}
+                    onChange={(e) => setPricing({ ...pricing, whatsapp_number: e.target.value })}
+                    placeholder="e.g. 917903178550 (without + or spaces)"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono font-bold text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+                    required
                   />
                   <span className="text-[11px] text-slate-400">
-                    Set 0 for NO auto trial (Admin grants trial manually to each school)
+                    Website ke floating WhatsApp button par click karne se seedhe is number par chat khulegi.
                   </span>
                 </div>
-              </div>
 
-              <div className="border-t border-slate-100 pt-4 space-y-4">
+                {/* Calling Phone */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Official Support Contact Phone
+                    Calling Phone / Helpline
                   </label>
                   <input
                     type="text"
                     value={pricing.contact_phone}
                     onChange={(e) => setPricing({ ...pricing, contact_phone: e.target.value })}
+                    placeholder="e.g. +91 79031 78550"
                     className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
                   />
                 </div>
 
+                {/* Official Support Email */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Official Support Contact Email
+                    Official Support Email
                   </label>
                   <input
                     type="email"
                     value={pricing.contact_email}
                     onChange={(e) => setPricing({ ...pricing, contact_email: e.target.value })}
+                    placeholder="e.g. support@edutechlab.com"
                     className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
                   />
                 </div>
-              </div>
 
-              <button
-                type="submit"
-                disabled={savingPricing}
-                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-purple-500 disabled:opacity-50"
-              >
-                {savingPricing ? "Saving Settings..." : "Save Pricing Configuration"}
-              </button>
-            </form>
-          </div>
-
-          {/* UPI ID & QR Code Upload */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="rounded-lg bg-emerald-600 p-2 text-white">
-                <QrCode size={18} />
-              </span>
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Platform UPI & QR Code</h2>
-                <p className="text-xs text-slate-500">
-                  Set the receiving UPI address and upload your official QR code.
-                </p>
+                {/* Head Office / Registered Address */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Office / Headquarters Address
+                  </label>
+                  <input
+                    type="text"
+                    value={pricing.company_address}
+                    onChange={(e) => setPricing({ ...pricing, company_address: e.target.value })}
+                    placeholder="e.g. Patna, Bihar, India"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-400">Website footer aur invoices me dikhta hai.</span>
+                </div>
               </div>
             </div>
 
-            <div className="mt-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  UPI ID (VPA)
-                </label>
-                <input
-                  type="text"
-                  value={pricing.upi_id}
-                  onChange={(e) => setPricing({ ...pricing, upi_id: e.target.value })}
-                  placeholder="e.g. edutechlab@upi"
-                  className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono outline-none focus:border-emerald-500"
-                />
+            {/* CARD 2: WEBSITE BRANDING & ANNOUNCEMENT BAR */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-purple-600 p-2 text-white shadow-xs">
+                  <Megaphone size={18} />
+                </span>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    Website Branding & Announcement
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Control website brand titles, top announcement banner, and demo video link.
+                  </p>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  UPI Payee Name
-                </label>
-                <input
-                  type="text"
-                  value={pricing.upi_name}
-                  onChange={(e) => setPricing({ ...pricing, upi_name: e.target.value })}
-                  placeholder="e.g. EduTechLab Platform"
-                  className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-emerald-500"
-                />
-              </div>
+              <div className="mt-6 space-y-4">
+                {/* Brand Name */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Brand / Platform Name
+                  </label>
+                  <input
+                    type="text"
+                    value={pricing.brand_name}
+                    onChange={(e) => setPricing({ ...pricing, brand_name: e.target.value })}
+                    placeholder="e.g. EduTechLab"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Custom UPI QR Code Image
-                </label>
-                <div className="mt-2 flex items-center gap-4">
-                  {pricing.upi_qr_url ? (
-                    <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-1">
-                      <img
-                        src={pricing.upi_qr_url}
-                        alt="Current UPI QR Code"
-                        className="h-full w-full object-contain"
-                      />
-                    </div>
-                  ) : (
-                    <div className="grid h-24 w-24 shrink-0 place-items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-400">
-                      <QrCode size={28} />
-                    </div>
-                  )}
+                {/* Brand Tagline */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Brand Tagline / Slogan
+                  </label>
+                  <input
+                    type="text"
+                    value={pricing.brand_tagline}
+                    onChange={(e) => setPricing({ ...pricing, brand_tagline: e.target.value })}
+                    placeholder="e.g. Bharat Ka Sabse Fast & Aasan School Management Software"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
+                  />
+                </div>
 
-                  <div className="space-y-2">
-                    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-                      <Upload size={14} />
-                      {uploadingQr ? "Uploading..." : "Upload New QR Image"}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleUploadQrCode}
-                        disabled={uploadingQr}
-                      />
+                {/* Top Announcement Bar Text */}
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Top Announcement Bar Text
                     </label>
-                    <p className="text-[11px] text-slate-400">
-                      If left unuploaded, dynamic QR code with exact amount will be generated automatically.
-                    </p>
+                    <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pricing.announcement_active}
+                        onChange={(e) => setPricing({ ...pricing, announcement_active: e.target.checked })}
+                        className="rounded accent-purple-600"
+                      />
+                      <span>Active on Website</span>
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    value={pricing.announcement_text}
+                    onChange={(e) => setPricing({ ...pricing, announcement_text: e.target.value })}
+                    placeholder="e.g. NEW v2.0: Bharat Ka Sabse Fast & Aasan School Management Software • Risk-Free Trial!"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500"
+                  />
+                  <span className="text-[11px] text-slate-400">
+                    Ye message public website ke bilkul top me notification banner ki tarah chalta hai.
+                  </span>
+                </div>
+
+                {/* YouTube Video Demo URL */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Youtube size={14} className="text-red-500" /> YouTube / Video Demo Link
+                  </label>
+                  <input
+                    type="url"
+                    value={pricing.youtube_demo_url}
+                    onChange={(e) => setPricing({ ...pricing, youtube_demo_url: e.target.value })}
+                    placeholder="e.g. https://www.youtube.com/watch?v=..."
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-purple-500 font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* CARD 3: PER-STUDENT PRICING RATES (STANDARD VS PRO) */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-indigo-600 p-2 text-white shadow-xs">
+                  <CreditCard size={18} />
+                </span>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                    Per-Student Pricing Rates
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Set Standard (₹5) and Pro (₹7) per-child rates and default trial days.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Standard Rate */}
+                  <div className="p-3.5 rounded-2xl border border-teal-200 bg-teal-50/40">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-teal-800">
+                      Standard Rate (₹/Child)
+                    </label>
+                    <div className="mt-1 flex items-center gap-1">
+                      <span className="text-xl font-bold text-teal-900 font-mono">₹</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={pricing.standard_rate}
+                        onChange={(e) => setPricing({ ...pricing, standard_rate: Number(e.target.value) || 1 })}
+                        className="w-full rounded-xl border border-teal-300 bg-white px-3 py-1.5 text-base font-black text-slate-900 outline-none focus:border-teal-500"
+                      />
+                    </div>
+                    <span className="text-[10px] text-teal-700 mt-1 block">Default: ₹5/child/month</span>
+                  </div>
+
+                  {/* Pro Rate */}
+                  <div className="p-3.5 rounded-2xl border border-purple-200 bg-purple-50/40">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-purple-800">
+                      Pro Rate (₹/Child)
+                    </label>
+                    <div className="mt-1 flex items-center gap-1">
+                      <span className="text-xl font-bold text-purple-900 font-mono">₹</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={pricing.pro_rate}
+                        onChange={(e) => setPricing({ ...pricing, pro_rate: Number(e.target.value) || 1 })}
+                        className="w-full rounded-xl border border-purple-300 bg-white px-3 py-1.5 text-base font-black text-slate-900 outline-none focus:border-purple-500"
+                      />
+                    </div>
+                    <span className="text-[10px] text-purple-700 mt-1 block">Default: ₹7/child/month</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Default Free Trial Days
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={pricing.default_trial_days}
+                      onChange={(e) =>
+                        setPricing({ ...pricing, default_trial_days: Number(e.target.value) || 0 })
+                      }
+                      className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                    />
+                    <span className="text-[11px] text-slate-400">Naye school registration par trial</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Base Plan Starting Price (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={pricing.base_price}
+                      onChange={(e) =>
+                        setPricing({ ...pricing, base_price: Number(e.target.value) || 0 })
+                      }
+                      className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-purple-500"
+                    />
+                    <span className="text-[11px] text-slate-400">Default minimum tier</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CARD 4: PLATFORM UPI & RECEIVING QR CODE */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-emerald-600 p-2 text-white shadow-xs">
+                  <QrCode size={18} />
+                </span>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900">Platform UPI & QR Code</h2>
+                  <p className="text-xs text-slate-500">
+                    Schools jab subscription pay karenge toh ye UPI ID aur QR code dikhega.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    UPI ID (VPA)
+                  </label>
+                  <input
+                    type="text"
+                    value={pricing.upi_id}
+                    onChange={(e) => setPricing({ ...pricing, upi_id: e.target.value })}
+                    placeholder="e.g. edutechlab@upi"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    UPI Payee Name
+                  </label>
+                  <input
+                    type="text"
+                    value={pricing.upi_name}
+                    onChange={(e) => setPricing({ ...pricing, upi_name: e.target.value })}
+                    placeholder="e.g. EduTechLab Platform"
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Custom UPI QR Code Image
+                  </label>
+                  <div className="mt-2 flex items-center gap-4">
+                    {pricing.upi_qr_url ? (
+                      <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-1 shadow-xs">
+                        <img
+                          src={pricing.upi_qr_url}
+                          alt="Current UPI QR Code"
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div className="grid h-24 w-24 shrink-0 place-items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-slate-400">
+                        <QrCode size={28} />
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50">
+                        <Upload size={14} />
+                        {uploadingQr ? "Uploading..." : "Upload New QR Image"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleUploadQrCode}
+                          disabled={uploadingQr}
+                        />
+                      </label>
+                      <p className="text-[11px] text-slate-400">
+                        Agar custom QR na ho toh dynamic amount QR code auto generate hoga.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </section>
+
+          {/* Master Save Button Bar */}
+          <div className="rounded-3xl border border-slate-200 bg-slate-50/80 p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <span className="text-xs text-slate-500 font-medium">
+              💡 Save karte hi website ke floating WhatsApp button, contact email aur rates instantly update ho jayenge.
+            </span>
+            <button
+              type="submit"
+              disabled={savingPricing}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-teal-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-purple-600/25 hover:from-purple-500 hover:to-teal-500 transition active:scale-95 disabled:opacity-50"
+            >
+              {savingPricing ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin" />
+                  <span>Updating Website Settings...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={16} />
+                  <span>Save All Website & Platform Settings</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
       )}
 
       {/* ============================================================== */}
