@@ -78,7 +78,8 @@ export default function SubscriptionPage() {
   const [success, setSuccess] = useState("");
 
   // Plan Selection & Calculation
-  const [targetStudents, setTargetStudents] = useState<number>(20);
+  const [targetStudents, setTargetStudents] = useState<number>(100);
+  const [selectedPlan, setSelectedPlan] = useState<"standard" | "pro">("pro");
   const [utrNumber, setUtrNumber] = useState("");
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -112,18 +113,12 @@ export default function SubscriptionPage() {
     }
   }, [orgId]);
 
-  // Pricing calculation
+  // Pricing calculation based on Standard (₹5/child) vs Pro (₹7/child)
   const calculatedPrice = useMemo(() => {
-    const baseStudents = subData?.pricing.base_students || 20;
-    const basePrice = Number(subData?.pricing.base_price || 149);
-    const extraRate = Number(subData?.pricing.extra_student_rate || 7);
-
     const count = Math.max(1, targetStudents);
-    if (count <= baseStudents) {
-      return basePrice;
-    }
-    return basePrice + (count - baseStudents) * extraRate;
-  }, [targetStudents, subData]);
+    const rate = selectedPlan === "standard" ? 5 : 7;
+    return count * rate;
+  }, [targetStudents, selectedPlan]);
 
   // Copy UPI ID helper
   const handleCopyUpi = () => {
@@ -174,7 +169,7 @@ export default function SubscriptionPage() {
         p_org_id: orgId,
         p_student_limit: targetStudents,
         p_amount: calculatedPrice,
-        p_utr_number: utrNumber.trim(),
+        p_utr_number: `${utrNumber.trim()} [Plan: ${selectedPlan.toUpperCase()}]`,
         p_screenshot_url: screenshotUrl || null,
       });
 
@@ -213,7 +208,7 @@ export default function SubscriptionPage() {
         `upi://pay?pa=${subData?.pricing.upi_id || "edutechlab@upi"}&pn=${encodeURIComponent(
           subData?.pricing.upi_name || "EduTechLab"
         )}&am=${calculatedPrice}&cu=INR&tn=${encodeURIComponent(
-          `EduTechLab Subscription for ${targetStudents} Students`
+          `EduTechLab ${selectedPlan.toUpperCase()} Plan for ${targetStudents} Students`
         )}`
       )}`;
 
@@ -427,8 +422,8 @@ export default function SubscriptionPage() {
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl bg-purple-50 p-2.5 text-[11px] text-purple-900">
-            Base: ₹149 (up to 20 students) + ₹7 per additional student.
+          <div className="mt-4 rounded-xl bg-purple-50 p-2.5 text-[11px] text-purple-900 font-medium">
+            Pricing Plans: Standard Plan (₹5/student) &bull; Pro Plan (₹7/student with QR Kiosk, ID Cards & Marksheets).
           </div>
         </div>
       </section>
@@ -442,27 +437,80 @@ export default function SubscriptionPage() {
               <CreditCard size={18} />
             </span>
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Select Student Capacity</h2>
+              <h2 className="text-lg font-bold text-slate-900">Select Plan & Student Capacity</h2>
               <p className="text-xs text-slate-500">
-                Choose your institute's required student enrollment quota for the next cycle.
+                Choose between Standard (₹5) or Pro (₹7) plan and set your required student quota.
               </p>
+            </div>
+          </div>
+
+          {/* 1. PLAN SELECTOR CARDS (Standard vs Pro) */}
+          <div className="mt-6">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Step 1: Choose Your Plan
+            </label>
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Standard Card */}
+              <button
+                type="button"
+                onClick={() => setSelectedPlan("standard")}
+                className={`p-4 rounded-2xl border-2 text-left transition ${
+                  selectedPlan === "standard"
+                    ? "border-teal-600 bg-teal-50/40 ring-2 ring-teal-600/20 shadow-xs"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-sm text-slate-900">Standard Plan</span>
+                  <span className="text-xs font-black text-teal-800 bg-teal-100 px-2.5 py-0.5 rounded-full font-mono">
+                    ₹5 / child
+                  </span>
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-600 leading-tight">
+                  Directory, Attendance auto-save, Fees & receipts, Homework & WhatsApp alerts.
+                </p>
+              </button>
+
+              {/* Pro Card */}
+              <button
+                type="button"
+                onClick={() => setSelectedPlan("pro")}
+                className={`p-4 rounded-2xl border-2 text-left transition relative ${
+                  selectedPlan === "pro"
+                    ? "border-purple-600 bg-purple-50/40 ring-2 ring-purple-600/20 shadow-sm"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <span className="absolute -top-2.5 right-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
+                  RECOMMENDED
+                </span>
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-sm text-slate-900">Pro Plan 🔥</span>
+                  <span className="text-xs font-black text-purple-800 bg-purple-100 px-2.5 py-0.5 rounded-full font-mono">
+                    ₹7 / child
+                  </span>
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-600 leading-tight">
+                  Everything + Gate QR Kiosk, PVC ID Cards, Luxury Marksheets, Session Wizard & Staff RBAC.
+                </p>
+              </button>
             </div>
           </div>
 
           {/* Quick preset buttons */}
           <div className="mt-6">
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Quick Selection
+              Step 2: Quick Student Capacity Selection
             </label>
             <div className="mt-2 flex flex-wrap gap-2">
-              {[20, 50, 100, 200, 300, 500].map((preset) => (
+              {[50, 100, 200, 300, 500, 1000].map((preset) => (
                 <button
                   key={preset}
                   type="button"
                   onClick={() => setTargetStudents(preset)}
                   className={`rounded-xl border px-3.5 py-2 text-xs font-semibold transition ${
                     targetStudents === preset
-                      ? "border-purple-600 bg-purple-600 text-white shadow-sm"
+                      ? "border-purple-600 bg-purple-600 text-white shadow-xs"
                       : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                   }`}
                 >
@@ -475,7 +523,7 @@ export default function SubscriptionPage() {
           {/* Custom Student Counter Input */}
           <div className="mt-6">
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
-              Exact Student Capacity Required
+              Or Enter Exact Student Enrollment
             </label>
             <div className="mt-2 flex items-center gap-3">
               <input
@@ -486,35 +534,45 @@ export default function SubscriptionPage() {
                 onChange={(e) => setTargetStudents(Math.max(1, parseInt(e.target.value) || 1))}
                 className="w-48 rounded-xl border border-slate-300 px-4 py-3 text-base font-bold text-slate-900 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
               />
-              <span className="text-xs text-slate-500">students in school</span>
+              <span className="text-xs text-slate-500">active students</span>
             </div>
           </div>
 
           {/* Transparent Price Breakdown */}
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600">
-              Monthly Pricing Breakdown
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center justify-between">
+              <span>Monthly Subscription Breakdown</span>
+              <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full uppercase">
+                {selectedPlan} Plan
+              </span>
             </h3>
             <div className="mt-3 space-y-2 text-xs">
               <div className="flex justify-between text-slate-600">
-                <span>Base Tier (up to 20 students):</span>
-                <span className="font-semibold text-slate-900">₹149</span>
+                <span>Selected Plan:</span>
+                <span className="font-semibold text-slate-900 capitalize">
+                  {selectedPlan} Plan (@ ₹{selectedPlan === "standard" ? 5 : 7} / student)
+                </span>
               </div>
-              {targetStudents > 20 && (
-                <div className="flex justify-between text-slate-600">
-                  <span>
-                    Additional {targetStudents - 20} students @ ₹7/student:
-                  </span>
-                  <span className="font-semibold text-slate-900">
-                    ₹{(targetStudents - 20) * 7}
-                  </span>
-                </div>
-              )}
+              <div className="flex justify-between text-slate-600">
+                <span>Student Capacity Quota:</span>
+                <span className="font-semibold text-slate-900 font-mono">
+                  {targetStudents} Students
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Monthly Rate Calculation:</span>
+                <span className="font-semibold text-slate-900 font-mono">
+                  {targetStudents} × ₹{selectedPlan === "standard" ? 5 : 7}
+                </span>
+              </div>
               <div className="border-t border-slate-200 pt-3 flex justify-between items-center text-sm">
                 <span className="font-bold text-slate-900">Total Monthly Subscription:</span>
-                <span className="text-2xl font-black text-purple-700">
+                <span className="text-2xl font-black text-purple-700 font-mono">
                   ₹{calculatedPrice}
                 </span>
+              </div>
+              <div className="text-[11px] text-slate-400 text-right">
+                (Equivalent to ₹{(calculatedPrice * 12).toLocaleString("en-IN")} / year)
               </div>
             </div>
           </div>

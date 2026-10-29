@@ -39,7 +39,8 @@ import InstallButton from "@/components/pwa/InstallButton";
 
 export default function Home() {
   // Interactive Calculator State
-  const [studentCount, setStudentCount] = useState(120);
+  const [studentCount, setStudentCount] = useState(250);
+  const [selectedPlanType, setSelectedPlanType] = useState<"standard" | "pro">("pro");
 
   // Interactive Live Feature Mockup Tab
   const [activeTab, setActiveTab] = useState<"attendance" | "fees" | "exams" | "parents" | "app">("attendance");
@@ -118,12 +119,12 @@ export default function Home() {
     })();
   }, []);
 
-  // Pricing Calculation based on model: ₹149 for first 20 students, + ₹7 per student
-  const calculatedCost =
-    studentCount <= 20 ? 149 : 149 + (studentCount - 20) * 7;
-  const legacySoftwareCost = Math.round(studentCount * 38);
+  // Pricing Calculation based on Transparent Model: Standard (₹5/child) vs Pro (₹7/child)
+  const ratePerStudent = selectedPlanType === "standard" ? 5 : 7;
+  const calculatedCost = studentCount * ratePerStudent;
+  const legacySoftwareCost = Math.round(studentCount * 35);
   const estimatedSavings = Math.max(
-    55,
+    60,
     Math.round(((legacySoftwareCost - calculatedCost) / legacySoftwareCost) * 100)
   );
 
@@ -294,9 +295,9 @@ export default function Home() {
               <div className="text-[10px] text-slate-400 font-medium">Zero training required</div>
             </div>
             <div className="rounded-2xl border border-teal-100 bg-white/80 p-4 shadow-sm backdrop-blur">
-              <div className="text-2xl sm:text-3xl font-black text-teal-700">₹7/Child</div>
-              <div className="text-xs font-bold text-slate-700 mt-0.5">Pay As You Grow</div>
-              <div className="text-[10px] text-slate-400 font-medium">No annual lock-in</div>
+              <div className="text-2xl sm:text-3xl font-black text-teal-700">₹5 - ₹7/Child</div>
+              <div className="text-xs font-bold text-slate-700 mt-0.5">Standard & Pro Plans</div>
+              <div className="text-[10px] text-slate-400 font-medium">Monthly / Yearly Billing</div>
             </div>
             <div className="rounded-2xl border border-emerald-100 bg-white/80 p-4 shadow-sm backdrop-blur">
               <div className="text-2xl sm:text-3xl font-black text-emerald-700">100%</div>
@@ -316,7 +317,7 @@ export default function Home() {
               <strong className="text-slate-800 ml-1">4.9 / 5 Rating</strong>
             </span>
             <span className="flex items-center gap-1.5 text-slate-700">
-              <CheckCircle2 size={15} className="text-emerald-600" /> Starting Sirf ₹149/mahina
+              <CheckCircle2 size={15} className="text-emerald-600" /> Starting Sirf ₹5/child/mahina
             </span>
             <span className="flex items-center gap-1.5 text-slate-700">
               <CheckCircle2 size={15} className="text-emerald-600" /> Zero Setup Fees
@@ -614,24 +615,215 @@ export default function Home() {
 
       {/* 5. CURIOSITY MAGNET: BRIGHT INTERACTIVE PRICING CALCULATOR */}
       <section id="calculator" className="relative border-y border-purple-100 bg-gradient-to-b from-purple-50/40 via-white to-indigo-50/40 px-5 py-24 sm:px-8">
-        <div className="mx-auto max-w-4xl">
+        <div className="mx-auto max-w-5xl">
           <div className="text-center">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-100 px-3.5 py-1 text-xs font-bold text-purple-800 border border-purple-200">
-              <Sliders size={13} /> Transparent Per-Student Subscription
+              <Sliders size={13} /> Transparent Per-Child Pricing &bull; Zero Hidden Costs
             </span>
             <h2 className="mt-4 text-3xl font-extrabold sm:text-5xl text-slate-900 tracking-tight">
-              Aapka Monthly Kharcha Kitna Aayega?
+              Aapke School Ke Liye 2 Simple & Affordable Plans
             </h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm text-slate-600 font-medium">
-              Starting sirf <strong>₹149 me 20 bachche</strong>, uske baad sirf <strong>₹7 per bachcha</strong>.
-              Aap jab chahe student badha ya ghata sakte hain!
+            <p className="mx-auto mt-3 max-w-2xl text-sm text-slate-600 font-medium">
+              Aap jitne bachche padhate hain, sirf utna pay karein. No heavy annual software contracts, zero server fees, aur cancel anytime!
             </p>
           </div>
 
-          {/* Interactive Calculator Box */}
-          <div className="mt-12 rounded-3xl border border-purple-200 bg-white p-6 sm:p-10 shadow-xl shadow-purple-900/5">
+          {/* TWO SIDE-BY-SIDE PLAN CARDS */}
+          <div className="mt-12 grid gap-6 md:grid-cols-2">
+            {/* 1. STANDARD PLAN CARD */}
+            <div
+              onClick={() => setSelectedPlanType("standard")}
+              className={`relative cursor-pointer rounded-3xl border-2 p-6 sm:p-8 transition-all backdrop-blur-md flex flex-col justify-between ${
+                selectedPlanType === "standard"
+                  ? "border-teal-500 bg-teal-50/30 shadow-xl shadow-teal-900/5 ring-4 ring-teal-500/10"
+                  : "border-slate-200 bg-white/90 hover:border-slate-300 shadow-sm"
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="rounded-full bg-teal-100 px-3 py-1 text-xs font-black uppercase tracking-wider text-teal-800">
+                    Standard Plan
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">Core School Operations</span>
+                </div>
+
+                <div className="mt-5 flex items-baseline gap-1.5">
+                  <span className="text-4xl sm:text-5xl font-black text-slate-900 font-mono">₹5</span>
+                  <span className="text-xs font-bold text-slate-500">/ student / month</span>
+                </div>
+                <p className="mt-2 text-xs text-slate-500 font-medium">
+                  Ideal for budget-conscious schools, tuition centres & simple registers.
+                </p>
+
+                {/* Standard Feature List */}
+                <div className="mt-6 space-y-3 pt-6 border-t border-slate-100 text-xs text-slate-700">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Student & Parent Directory</strong> (Photos, Documents, Contact info)</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Real-Time Attendance Register</strong> with Instant Auto-Save</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Fees Collection & Defaulters</strong> with A4 / Thermal 80mm Receipts</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>1-Click WhatsApp Parent Alerts</strong> (Absent alerts & Circulars)</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Daily Homework & Timetable</strong> Management</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-teal-600 shrink-0 mt-0.5" />
+                    <span><strong>Mobile PWA App</strong> for Teachers & Office Staff</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedPlanType("standard");
+                  }}
+                  className={`w-full rounded-2xl py-3 text-xs font-bold transition shadow-xs ${
+                    selectedPlanType === "standard"
+                      ? "bg-teal-700 text-white shadow-teal-700/20"
+                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {selectedPlanType === "standard" ? "✓ Selected (₹5 / Child)" : "Choose Standard Plan"}
+                </button>
+              </div>
+            </div>
+
+            {/* 2. PRO ALL-IN-ONE PLAN CARD (HIGHLIGHTED) */}
+            <div
+              onClick={() => setSelectedPlanType("pro")}
+              className={`relative cursor-pointer rounded-3xl border-2 p-6 sm:p-8 transition-all backdrop-blur-md flex flex-col justify-between ${
+                selectedPlanType === "pro"
+                  ? "border-purple-600 bg-purple-50/40 shadow-2xl shadow-purple-900/10 ring-4 ring-purple-600/10"
+                  : "border-slate-200 bg-white/90 hover:border-purple-300 shadow-sm"
+              }`}
+            >
+              {/* Highlight badge */}
+              <div className="absolute -top-3.5 right-6 rounded-full bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 px-3.5 py-1 text-[10px] font-black uppercase tracking-wider text-white shadow-md">
+                🔥 Recommended &bull; Best Value
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black uppercase tracking-wider text-purple-800">
+                    Pro Plan
+                  </span>
+                  <span className="text-xs font-bold text-purple-700">Complete Smart Campus</span>
+                </div>
+
+                <div className="mt-5 flex items-baseline gap-1.5">
+                  <span className="text-4xl sm:text-5xl font-black text-purple-950 font-mono">₹7</span>
+                  <span className="text-xs font-bold text-slate-500">/ student / month</span>
+                </div>
+                <p className="mt-2 text-xs text-purple-900 font-semibold">
+                  Sirf ₹2 extra me pura Anti-Counterfeit & Gate Security Smart System!
+                </p>
+
+                {/* Pro Feature List */}
+                <div className="mt-6 space-y-3 pt-6 border-t border-purple-100 text-xs text-slate-800">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-purple-600 shrink-0 mt-0.5" />
+                    <span><strong>Sabhi Standard Plan ke Features</strong> Included</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-purple-600 shrink-0 mt-0.5" />
+                    <span>📷 <strong>Gate QR Scanner Kiosk:</strong> Live audio synthesis & fee due alerts</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-purple-600 shrink-0 mt-0.5" />
+                    <span>🪪 <strong>PVC Student ID Card Generator:</strong> 8-per-page A4 + optical barcodes</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-purple-600 shrink-0 mt-0.5" />
+                    <span>📜 <strong>Luxury Board Marksheets:</strong> Gold anti-counterfeit security border & QR verify</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-purple-600 shrink-0 mt-0.5" />
+                    <span>🔄 <strong>Academic Session & Promotion Wizard:</strong> 1-click student reshuffle & fee carry-forward</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-purple-600 shrink-0 mt-0.5" />
+                    <span>🎓 <strong>TC & Bonafide Certificate Generator:</strong> Official character & leaving certificates</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 size={16} className="text-purple-600 shrink-0 mt-0.5" />
+                    <span>🛡️ <strong>Granular Staff Roles & Permissions:</strong> Teacher, Cashier & Clerk individual logins</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-4 border-t border-purple-100">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedPlanType("pro");
+                  }}
+                  className={`w-full rounded-2xl py-3 text-xs font-bold transition shadow-md ${
+                    selectedPlanType === "pro"
+                      ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-purple-600/25"
+                      : "border border-purple-300 bg-white text-purple-700 hover:bg-purple-50"
+                  }`}
+                >
+                  {selectedPlanType === "pro" ? "✓ Selected (₹7 / Child - Pro)" : "Choose Pro Plan (Recommended)"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* DYNAMIC CALCULATOR BOX */}
+          <div className="mt-10 rounded-3xl border border-purple-200 bg-white p-6 sm:p-10 shadow-xl shadow-purple-900/5">
+            {/* Plan Switcher Pills inside Calculator */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-slate-100 pb-5">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Select Billing Plan For Calculator:
+                </span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  {selectedPlanType === "pro" ? "Pro Plan (₹7 / Child)" : "Standard Plan (₹5 / Child)"}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlanType("standard")}
+                  className={`rounded-xl px-4 py-2 text-xs font-bold transition ${
+                    selectedPlanType === "standard"
+                      ? "bg-white text-teal-800 shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  Standard (₹5/child)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlanType("pro")}
+                  className={`rounded-xl px-4 py-2 text-xs font-bold transition ${
+                    selectedPlanType === "pro"
+                      ? "bg-purple-600 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  Pro Plan (₹7/child) 🔥
+                </button>
+              </div>
+            </div>
+
             {/* Slider Control */}
-            <div>
+            <div className="mt-6">
               <div className="flex justify-between items-center">
                 <label className="text-sm font-bold text-slate-800">
                   Aapke School / Coaching Me Kitne Bachche Hain?
@@ -643,36 +835,34 @@ export default function Home() {
 
               <input
                 type="range"
-                min="10"
-                max="1000"
-                step="5"
+                min="20"
+                max="1500"
+                step="10"
                 value={studentCount}
                 onChange={(e) => setStudentCount(Number(e.target.value))}
                 className="mt-5 w-full h-2.5 rounded-lg bg-slate-200 appearance-none cursor-pointer accent-purple-600"
               />
 
               <div className="mt-2.5 flex justify-between text-[11px] font-bold text-slate-400">
-                <span>10 (Small Batch)</span>
-                <span>150 (Standard)</span>
-                <span>500 (Medium School)</span>
-                <span>1,000+ (Large)</span>
+                <span>50 (Small Batch)</span>
+                <span>250 (Medium School)</span>
+                <span>600 (High School)</span>
+                <span>1,200+ (Large Academy)</span>
               </div>
             </div>
 
-            {/* Calculated Result Card */}
+            {/* Calculated Result Cards */}
             <div className="mt-8 grid gap-4 sm:grid-cols-3 pt-6 border-t border-slate-100">
-              <div className="rounded-2xl border border-purple-200 bg-purple-50/60 p-5 text-center shadow-sm">
+              <div className="rounded-2xl border border-purple-200 bg-purple-50/60 p-5 text-center shadow-xs">
                 <p className="text-xs font-bold uppercase tracking-wider text-purple-700">
-                  EduTechLab Total Cost
+                  Monthly Total ({selectedPlanType === "pro" ? "Pro ₹7" : "Standard ₹5"})
                 </p>
-                <p className="mt-2 text-3xl sm:text-4xl font-black text-purple-950">
+                <p className="mt-2 text-3xl sm:text-4xl font-black text-purple-950 font-mono">
                   ₹{calculatedCost.toLocaleString("en-IN")}
                   <span className="text-xs font-normal text-slate-500"> /month</span>
                 </p>
                 <p className="mt-2 text-[11px] font-semibold text-purple-700">
-                  {studentCount <= 20
-                    ? "Base Plan (₹149 up to 20 students)"
-                    : `₹149 Base + ${studentCount - 20} × ₹7 = ₹${calculatedCost}`}
+                  ₹{(calculatedCost * 12).toLocaleString("en-IN")} / saal ({studentCount} × ₹{ratePerStudent})
                 </p>
               </div>
 
@@ -680,24 +870,24 @@ export default function Home() {
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
                   Purana / Market Software
                 </p>
-                <p className="mt-2 text-3xl font-bold text-slate-400 line-through">
+                <p className="mt-2 text-3xl font-bold text-slate-400 line-through font-mono">
                   ₹{legacySoftwareCost.toLocaleString("en-IN")}
                   <span className="text-xs font-normal text-slate-400"> /mo</span>
                 </p>
                 <p className="mt-2 text-[11px] text-slate-400 font-medium">
-                  Heavy upfront contract + server cost
+                  Heavy upfront contract + annual maintenance fee
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-teal-200 bg-teal-50/80 p-5 text-center flex flex-col justify-center shadow-sm">
+              <div className="rounded-2xl border border-teal-200 bg-teal-50/80 p-5 text-center flex flex-col justify-center shadow-xs">
                 <span className="inline-flex mx-auto items-center gap-1 rounded-full bg-teal-100 px-2.5 py-0.5 text-[10px] font-extrabold text-teal-800">
                   🎉 YOUR NET SAVINGS
                 </span>
-                <p className="mt-2 text-3xl font-black text-teal-700">
+                <p className="mt-2 text-3xl font-black text-teal-700 font-mono">
                   {estimatedSavings}% Sasta
                 </p>
                 <p className="mt-1 text-[11px] text-teal-800 font-medium">
-                  Bina saal bhar ke contract ke
+                  Sirf ₹{(ratePerStudent / 30).toFixed(2)} per child per day!
                 </p>
               </div>
             </div>
@@ -705,7 +895,7 @@ export default function Home() {
             {/* CTA inside calculator */}
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-slate-100">
               <div className="text-xs text-slate-500 text-center sm:text-left font-medium">
-                <span className="font-bold text-slate-800">Risk-Free Trial:</span> Bina kisi advance payment ke sare features full capacity me chala kar dekhein.
+                <span className="font-bold text-slate-800">Risk-Free 100% Free Trial:</span> Bina kisi advance payment ya card ke apne {studentCount} bachcho ke sath test karein.
               </div>
               <Link
                 href="/register"
@@ -811,7 +1001,7 @@ export default function Home() {
               <div className="rounded-2xl border border-teal-100 bg-teal-50/50 p-6">
                 <h4 className="font-bold text-sm text-teal-900">Coaching Director Review:</h4>
                 <p className="mt-2 text-xs italic text-slate-600 leading-6">
-                  “Hume 120 bachchon ke liye mehenga software nahi chahiye tha. EduTechLab ne ₹149 + ₹7/student ka itna sasta plan diya ki ab har mahine sirf ₹800-900 me pura coaching manage ho jata hai.”
+                  “Hume 120 bachchon ke liye mehenga software nahi chahiye tha. EduTechLab ne ₹5 aur ₹7/student ka itna sasta aur transparent plan diya ki ab har mahine sirf ₹600-800 me pura coaching manage ho jata hai.”
                 </p>
                 <p className="mt-4 text-xs font-bold text-teal-950">— Target Science Coaching, Gaya</p>
               </div>
@@ -929,7 +1119,7 @@ export default function Home() {
               <ul className="mt-6 space-y-3.5 text-xs text-slate-700 leading-5 font-semibold">
                 <li className="flex items-start gap-2.5">
                   <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
-                  <span><strong>Starting Sirf ₹149/mahina</strong> — jitne bachche utna pay karein (+₹7/student).</span>
+                  <span><strong>Starting Sirf ₹5/child/mahina</strong> — Standard (₹5) aur Pro (₹7) plans me complete freedom.</span>
                 </li>
                 <li className="flex items-start gap-2.5">
                   <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
@@ -967,8 +1157,12 @@ export default function Home() {
               a: "Haan, bilkul! EduTechLab PWA (Progressive Web App) technology par bana hai. Jab aap phone me link kholenge to neeche 'Install App' ka option aayega. Ek click me yeh aapke mobile ki home screen par app ban jayegi with logo aur bina browser ke full-screen chalegi.",
             },
             {
+              q: "Standard (₹5) aur Pro (₹7) plan me kya farq hai?",
+              a: "Standard Plan (₹5/child/mo) me Student directory, Attendance register with auto-save, Fees collection with thermal/A4 receipts, homework, timetable aur WhatsApp notices aate hain. Pro Plan (₹7/child/mo) me in sabke alawa Smart Gate QR Scanner Kiosk, PVC ID Card generator, Luxury Board Marksheets, Class promotion wizard, aur TC certificate generator shamil hain.",
+            },
+            {
               q: "Subscription me student badhane ya ghatane ka kya hisab hai?",
-              a: "Aapko koi saal bhar ka contract bandhne ki jarurat nahi hai. Starting plan ₹149 me 20 bachche shamil hain. Uske baad ₹7 per bachcha lagta hai. Agar agle mahine bachche badhte ya ghadte hain, to aap apna plan change kar sakte hain.",
+              a: "Aapko koi saal bhar ka binding contract nahi hai. Aap jitne active students onboard karte hain sirf utne bachcho ka hisab rehta hai (₹5 ya ₹7 per student). Naye session me bachche badhne par aap direct capacity upgrade kar sakte hain.",
             },
             {
               q: "Free trial ke liye kya hume credit card ya pehle payment karni hogi?",
