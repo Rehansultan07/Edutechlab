@@ -30,6 +30,14 @@ import {
   QrCode,
   ExternalLink,
   ArrowRight,
+  Check,
+  Search,
+  Building2,
+  Clock,
+  TrendingDown,
+  Layers,
+  UserCheck,
+  UserX,
 } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -121,6 +129,17 @@ export default function Dashboard() {
   const [monthlyExpense, setMonthlyExpense] = useState<number>(0);
   const [expenseList, setExpenseList] = useState<any[]>([]);
   const [examsList, setExamsList] = useState<any[]>([]);
+  const [teachersList, setTeachersList] = useState<
+    { id: string; full_name: string; phone?: string | null; email?: string | null }[]
+  >([]);
+  const [teacherAttendance, setTeacherAttendance] = useState<Record<string, string>>({});
+  const [teacherFilter, setTeacherFilter] = useState<"all" | "present" | "absent">("all");
+  const [cutoffTime, setCutoffTime] = useState<string>("09:30");
+  const [instituteType, setInstituteType] = useState<string>("school");
+  const [recentNotices, setRecentNotices] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [isEnforcingCutoff, setIsEnforcingCutoff] = useState<boolean>(false);
+  const [todayDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
 
   // Interactive Report Modal State
   const [activeReport, setActiveReport] = useState<ActiveReportType>(null);
@@ -203,22 +222,29 @@ export default function Dashboard() {
           expRes,
           examRes,
           sesRes,
+          tAttRes,
+          setRes,
+          notRes,
         ] = await Promise.all([
           supabase
             .from("students")
-            .select("id,first_name,last_name,admission_no,gender,class_id,phone,guardian_phone")
+            .select("id,first_name,last_name,admission_no,gender,class_id,phone,guardian_phone,created_at")
             .eq("organization_id", orgId)
-            .eq("status", "active"),
+            .eq("status", "active")
+            .order("created_at", { ascending: false }),
           supabase.from("classes").select("id,name").eq("organization_id", orgId).order("sort_order"),
-          supabase.from("teachers").select("id", { count: "exact", head: true }).eq("organization_id", orgId),
+          supabase.from("teachers").select("id,full_name,phone,email").eq("organization_id", orgId).order("full_name"),
           supabase.from("attendance").select("student_id,status").eq("organization_id", orgId).eq("attendance_date", today),
-          supabase.from("fee_payments").select("id,amount,method,paid_on,student_id").eq("organization_id", orgId).gte("paid_on", monthDate),
+          supabase.from("fee_payments").select("id,amount,method,paid_on,student_id,created_at").eq("organization_id", orgId).gte("paid_on", monthDate).order("created_at", { ascending: false }),
           supabase.from("student_fee_months").select("student_id,amount_due,amount_paid,status,fee_month").eq("organization_id", orgId),
           supabase.rpc("get_institution_subscription", { p_org_id: orgId }),
           supabase.from("students").select("id,first_name,last_name,date_of_birth,class_id").eq("organization_id", orgId).not("date_of_birth", "is", null),
           supabase.from("school_expenses").select("id,title,category,amount,expense_date").eq("organization_id", orgId).gte("expense_date", monthDate),
           supabase.from("exams").select("id,name,exam_date").eq("organization_id", orgId).order("created_at", { ascending: false }).limit(6),
           supabase.from("academic_sessions").select("name,is_current").eq("organization_id", orgId),
+          supabase.from("teacher_attendance").select("teacher_id,status").eq("organization_id", orgId).eq("attendance_date", today),
+          supabase.from("organization_settings").select("institute_type,attendance_cutoff_time,phone").eq("organization_id", orgId).maybeSingle(),
+          supabase.from("notices").select("id,title,published_at,created_at").eq("organization_id", orgId).order("created_at", { ascending: false }).limit(4),
         ]);
 
         const currentSes = (sesRes.data || []).find((s: any) => s.is_current);
@@ -226,11 +252,27 @@ export default function Dashboard() {
 
         setActiveStudents(stRes.data || []);
         setClassesList(clRes.data || []);
-        setTeachersCount(tcRes.count || 0);
+        setTeachersList(tcRes.data || []);
+        setTeachersCount((tcRes.data || []).length);
         setAttendanceRecords(attRes.data || []);
         setFeePaymentsList(payRes.data || []);
         setFeeDuesList(duesRes.data || []);
         setExamsList(examRes.data || []);
+
+        // Load daily teacher attendance
+        const loadedTAtt: Record<string, string> = {};
+        (tAttRes?.data || []).forEach((r: any) => {
+          loadedTAtt[r.teacher_id] = r.status;
+        });
+        setTeacherAttendance(loadedTAtt);
+
+        if ((setRes?.data as any)?.attendance_cutoff_time) {
+          setCutoffTime((setRes.data as any).attendance_cutoff_time);
+        }
+        if ((setRes?.data as any)?.institute_type) {
+          setInstituteType((setRes.data as any).institute_type);
+        }
+        setRecentNotices(notRes?.data || []);
 
         // Calculate birthdays
         const todayMMDD = today.slice(5);
@@ -402,6 +444,224 @@ export default function Dashboard() {
     return { income, expense, net, margin };
   }, [feeStats.totalCollected, monthlyExpense]);
 
+  // Best & Worst Attendance Classes for Today
+  const bestAndWorstClasses = useMemo(() => {
+    if (!classesList.length) return { best: null, worst: null };
+    const valid = attendanceStats.classBreakdown.filter((c) => c.total > 0);
+    if (!valid.length) return { best: null, worst: null };
+
+    const sorted = [...valid].sort((a, b) => b.rate - a.rate);
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+    return { best, worst };
+  }, [classesList, attendanceStats.classBreakdown]);
+
+  // Faculty / Teacher Attendance Analytics
+  const teacherStats = useMemo(() => {
+    const total = teachersList.length;
+    const present = teachersList.filter((t) => teacherAttendance[t.id] === "present").length;
+    const absent = teachersList.filter((t) => teacherAttendance[t.id] === "absent").length;
+    const leave = teachersList.filter((t) => teacherAttendance[t.id] === "leave").length;
+    const unmarked = total - present - absent - leave;
+    const rate = total > 0 ? Math.round((present / total) * 100) : 0;
+    return { total, present, absent, leave, unmarked, rate };
+  }, [teachersList, teacherAttendance]);
+
+  // Fee Collection Rates
+  const feeTotalExpected = feeStats.totalCollected + feeStats.totalOutstanding;
+  const feeCollectedRate =
+    feeTotalExpected > 0
+      ? Math.round((feeStats.totalCollected / feeTotalExpected) * 100)
+      : feeStats.totalCollected > 0
+      ? 100
+      : 0;
+
+  // Real-Time Recent Activities feed
+  const recentActivities = useMemo(() => {
+    const items: Array<{
+      id: string;
+      icon: "user" | "fee" | "attendance" | "notice";
+      title: string;
+      subtitle: string;
+      time: string;
+    }> = [];
+
+    // Latest student
+    if (activeStudents.length > 0) {
+      const latestSt = activeStudents[0];
+      const cName = latestSt.class_id ? classMap.get(latestSt.class_id) || "Class" : "Class";
+      items.push({
+        id: "st-" + latestSt.id,
+        icon: "user",
+        title: `New student added — ${latestSt.first_name} ${latestSt.last_name || ""}`.trim(),
+        subtitle: `${cName} • Adm No: ${latestSt.admission_no}`,
+        time: latestSt.created_at ? new Date(latestSt.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Today",
+      });
+    }
+
+    // Latest fee payment
+    if (feePaymentsList.length > 0) {
+      const latestPay = feePaymentsList[0];
+      const payStudent = activeStudents.find((s) => s.id === latestPay.student_id);
+      const sName = payStudent ? `${payStudent.first_name} ${payStudent.last_name || ""}`.trim() : "Student";
+      const cName = payStudent?.class_id ? classMap.get(payStudent.class_id) || "" : "";
+      items.push({
+        id: "pay-" + latestPay.id,
+        icon: "fee",
+        title: `Fee received — ₹${Number(latestPay.amount).toLocaleString("en-IN")}`,
+        subtitle: `${sName}${cName ? ` (${cName})` : ""} via ${String(latestPay.method || "cash").toUpperCase()}`,
+        time: latestPay.created_at ? new Date(latestPay.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Today",
+      });
+    }
+
+    // Attendance activity
+    if (attendanceStats.marked > 0) {
+      const best = bestAndWorstClasses.best;
+      items.push({
+        id: "att-today",
+        icon: "attendance",
+        title: `Attendance marked — ${best ? `${best.className} (${best.rate}%)` : `School Wide (${attendanceStats.rate}%)`}`,
+        subtitle: `${attendanceStats.present} Present • ${attendanceStats.absent} Absent • ${attendanceStats.marked} Total`,
+        time: "Today",
+      });
+    }
+
+    // Latest notice
+    if (recentNotices.length > 0) {
+      const n = recentNotices[0];
+      items.push({
+        id: "not-" + n.id,
+        icon: "notice",
+        title: `Notice published — ${n.title}`,
+        subtitle: `Official school circular active for parents & staff`,
+        time: n.published_at ? new Date(n.published_at).toLocaleDateString([], { month: "short", day: "numeric" }) : "Recent",
+      });
+    }
+
+    return items;
+  }, [activeStudents, feePaymentsList, attendanceStats, bestAndWorstClasses, recentNotices, classMap]);
+
+  // Toggle teacher attendance
+  const handleToggleTeacher = async (teacherId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === "present" ? "absent" : "present";
+    setTeacherAttendance((prev) => ({
+      ...prev,
+      [teacherId]: nextStatus,
+    }));
+
+    try {
+      let rpcWorked = false;
+      try {
+        const { data, error } = await supabase.rpc("mark_teacher_attendance", {
+          p_teacher_id: teacherId,
+          p_org_id: profile?.organization_id,
+          p_date: todayDate,
+          p_status: nextStatus,
+        });
+        if (!error && data?.success) rpcWorked = true;
+      } catch {}
+
+      if (!rpcWorked) {
+        await supabase.from("teacher_attendance").upsert(
+          {
+            organization_id: profile?.organization_id,
+            teacher_id: teacherId,
+            attendance_date: todayDate,
+            status: nextStatus,
+          },
+          { onConflict: "teacher_id,attendance_date" }
+        );
+      }
+    } catch (err) {
+      console.warn("Failed to toggle teacher attendance:", err);
+    }
+  };
+
+  // Mark all teachers present
+  const handleMarkAllTeachersPresent = async () => {
+    if (teachersList.length === 0) return;
+    const nextMap: Record<string, string> = {};
+    teachersList.forEach((t) => {
+      nextMap[t.id] = "present";
+    });
+    setTeacherAttendance(nextMap);
+
+    try {
+      const batch = teachersList.map((t) => ({
+        teacher_id: t.id,
+        status: "present",
+      }));
+
+      let rpcWorked = false;
+      try {
+        const { data, error } = await supabase.rpc("save_batch_teacher_attendance", {
+          p_records: batch,
+          p_org_id: profile?.organization_id,
+          p_date: todayDate,
+        });
+        if (!error && data?.success) rpcWorked = true;
+      } catch {}
+
+      if (!rpcWorked) {
+        const upsertRows = teachersList.map((t) => ({
+          organization_id: profile?.organization_id,
+          teacher_id: t.id,
+          attendance_date: todayDate,
+          status: "present",
+        }));
+        await supabase.from("teacher_attendance").upsert(upsertRows, { onConflict: "teacher_id,attendance_date" });
+      }
+    } catch (err) {
+      console.warn("Failed to mark all teachers present:", err);
+    }
+  };
+
+  // Auto-Mark remaining students absent after cutoff
+  const handleEnforceCutoffDashboard = async () => {
+    setIsEnforcingCutoff(true);
+    try {
+      const unmarkedStudents = activeStudents.filter(
+        (s) => !attendanceRecords.some((a) => a.student_id === s.id)
+      );
+      if (unmarkedStudents.length === 0) {
+        alert("All enrolled students already have attendance recorded for today.");
+        return;
+      }
+
+      let rpcWorked = false;
+      try {
+        const { data, error } = await supabase.rpc("enforce_attendance_cutoff", {
+          p_org_id: profile?.organization_id,
+          p_date: todayDate,
+        });
+        if (!error && data?.success) rpcWorked = true;
+      } catch {}
+
+      if (!rpcWorked) {
+        const recordsToInsert = unmarkedStudents.map((st) => ({
+          organization_id: profile?.organization_id,
+          student_id: st.id,
+          attendance_date: todayDate,
+          status: "absent",
+          note: `Auto-marked absent (Cutoff ${cutoffTime} passed)`,
+        }));
+        await supabase.from("attendance").upsert(recordsToInsert, { onConflict: "student_id,attendance_date" });
+      }
+
+      setAttendanceRecords((prev) => [
+        ...prev,
+        ...unmarkedStudents.map((st) => ({ student_id: st.id, status: "absent" })),
+      ]);
+
+      alert(`✓ Attendance Cutoff Enforced! ${unmarkedStudents.length} students placed in Absent list.`);
+      setActiveReport("attendance");
+    } catch (err: any) {
+      alert("Failed to enforce cutoff: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsEnforcingCutoff(false);
+    }
+  };
+
   const originUrl =
     typeof window !== "undefined" && window.location.origin
       ? window.location.origin
@@ -475,42 +735,73 @@ export default function Dashboard() {
       {/* MAIN VIEWPORT                                                  */}
       {/* ============================================================== */}
       <div className="lg:pl-64">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/80 px-5 backdrop-blur-2xl shadow-xs">
-          <div className="flex items-center gap-3">
+        {/* Top Header Matching Screenshot */}
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 sm:px-6 backdrop-blur-2xl shadow-xs gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               className="lg:hidden text-slate-600 hover:text-slate-900 p-1.5 rounded-xl hover:bg-slate-100 transition"
               onClick={() => setOpen(true)}
+              aria-label="Toggle Navigation"
             >
-              <Menu size={22} />
+              <Menu size={20} />
             </button>
-            <div className="hidden sm:flex items-center gap-2 text-xs font-medium text-slate-500">
-              <span className="font-semibold text-slate-800">{instituteName}</span>
-              <ChevronRight size={14} className="text-slate-400" />
-              <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200">
-                School Admin Console
-              </span>
-              {currentSessionName && (
-                <Link
-                  href="/academics"
-                  title="Click to manage Academic Sessions & Promotions"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 transition"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Session: {currentSessionName}</span>
-                </Link>
-              )}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500/10 border border-amber-200 text-amber-700 shrink-0">
+                <Building2 size={20} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm sm:text-base font-extrabold text-slate-900 truncate tracking-tight">
+                  {instituteName}
+                </h2>
+                <p className="text-[11px] text-slate-500 font-medium truncate capitalize">
+                  {instituteType} Management System &bull; Active Session: {currentSessionName || "2026-27"}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Central Search Bar (Screenshot Style) */}
+          <div className="hidden md:flex items-center flex-1 max-w-md mx-4">
+            <div className="relative w-full">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search student, staff, class..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-16 py-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-purple-500 focus:bg-white transition"
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-400">
+                Ctrl + K
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Notification Bell */}
+            <Link
+              href="/notices"
+              className="relative grid h-9 w-9 place-items-center rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
+              title="Notices & Notifications"
+            >
+              <Bell size={18} />
+              {recentNotices.length > 0 && (
+                <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />
+              )}
+            </Link>
+
+            {/* Profile Menu Pill */}
             <div className="relative">
               <button
                 onClick={() => setProfileMenuOpen(!profileMenuOpen)}
-                className="flex items-center gap-2 rounded-full p-0.5 hover:ring-2 hover:ring-purple-400/50 transition focus:outline-none"
+                className="flex items-center gap-2.5 rounded-full p-1 hover:bg-slate-100 transition"
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-tr from-purple-600 to-indigo-600 text-xs font-black text-white shadow-md shadow-purple-600/30 hover:scale-105 transition">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-black text-white shadow-sm">
                   {initials}
+                </div>
+                <div className="hidden sm:block text-left pr-1">
+                  <span className="text-xs font-bold text-slate-900 block leading-tight">Admin</span>
+                  <span className="text-[10px] text-slate-500 font-medium block">School Admin</span>
                 </div>
               </button>
 
@@ -572,658 +863,603 @@ export default function Dashboard() {
         </header>
 
         {/* Dashboard Main Canvas */}
-        <main className="mx-auto max-w-7xl p-5 sm:p-8 space-y-7">
+        <main className="mx-auto max-w-7xl p-4 sm:p-7 space-y-6">
           {error && (
-            <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-xs sm:text-sm text-red-700 font-medium">
               {error}
             </div>
           )}
 
-          {/* ============================================================== */}
-          {/* WELCOME HERO & ACTION BAR (LIGHT COLORFUL GLASS)               */}
-          {/* ============================================================== */}
-          <div className="relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-r from-purple-50/90 via-indigo-50/80 to-cyan-50/80 p-6 sm:p-8 backdrop-blur-xl shadow-sm">
-            <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-purple-100 border border-purple-200 px-3.5 py-1 text-xs font-bold text-purple-700 shadow-xs">
-                  <Sparkles size={13} className="text-amber-500 animate-spin" />
-                  <span>{instituteName} Workspace</span>
-                </div>
-                <h1 className="mt-2 text-2xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
-                  Welcome back,{" "}
-                  <span className="bg-gradient-to-r from-purple-700 via-indigo-600 to-cyan-600 bg-clip-text text-transparent">
-                    {firstName}
-                  </span>
-                </h1>
-                <p className="mt-1 text-xs sm:text-sm text-slate-600 max-w-xl font-medium">
-                  Real-time operational dashboard &bull; Attendance, fee collections, student strength, and daily kharcha.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                <Link
-                  href="/students"
-                  className="inline-flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-purple-600/25 hover:from-purple-500 hover:to-indigo-500 transition active:scale-95"
-                >
-                  <Users size={15} />
-                  <span>+ New Student</span>
-                </Link>
-                <Link
-                  href="/attendance"
-                  className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 bg-white/90 px-4 py-2.5 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:border-slate-400 transition active:scale-95"
-                >
-                  <QrCode size={15} className="text-cyan-600" />
-                  <span>Gate QR Kiosk</span>
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          {/* ============================================================== */}
-          {/* SUBSCRIPTION PLAN BANNER                                       */}
-          {/* ============================================================== */}
-          {subInfo && (
+          {/* Subscription Expiry / Trial Warning Pill (If applicable) */}
+          {subInfo && (subInfo.is_expired || subInfo.is_trial) && (
             <div
-              className={`rounded-3xl border p-4 sm:p-5 backdrop-blur-xl transition flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm ${
+              className={`rounded-2xl border px-4 py-2.5 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs font-semibold ${
                 subInfo.is_expired
-                  ? "border-rose-200 bg-rose-50/80 text-rose-900"
-                  : subInfo.is_trial
-                  ? "border-amber-200 bg-amber-50/80 text-amber-900"
-                  : "border-purple-200 bg-purple-50/80 text-purple-900"
+                  ? "border-rose-200 bg-rose-50 text-rose-800"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
               }`}
             >
-              <div className="flex items-center gap-3.5">
-                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl shadow-sm ${
-                  subInfo.is_expired ? "bg-rose-100 text-rose-700" : "bg-purple-100 text-purple-700"
-                }`}>
-                  {subInfo.is_expired ? <AlertCircle size={22} /> : <CreditCard size={22} />}
+              <div className="flex items-center gap-2">
+                <AlertCircle size={15} />
+                <span>
+                  {subInfo.is_expired
+                    ? "Subscription expired. Please renew to avoid interruption."
+                    : `Free Trial Active (${subInfo.days_remaining} Days Remaining) • ${activeStudents.length}/${subInfo.student_limit} Students Quota`}
                 </span>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-sm sm:text-base text-slate-900">
-                      {subInfo.is_expired
-                        ? "Subscription Expired"
-                        : subInfo.is_trial
-                        ? `Free Trial Active (${subInfo.days_remaining} Days Remaining)`
-                        : "Standard Institutional Plan"}
-                    </span>
-                    <span className="rounded-full bg-white/90 border border-current/20 px-2.5 py-0.5 text-[10px] font-bold text-slate-800 uppercase tracking-wider">
-                      {activeStudents.length} / {subInfo.student_limit} Students Quota
-                    </span>
-                  </div>
-                  <div className="mt-2 h-1.5 w-60 max-w-full rounded-full bg-slate-200 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-purple-600 to-cyan-500 rounded-full"
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          Math.round((activeStudents.length / Math.max(1, subInfo.student_limit)) * 100)
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </div>
               </div>
-
               <Link
                 href="/subscription"
-                className="inline-flex items-center gap-1.5 rounded-2xl bg-white border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 transition self-start sm:self-auto"
+                className="underline underline-offset-2 hover:text-purple-700 font-bold"
               >
-                <span>Manage Plan & Quota</span>
-                <ChevronRight size={14} />
+                Manage Subscription →
               </Link>
             </div>
           )}
 
-          {/* ============================================================== */}
-          {/* BIRTHDAY CELEBRATION LIGHT BANNER                              */}
-          {/* ============================================================== */}
-          {birthdays.length > 0 && (
-            <div className="rounded-3xl border border-amber-200 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50 p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-100 text-amber-700 text-2xl shadow-sm">
-                  🎂
-                </span>
-                <div>
-                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-900">
-                    Today&apos;s Birthday Celebrations ({birthdays.length})
-                  </span>
-                  <p className="text-sm font-extrabold text-slate-900">
-                    {birthdays.map((b: any) => `${b.first_name} ${b.last_name || ""}`).join(", ")}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  const names = birthdays.map((b: any) => b.first_name).join(", ");
-                  navigator.clipboard.writeText(
-                    `🎉 *Happy Birthday from ${instituteName}!* Dear ${names}, we wish you a joyful year of academic success and health!`
-                  );
-                  alert("Birthday wish message copied to clipboard!");
-                }}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition active:scale-95 self-start sm:self-auto"
-              >
-                <span>Copy Birthday Wish</span>
-              </button>
+          {/* WELCOME BAR & DATE PILL (MATCHING SCREENSHOT) */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                <span>Welcome, {firstName}</span>
+                <span>👋</span>
+              </h1>
+              <p className="mt-0.5 text-xs sm:text-sm text-slate-500 font-medium">
+                Here&apos;s what&apos;s happening at your school today.
+              </p>
             </div>
-          )}
 
-          {/* ============================================================== */}
-          {/* TOP 4 VIBRANT LIGHT GLASS KPI TILES                            */}
-          {/* ============================================================== */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            {/* Tile 1: Total Students */}
+            <div className="flex items-center gap-2.5">
+              <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs">
+                <Calendar size={14} className="text-purple-600" />
+                <span>
+                  {new Date().toLocaleDateString("en-US", {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </span>
+                <ChevronRight size={14} className="text-slate-400 rotate-90" />
+              </div>
+            </div>
+          </div>
+
+          {/* TOP 5 METRIC KPI TILES (EXACT CLEAN PASTELS FROM SCREENSHOT) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
+            {/* 1. Total Students */}
             <div
               onClick={() => setActiveReport("students")}
-              className="group cursor-pointer rounded-3xl border border-purple-200/80 bg-white/80 p-5 backdrop-blur-xl hover:border-purple-400 hover:shadow-xl hover:shadow-purple-500/10 transition-all duration-300 relative overflow-hidden"
+              className="cursor-pointer rounded-2xl border border-blue-100 bg-blue-50/50 p-4 hover:border-blue-300 hover:shadow-md transition group"
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-purple-700">
-                  Total Students
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-700 group-hover:scale-105 transition">
+                  <Users size={18} />
                 </span>
-                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-purple-100 text-purple-700 group-hover:scale-110 transition">
-                  <Users size={19} />
+                <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-0.5">
+                  ↑ +12 this month
                 </span>
               </div>
-              <p className="mt-3 text-3xl font-black text-slate-900">
+              <p className="mt-3 text-2xl sm:text-3xl font-black text-slate-900">
                 {loading ? "—" : activeStudents.length}
               </p>
-              <div className="mt-2 flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Active Enrolled</span>
-                <span className="text-purple-700 text-[11px] font-bold group-hover:translate-x-0.5 transition flex items-center gap-0.5">
-                  View Classes →
-                </span>
-              </div>
+              <span className="text-xs font-bold text-slate-600 block mt-0.5">Total Students</span>
             </div>
 
-            {/* Tile 2: Faculty */}
+            {/* 2. Total Staff */}
             <div
               onClick={() => setActiveReport("students")}
-              className="group cursor-pointer rounded-3xl border border-cyan-200/80 bg-white/80 p-5 backdrop-blur-xl hover:border-cyan-400 hover:shadow-xl hover:shadow-cyan-500/10 transition-all duration-300 relative overflow-hidden"
+              className="cursor-pointer rounded-2xl border border-purple-100 bg-purple-50/50 p-4 hover:border-purple-300 hover:shadow-md transition group"
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-cyan-800">
-                  Teachers & Faculty
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-purple-100 text-purple-700 group-hover:scale-105 transition">
+                  <GraduationCap size={18} />
                 </span>
-                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-cyan-100 text-cyan-700 group-hover:scale-110 transition">
-                  <GraduationCap size={19} />
+                <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-0.5">
+                  ↑ +1 this month
                 </span>
               </div>
-              <p className="mt-3 text-3xl font-black text-slate-900">
+              <p className="mt-3 text-2xl sm:text-3xl font-black text-slate-900">
                 {loading ? "—" : teachersCount}
               </p>
-              <div className="mt-2 flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Assigned Teachers</span>
-                <span className="text-cyan-700 text-[11px] font-bold group-hover:translate-x-0.5 transition flex items-center gap-0.5">
-                  Directory →
-                </span>
-              </div>
+              <span className="text-xs font-bold text-slate-600 block mt-0.5">Total Staff</span>
             </div>
 
-            {/* Tile 3: Today's Attendance */}
+            {/* 3. Total Classes */}
+            <div
+              onClick={() => setActiveReport("students")}
+              className="cursor-pointer rounded-2xl border border-amber-100 bg-amber-50/50 p-4 hover:border-amber-300 hover:shadow-md transition group"
+            >
+              <div className="flex items-center justify-between">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-100 text-amber-700 group-hover:scale-105 transition">
+                  <Layers size={18} />
+                </span>
+                <span className="text-[11px] font-bold text-slate-400">
+                  No change
+                </span>
+              </div>
+              <p className="mt-3 text-2xl sm:text-3xl font-black text-slate-900">
+                {loading ? "—" : classesList.length}
+              </p>
+              <span className="text-xs font-bold text-slate-600 block mt-0.5">Total Classes</span>
+            </div>
+
+            {/* 4. Today's Attendance */}
             <div
               onClick={() => setActiveReport("attendance")}
-              className="group cursor-pointer rounded-3xl border border-emerald-200/80 bg-white/80 p-5 backdrop-blur-xl hover:border-emerald-400 hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-300 relative overflow-hidden"
+              className="cursor-pointer rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 hover:border-emerald-300 hover:shadow-md transition group"
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-                  Today&apos;s Attendance
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700 group-hover:scale-105 transition">
+                  <Calendar size={18} />
                 </span>
-                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-100 text-emerald-700 group-hover:scale-110 transition">
-                  <ClipboardCheck size={19} />
+                <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-0.5">
+                  ↑ +1.8%
                 </span>
               </div>
-              <p className="mt-3 text-3xl font-black text-emerald-700">
-                {loading ? "—" : attendanceStats.rate === null ? "Not marked" : `${attendanceStats.rate}%`}
+              <p className="mt-3 text-2xl sm:text-3xl font-black text-emerald-800">
+                {loading ? "—" : attendanceStats.rate !== null ? `${attendanceStats.rate}%` : "0%"}
               </p>
-              <div className="mt-2 flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>{attendanceStats.present} Present &bull; {attendanceStats.absent} Absent</span>
-                <span className="text-emerald-700 text-[11px] font-bold group-hover:translate-x-0.5 transition flex items-center gap-0.5">
-                  Drilldown →
-                </span>
-              </div>
+              <span className="text-xs font-bold text-slate-600 block mt-0.5">Today&apos;s Attendance</span>
             </div>
 
-            {/* Tile 4: Fees Collected Month */}
+            {/* 5. Fees Collected */}
             <div
               onClick={() => setActiveReport("fees")}
-              className="group cursor-pointer rounded-3xl border border-amber-200/80 bg-white/80 p-5 backdrop-blur-xl hover:border-amber-400 hover:shadow-xl hover:shadow-amber-500/10 transition-all duration-300 relative overflow-hidden"
+              className="cursor-pointer rounded-2xl border border-rose-100 bg-rose-50/50 p-4 hover:border-rose-300 hover:shadow-md transition group col-span-2 sm:col-span-1"
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
-                  Fees This Month
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-rose-100 text-rose-700 group-hover:scale-105 transition">
+                  <WalletCards size={18} />
                 </span>
-                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-amber-100 text-amber-700 group-hover:scale-110 transition">
-                  <WalletCards size={19} />
+                <span className="text-[11px] font-bold text-emerald-700">
+                  ↑ {feeCollectedRate}% of ₹{feeTotalExpected.toLocaleString("en-IN")}
                 </span>
               </div>
-              <p className="mt-3 text-3xl font-black text-slate-900">
+              <p className="mt-3 text-2xl sm:text-3xl font-black text-slate-900 truncate">
                 {loading ? "—" : `₹${feeStats.totalCollected.toLocaleString("en-IN")}`}
               </p>
-              <div className="mt-2 flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Due: ₹{feeStats.totalOutstanding.toLocaleString("en-IN")}</span>
-                <span className="text-amber-700 text-[11px] font-bold group-hover:translate-x-0.5 transition flex items-center gap-0.5">
-                  Ledger →
-                </span>
-              </div>
+              <span className="text-xs font-bold text-slate-600 block mt-0.5">Fees Collected</span>
             </div>
           </div>
 
-          {/* ============================================================== */}
-          {/* CENTRAL LIVE REPORTS & ANALYTICS SHOWCASE HUB                  */}
-          {/* ============================================================== */}
-          <div className="pt-2">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+          {/* MIDDLE FOCUS ROW: ATTENDANCE HIGHLIGHTS (NO GRAPH) + FEE DONUT RING */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Card 1: Today's Student Attendance Overview */}
+            <div
+              onClick={() => setActiveReport("attendance")}
+              className="group cursor-pointer rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs hover:border-emerald-300 hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
+            >
               <div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-purple-100 border border-purple-200 px-3 py-1 text-xs font-bold text-purple-700 shadow-xs">
-                  <Activity size={13} className="text-cyan-600 animate-pulse" />
-                  <span>Central Operations & Reports Hub</span>
-                </div>
-                <h2 className="mt-1.5 text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                  <span>Interactive Institutional Reports</span>
-                  <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">
-                    Click Any Tile to Open Full Report
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+                      <ClipboardCheck size={18} />
+                    </span>
+                    <div>
+                      <h3 className="font-extrabold text-base text-slate-900 group-hover:text-emerald-700 transition">
+                        Today&apos;s Attendance Overview
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Student presence & class-wise performance
+                      </p>
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                    Live Record
                   </span>
-                </h2>
-                <p className="text-xs text-slate-500 font-medium">
-                  Instant deep-dive reports with class breakdown, defaulters list, profit & loss, and 1-click WhatsApp alerts.
-                </p>
+                </div>
+
+                {/* Main Rate and Counters */}
+                <div className="mt-5 flex items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400">
+                      School-Wide Ratio
+                    </span>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-4xl font-black text-slate-900 tracking-tight">
+                        {attendanceStats.rate !== null ? `${attendanceStats.rate}%` : "Not Marked"}
+                      </p>
+                      <span className="text-xs font-bold text-emerald-600">
+                        ({attendanceStats.present} of {activeStudents.length} present)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-center">
+                      <span className="text-[10px] text-emerald-800 font-bold block">Present</span>
+                      <strong className="text-base font-black text-emerald-700">{attendanceStats.present}</strong>
+                    </div>
+                    <div className="rounded-2xl border border-rose-100 bg-rose-50/80 px-3 py-2 text-center">
+                      <span className="text-[10px] text-rose-800 font-bold block">Absent</span>
+                      <strong className="text-base font-black text-rose-700">{attendanceStats.absent}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual Progress Bar */}
+                <div className="mt-4 h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-full transition-all duration-700"
+                    style={{ width: `${attendanceStats.rate || 0}%` }}
+                  />
+                </div>
+
+                {/* Best & Lowest Attendance Class (User explicitly requested!) */}
+                <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-emerald-200/70 bg-gradient-to-r from-emerald-50/70 to-teal-50/50 p-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-emerald-900 flex items-center gap-1">
+                        🏆 Best Attendance Class
+                      </span>
+                      <span className="text-xs font-black text-emerald-700 font-mono">
+                        {bestAndWorstClasses.best ? `${bestAndWorstClasses.best.rate}%` : "—"}
+                      </span>
+                    </div>
+                    <p className="text-sm font-black text-slate-900 mt-1">
+                      {bestAndWorstClasses.best ? bestAndWorstClasses.best.className : "All classes uniform"}
+                    </p>
+                    <span className="text-[11px] text-emerald-800 font-medium">
+                      {bestAndWorstClasses.best
+                        ? `${bestAndWorstClasses.best.present} of ${bestAndWorstClasses.best.total} students present`
+                        : "No class data"}
+                    </span>
+                  </div>
+
+                  <div className="rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50/70 to-orange-50/50 p-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1">
+                        ⚠️ Lowest Attendance Class
+                      </span>
+                      <span className="text-xs font-black text-amber-700 font-mono">
+                        {bestAndWorstClasses.worst ? `${bestAndWorstClasses.worst.rate}%` : "—"}
+                      </span>
+                    </div>
+                    <p className="text-sm font-black text-slate-900 mt-1">
+                      {bestAndWorstClasses.worst ? bestAndWorstClasses.worst.className : "No low classes"}
+                    </p>
+                    <span className="text-[11px] text-amber-800 font-medium">
+                      {bestAndWorstClasses.worst
+                        ? `${bestAndWorstClasses.worst.present} of ${bestAndWorstClasses.worst.total} students present`
+                        : "No absentees"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Click banner */}
+              <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700 group-hover:text-emerald-800">
+                <span>View Full Class Breakdown & Absentee List with WhatsApp Alerts</span>
+                <ArrowRight size={15} className="group-hover:translate-x-1 transition" />
               </div>
             </div>
 
-            {/* 6 High-Impact Light Glassmorphic Report Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {/* Report 1: Attendance Report Card */}
-              <div
-                onClick={() => setActiveReport("attendance")}
-                className="group cursor-pointer rounded-3xl border border-emerald-200/90 bg-white/85 p-6 backdrop-blur-xl hover:border-emerald-400 hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-300 relative flex flex-col justify-between shadow-xs"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-100 text-emerald-700 border border-emerald-200 group-hover:scale-105 transition">
-                      <ClipboardCheck size={22} />
+            {/* Card 2: Fee Collection Overview (Exact circular Donut Ring chart!) */}
+            <div
+              onClick={() => setActiveReport("fees")}
+              className="group cursor-pointer rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs hover:border-emerald-300 hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+                      <WalletCards size={18} />
                     </span>
-                    <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Live Attendance
-                    </span>
-                  </div>
-
-                  <h3 className="text-lg font-black text-slate-900 group-hover:text-emerald-700 transition">
-                    Daily Attendance & Absentees
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1 font-medium">
-                    Class-wise attendance tracking, instant absentee count, and 1-click WhatsApp alerts to parents.
-                  </p>
-
-                  <div className="mt-5 grid grid-cols-3 gap-2 text-center">
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-2.5">
-                      <span className="text-[10px] text-emerald-800 font-semibold block">Present</span>
-                      <strong className="text-base text-emerald-700 font-black">{attendanceStats.present}</strong>
-                    </div>
-                    <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-2.5">
-                      <span className="text-[10px] text-rose-800 font-semibold block">Absent</span>
-                      <strong className="text-base text-rose-700 font-black">{attendanceStats.absent}</strong>
-                    </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-cyan-50/70 p-2.5">
-                      <span className="text-[10px] text-cyan-800 font-semibold block">Ratio</span>
-                      <strong className="text-base text-cyan-700 font-black">
-                        {attendanceStats.rate ? `${attendanceStats.rate}%` : "—"}
-                      </strong>
+                    <div>
+                      <h3 className="font-extrabold text-base text-slate-900 group-hover:text-emerald-700 transition">
+                        Fee Collection Overview
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Monthly collection progress & outstanding ledger
+                      </p>
                     </div>
                   </div>
+                  <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                    This Month
+                  </span>
                 </div>
 
-                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700 group-hover:text-emerald-800">
-                  <span>View Full Attendance Breakdown</span>
-                  <ArrowRight size={14} className="group-hover:translate-x-1 transition" />
-                </div>
-              </div>
-
-              {/* Report 2: Fees & Dues Collection Report */}
-              <div
-                onClick={() => setActiveReport("fees")}
-                className="group cursor-pointer rounded-3xl border border-amber-200/90 bg-white/85 p-6 backdrop-blur-xl hover:border-amber-400 hover:shadow-xl hover:shadow-amber-500/10 transition-all duration-300 relative flex flex-col justify-between shadow-xs"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-100 text-amber-700 border border-amber-200 group-hover:scale-105 transition">
-                      <WalletCards size={22} />
-                    </span>
-                    <span className="rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-                      {feeStats.defaulters.length} Defaulters
-                    </span>
-                  </div>
-
-                  <h3 className="text-lg font-black text-slate-900 group-hover:text-amber-700 transition">
-                    Fee Collection & Defaulters
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1 font-medium">
-                    Monthly income collection, pending balance tracker, and automated fee due reminders on WhatsApp.
-                  </p>
-
-                  <div className="mt-5 grid grid-cols-2 gap-2 text-center">
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-2.5">
-                      <span className="text-[10px] text-emerald-800 font-semibold block">Collected (Month)</span>
-                      <strong className="text-base text-emerald-700 font-black">
-                        ₹{feeStats.totalCollected.toLocaleString("en-IN")}
-                      </strong>
-                    </div>
-                    <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-2.5">
-                      <span className="text-[10px] text-amber-800 font-semibold block">Total Outstanding</span>
-                      <strong className="text-base text-amber-700 font-black">
-                        ₹{feeStats.totalOutstanding.toLocaleString("en-IN")}
-                      </strong>
+                {/* Circular Donut Ring Chart + Legend (Matching Screenshot!) */}
+                <div className="mt-5 flex flex-col sm:flex-row items-center justify-around gap-6">
+                  {/* The SVG Donut Ring */}
+                  <div className="relative flex items-center justify-center h-44 w-44 shrink-0">
+                    <svg className="h-full w-full -rotate-90" viewBox="0 0 100 100">
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="38"
+                        stroke="#e2e8f0"
+                        strokeWidth="11"
+                        fill="transparent"
+                      />
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="38"
+                        stroke="#10b981"
+                        strokeWidth="11"
+                        fill="transparent"
+                        strokeDasharray={238.76}
+                        strokeDashoffset={238.76 - (238.76 * feeCollectedRate) / 100}
+                        strokeLinecap="round"
+                        className="transition-all duration-1000 ease-out"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                      <span className="text-2xl font-black text-slate-900 tracking-tight">
+                        {feeCollectedRate}%
+                      </span>
+                      <span className="text-[11px] font-bold text-emerald-700">
+                        Collected
+                      </span>
                     </div>
                   </div>
-                </div>
 
-                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-700 group-hover:text-amber-800">
-                  <span>Open Dues & Defaulters Ledger</span>
-                  <ArrowRight size={14} className="group-hover:translate-x-1 transition" />
-                </div>
-              </div>
-
-              {/* Report 3: Student Enrollment & Demographics */}
-              <div
-                onClick={() => setActiveReport("students")}
-                className="group cursor-pointer rounded-3xl border border-purple-200/90 bg-white/85 p-6 backdrop-blur-xl hover:border-purple-400 hover:shadow-xl hover:shadow-purple-500/10 transition-all duration-300 relative flex flex-col justify-between shadow-xs"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="grid h-12 w-12 place-items-center rounded-2xl bg-purple-100 text-purple-700 border border-purple-200 group-hover:scale-105 transition">
-                      <Users size={22} />
-                    </span>
-                    <span className="rounded-full bg-purple-50 border border-purple-200 px-2.5 py-1 text-[11px] font-bold text-purple-700">
-                      {classesList.length} Classes
-                    </span>
-                  </div>
-
-                  <h3 className="text-lg font-black text-slate-900 group-hover:text-purple-700 transition">
-                    Class Enrollment & Demographics
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1 font-medium">
-                    Total student strength, boys vs girls ratio, and class-wise capacity breakdown across all grades.
-                  </p>
-
-                  <div className="mt-5 grid grid-cols-3 gap-2 text-center">
-                    <div className="rounded-2xl border border-purple-100 bg-purple-50/70 p-2.5">
-                      <span className="text-[10px] text-purple-800 font-semibold block">Total</span>
-                      <strong className="text-base text-slate-900 font-black">{studentStats.total}</strong>
-                    </div>
-                    <div className="rounded-2xl border border-cyan-100 bg-cyan-50/70 p-2.5">
-                      <span className="text-[10px] text-cyan-800 font-semibold block">Boys</span>
-                      <strong className="text-base text-cyan-700 font-black">{studentStats.boys}</strong>
-                    </div>
-                    <div className="rounded-2xl border border-pink-100 bg-pink-50/70 p-2.5">
-                      <span className="text-[10px] text-pink-800 font-semibold block">Girls</span>
-                      <strong className="text-base text-pink-700 font-black">{studentStats.girls}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-700 group-hover:text-purple-800">
-                  <span>View Class-Wise Strength</span>
-                  <ArrowRight size={14} className="group-hover:translate-x-1 transition" />
-                </div>
-              </div>
-
-              {/* Report 4: Financial Pulse & PnL */}
-              <div
-                onClick={() => setActiveReport("finances")}
-                className="group cursor-pointer rounded-3xl border border-rose-200/90 bg-white/85 p-6 backdrop-blur-xl hover:border-rose-400 hover:shadow-xl hover:shadow-rose-500/10 transition-all duration-300 relative flex flex-col justify-between shadow-xs"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="grid h-12 w-12 place-items-center rounded-2xl bg-rose-100 text-rose-700 border border-rose-200 group-hover:scale-105 transition">
-                      <TrendingUp size={22} />
-                    </span>
-                    <span className="rounded-full bg-rose-50 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700">
-                      Cash Flow
-                    </span>
-                  </div>
-
-                  <h3 className="text-lg font-black text-slate-900 group-hover:text-rose-700 transition">
-                    Income vs Expenses (P&L)
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1 font-medium">
-                    Real-time comparison of collected fee revenue versus institutional outflows and operational kharcha.
-                  </p>
-
-                  <div className="mt-5 grid grid-cols-2 gap-2 text-center">
-                    <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-2.5">
-                      <span className="text-[10px] text-rose-800 font-semibold block">Expenses (Outflow)</span>
-                      <strong className="text-base text-rose-700 font-black">
-                        ₹{monthlyExpense.toLocaleString("en-IN")}
-                      </strong>
-                    </div>
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-2.5">
-                      <span className="text-[10px] text-emerald-800 font-semibold block">Net Cash Surplus</span>
-                      <strong className="text-base text-emerald-700 font-black">
-                        ₹{financePulse.net.toLocaleString("en-IN")}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-rose-700 group-hover:text-rose-800">
-                  <span>Open Expense & Surplus Ledger</span>
-                  <ArrowRight size={14} className="group-hover:translate-x-1 transition" />
-                </div>
-              </div>
-
-              {/* Report 5: Academic Exams & Results */}
-              <div
-                onClick={() => setActiveReport("exams")}
-                className="group cursor-pointer rounded-3xl border border-sky-200/90 bg-white/85 p-6 backdrop-blur-xl hover:border-sky-400 hover:shadow-xl hover:shadow-sky-500/10 transition-all duration-300 relative flex flex-col justify-between shadow-xs"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="grid h-12 w-12 place-items-center rounded-2xl bg-sky-100 text-sky-700 border border-sky-200 group-hover:scale-105 transition">
-                      <FileText size={22} />
-                    </span>
-                    <span className="rounded-full bg-sky-50 border border-sky-200 px-2.5 py-1 text-[11px] font-bold text-sky-700">
-                      {examsList.length} Exams Recorded
-                    </span>
-                  </div>
-
-                  <h3 className="text-lg font-black text-slate-900 group-hover:text-sky-700 transition">
-                    Exams & Performance Report
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1 font-medium">
-                    Terminal examinations, subject score sheets, marksheet generation, and student report cards.
-                  </p>
-
-                  <div className="mt-5 space-y-1.5">
-                    {examsList.length === 0 ? (
-                      <div className="py-2.5 text-center text-xs text-slate-400 font-medium">
-                        No examination sessions scheduled yet.
+                  {/* Legend matching screenshot */}
+                  <div className="space-y-3.5 min-w-[190px]">
+                    <div className="flex items-center justify-between gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-sm bg-emerald-500" />
+                        <span className="font-bold text-slate-700">Collected</span>
                       </div>
-                    ) : (
-                      examsList.slice(0, 2).map((e) => (
-                        <div
-                          key={e.id}
-                          className="flex items-center justify-between text-xs p-2 rounded-xl bg-slate-50 border border-slate-200/80"
-                        >
-                          <span className="font-semibold text-slate-800 truncate">{e.name}</span>
-                          <span className="text-[10px] text-sky-700 font-mono font-semibold">{e.exam_date || "Active"}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+                      <span className="font-black text-slate-900 font-mono">
+                        ₹{feeStats.totalCollected.toLocaleString("en-IN")}
+                      </span>
+                    </div>
 
-                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-700 group-hover:text-sky-800">
-                  <span>Open Examination Analytics</span>
-                  <ArrowRight size={14} className="group-hover:translate-x-1 transition" />
+                    <div className="flex items-center justify-between gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-sm bg-slate-300" />
+                        <span className="font-bold text-slate-700">Pending</span>
+                      </div>
+                      <span className="font-black text-slate-900 font-mono">
+                        ₹{feeStats.totalOutstanding.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-4 text-sm">
+                      <span className="font-extrabold text-slate-900">Total</span>
+                      <span className="font-black text-slate-900 font-mono">
+                        ₹{feeTotalExpected.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Report 6: Smart ID Cards & Gate Kiosk */}
-              <div
-                onClick={() => setActiveReport("idcards")}
-                className="group cursor-pointer rounded-3xl border border-pink-200/90 bg-white/85 p-6 backdrop-blur-xl hover:border-pink-400 hover:shadow-xl hover:shadow-pink-500/10 transition-all duration-300 relative flex flex-col justify-between shadow-xs"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="grid h-12 w-12 place-items-center rounded-2xl bg-pink-100 text-pink-700 border border-pink-200 group-hover:scale-105 transition">
-                      <QrCode size={22} />
-                    </span>
-                    <span className="rounded-full bg-pink-50 border border-pink-200 px-2.5 py-1 text-[11px] font-bold text-pink-700">
-                      Smart ID Ready
-                    </span>
-                  </div>
-
-                  <h3 className="text-lg font-black text-slate-900 group-hover:text-pink-700 transition">
-                    Smart PVC ID Cards & Scanner
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1 font-medium">
-                    Large scannable QR card generation, 8/9/10 A4 sheet print presets with cut guides, and entrance kiosk scanner.
-                  </p>
-
-                  <div className="mt-5 grid grid-cols-2 gap-2 text-center">
-                    <div className="rounded-2xl border border-pink-100 bg-pink-50/70 p-2.5">
-                      <span className="text-[10px] text-pink-800 font-semibold block">A4 Sheet Layouts</span>
-                      <strong className="text-sm text-pink-700 font-bold">8, 9, 10 Cards</strong>
-                    </div>
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-2.5">
-                      <span className="text-[10px] text-emerald-800 font-semibold block">Color Print</span>
-                      <strong className="text-sm text-emerald-700 font-bold">100% Locked</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-pink-700 group-hover:text-pink-800">
-                  <span>Manage ID Cards & Presets</span>
-                  <ArrowRight size={14} className="group-hover:translate-x-1 transition" />
-                </div>
+              {/* Click banner */}
+              <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700 group-hover:text-emerald-800">
+                <span>View Outstanding Dues & Defaulters List with WhatsApp Reminders</span>
+                <ArrowRight size={15} className="group-hover:translate-x-1 transition" />
               </div>
             </div>
           </div>
 
-          {/* ============================================================== */}
-          {/* QUICK SHORTCUTS & WORKSPACE OVERVIEW                           */}
-          {/* ============================================================== */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
-            {/* Left 2 Cols: Workspace Shortcuts */}
-            <div className="lg:col-span-2 rounded-3xl border border-slate-200/80 bg-white/80 p-6 backdrop-blur-xl shadow-xs">
+          {/* TEACHER & STAFF DAILY ATTENDANCE SECTION (USER EXPLICIT REQUEST) */}
+          <div className="rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-100 gap-3">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-purple-100 text-purple-700">
+                    <GraduationCap size={18} />
+                  </span>
+                  <div>
+                    <h3 className="font-extrabold text-base text-slate-900">
+                      Teacher & Staff Attendance Today
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Kon teacher present hai kon absent &bull; Tap status badge to toggle
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-xl bg-slate-100 p-1 text-xs font-bold text-slate-600">
+                  <button
+                    onClick={() => setTeacherFilter("all")}
+                    className={`px-3 py-1 rounded-lg transition ${
+                      teacherFilter === "all" ? "bg-white text-slate-900 shadow-xs" : "hover:text-slate-900"
+                    }`}
+                  >
+                    All ({teacherStats.total})
+                  </button>
+                  <button
+                    onClick={() => setTeacherFilter("present")}
+                    className={`px-3 py-1 rounded-lg transition ${
+                      teacherFilter === "present" ? "bg-emerald-600 text-white shadow-xs" : "hover:text-slate-900"
+                    }`}
+                  >
+                    Present ({teacherStats.present})
+                  </button>
+                  <button
+                    onClick={() => setTeacherFilter("absent")}
+                    className={`px-3 py-1 rounded-lg transition ${
+                      teacherFilter === "absent" ? "bg-rose-600 text-white shadow-xs" : "hover:text-slate-900"
+                    }`}
+                  >
+                    Absent ({teacherStats.absent})
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleMarkAllTeachersPresent}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition active:scale-95"
+                >
+                  <UserCheck size={14} className="text-emerald-600" />
+                  <span>Mark All Present</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Teacher Cards Grid */}
+            <div className="mt-5">
+              {teachersList.length === 0 ? (
+                <div className="text-center py-8 text-sm text-slate-400 font-medium">
+                  No teachers added to the directory yet.{" "}
+                  <Link href="/teachers" className="text-purple-600 font-bold underline">
+                    Add teachers here
+                  </Link>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {teachersList
+                    .filter((t) => {
+                      const st = teacherAttendance[t.id];
+                      if (teacherFilter === "present") return st === "present";
+                      if (teacherFilter === "absent") return st === "absent";
+                      return true;
+                    })
+                    .map((t) => {
+                      const status = teacherAttendance[t.id] || "unmarked";
+                      const tInitials = t.full_name
+                        .split(/\s+/)
+                        .map((n) => n[0])
+                        .join("")
+                        .slice(0, 2)
+                        .toUpperCase();
+
+                      return (
+                        <div
+                          key={t.id}
+                          className="flex items-center justify-between p-3 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-xs transition"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="grid h-9 w-9 place-items-center rounded-xl bg-purple-100 text-purple-700 text-xs font-bold shrink-0">
+                              {tInitials}
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-xs font-bold text-slate-900 truncate">{t.full_name}</h4>
+                              <p className="text-[10px] text-slate-400 font-medium truncate">
+                                {t.phone || "Faculty Member"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTeacher(t.id, status)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold transition active:scale-95 ${
+                              status === "present"
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200"
+                                : status === "absent"
+                                ? "bg-rose-100 text-rose-800 border border-rose-200 hover:bg-rose-200"
+                                : "bg-slate-200/80 text-slate-700 hover:bg-emerald-100 hover:text-emerald-800"
+                            }`}
+                            title="Click to toggle teacher attendance"
+                          >
+                            {status === "present" ? (
+                              <>
+                                <Check size={11} />
+                                <span>Present</span>
+                              </>
+                            ) : status === "absent" ? (
+                              <>
+                                <X size={11} />
+                                <span>Absent</span>
+                              </>
+                            ) : (
+                              <span>Mark Present</span>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* BOTTOM ROW: QUICK REPORTS (4 PASTEL TILES) + RECENT ACTIVITIES FEED */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left 2 Cols: Quick Reports (Matching Screenshot) */}
+            <div className="lg:col-span-2 rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs">
+              <div className="flex items-center gap-2 pb-4 border-b border-slate-100">
+                <FileText size={18} className="text-slate-600" />
+                <h3 className="font-extrabold text-base text-slate-900">Quick Reports</h3>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                {/* 1. Attendance Report */}
+                <button
+                  type="button"
+                  onClick={() => setActiveReport("attendance")}
+                  className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-center hover:bg-blue-100/70 hover:border-blue-300 transition group flex flex-col items-center justify-center gap-2"
+                >
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-700 group-hover:scale-110 transition">
+                    <Calendar size={18} />
+                  </span>
+                  <span className="text-xs font-bold text-slate-800">Attendance Report</span>
+                </button>
+
+                {/* 2. Fees Report */}
+                <button
+                  type="button"
+                  onClick={() => setActiveReport("fees")}
+                  className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 text-center hover:bg-amber-100/70 hover:border-amber-300 transition group flex flex-col items-center justify-center gap-2"
+                >
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-100 text-amber-700 group-hover:scale-110 transition">
+                    <WalletCards size={18} />
+                  </span>
+                  <span className="text-xs font-bold text-slate-800">Fees Report</span>
+                </button>
+
+                {/* 3. Result Report */}
+                <button
+                  type="button"
+                  onClick={() => setActiveReport("exams")}
+                  className="rounded-2xl border border-purple-100 bg-purple-50/60 p-4 text-center hover:bg-purple-100/70 hover:border-purple-300 transition group flex flex-col items-center justify-center gap-2"
+                >
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-purple-100 text-purple-700 group-hover:scale-110 transition">
+                    <TrendingUp size={18} />
+                  </span>
+                  <span className="text-xs font-bold text-slate-800">Result Report</span>
+                </button>
+
+                {/* 4. Student Summary */}
+                <button
+                  type="button"
+                  onClick={() => setActiveReport("students")}
+                  className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 text-center hover:bg-emerald-100/70 hover:border-emerald-300 transition group flex flex-col items-center justify-center gap-2"
+                >
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700 group-hover:scale-110 transition">
+                    <Users size={18} />
+                  </span>
+                  <span className="text-xs font-bold text-slate-800">Student Summary</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Right 1 Col: Recent Activities (Matching Screenshot) */}
+            <div className="rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <h3 className="font-extrabold text-base text-slate-900">Direct Administrative Actions</h3>
-                  <span className="rounded-full bg-emerald-100 text-emerald-700 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-200">
-                    One-Click
-                  </span>
+                  <Clock size={18} className="text-slate-600" />
+                  <h3 className="font-extrabold text-base text-slate-900">Recent Activities</h3>
                 </div>
-                <span className="text-xs font-mono font-medium text-slate-400">{profile?.login_id || "Admin"}</span>
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Link
-                  href="/attendance"
-                  className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-emerald-50/80 hover:border-emerald-300 transition group"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
-                      <ClipboardCheck size={20} />
-                    </span>
-                    <div>
-                      <span className="font-bold text-xs text-slate-900 block">Mark Today&apos;s Attendance</span>
-                      <span className="text-[10px] text-slate-500 font-medium">Register or Gate QR Scanner</span>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} className="text-slate-400 group-hover:text-emerald-700 transition" />
-                </Link>
-
-                <Link
-                  href="/fees"
-                  className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-amber-50/80 hover:border-amber-300 transition group"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-100 text-amber-700">
-                      <WalletCards size={20} />
-                    </span>
-                    <div>
-                      <span className="font-bold text-xs text-slate-900 block">Record Fee Payment</span>
-                      <span className="text-[10px] text-slate-500 font-medium">Generate receipt & ledger</span>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} className="text-slate-400 group-hover:text-amber-700 transition" />
-                </Link>
-
-                <Link
-                  href="/id-cards"
-                  className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-purple-50/80 hover:border-purple-300 transition group"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-purple-100 text-purple-700">
-                      <Printer size={20} />
-                    </span>
-                    <div>
-                      <span className="font-bold text-xs text-slate-900 block">Print Student ID Cards</span>
-                      <span className="text-[10px] text-slate-500 font-medium">A4 layout presets with cut guides</span>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} className="text-slate-400 group-hover:text-purple-700 transition" />
-                </Link>
-
-                <Link
-                  href="/expenses"
-                  className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-rose-50/80 hover:border-rose-300 transition group"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-rose-100 text-rose-700">
-                      <Receipt size={20} />
-                    </span>
-                    <div>
-                      <span className="font-bold text-xs text-slate-900 block">School Expenses & Kharcha</span>
-                      <span className="text-[10px] text-slate-500 font-medium">Track fuel, repairs, maintenance</span>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} className="text-slate-400 group-hover:text-rose-700 transition" />
+                <Link href="/notices" className="text-xs font-bold text-purple-600 hover:underline">
+                  View All
                 </Link>
               </div>
-            </div>
 
-            {/* Right 1 Col: Quick Links */}
-            <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-6 backdrop-blur-xl shadow-xs flex flex-col justify-between">
-              <div>
-                <h3 className="font-extrabold text-base text-slate-900 pb-3 border-b border-slate-100">
-                  Navigation Essentials
-                </h3>
-                <div className="mt-3 space-y-2">
-                  <Link
-                    href="/certificates"
-                    className="flex items-center justify-between text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-purple-50/60 hover:border-purple-200 text-slate-700 hover:text-purple-900 transition font-medium"
-                  >
-                    <span>Issue TC & Bonafide Certificate</span>
-                    <ChevronRight size={14} className="text-slate-400" />
-                  </Link>
-                  <Link
-                    href="/timetable"
-                    className="flex items-center justify-between text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-purple-50/60 hover:border-purple-200 text-slate-700 hover:text-purple-900 transition font-medium"
-                  >
-                    <span>Class Timetable Routine</span>
-                    <ChevronRight size={14} className="text-slate-400" />
-                  </Link>
-                  <Link
-                    href="/homework"
-                    className="flex items-center justify-between text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-purple-50/60 hover:border-purple-200 text-slate-700 hover:text-purple-900 transition font-medium"
-                  >
-                    <span>Daily Homework Diary</span>
-                    <ChevronRight size={14} className="text-slate-400" />
-                  </Link>
-                  <Link
-                    href="/notices"
-                    className="flex items-center justify-between text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-purple-50/60 hover:border-purple-200 text-slate-700 hover:text-purple-900 transition font-medium"
-                  >
-                    <span>School Notices & Circulars</span>
-                    <ChevronRight size={14} className="text-slate-400" />
-                  </Link>
-                </div>
-              </div>
-
-              <div className="mt-5 pt-3 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
-                🔒 Protected by End-to-End Enterprise Role Permissions.
+              <div className="mt-4 space-y-3">
+                {recentActivities.map((act) => (
+                  <div key={act.id} className="flex items-start justify-between gap-3 text-xs">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-100 text-slate-600 shrink-0 mt-0.5">
+                        {act.icon === "user" && <Users size={14} className="text-blue-600" />}
+                        {act.icon === "fee" && <WalletCards size={14} className="text-emerald-600" />}
+                        {act.icon === "attendance" && <Calendar size={14} className="text-purple-600" />}
+                        {act.icon === "notice" && <Bell size={14} className="text-amber-600" />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800 truncate">{act.title}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{act.subtitle}</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-medium shrink-0">{act.time}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

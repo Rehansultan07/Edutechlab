@@ -173,6 +173,9 @@ export default function AttendancePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [orgName, setOrgName] = useState("Your Institution");
   const [orgPhone, setOrgPhone] = useState("");
+  const [cutoffTime, setCutoffTime] = useState("09:30");
+  const [autoMarkAbsent, setAutoMarkAbsent] = useState(true);
+  const [isEnforcingCutoff, setIsEnforcingCutoff] = useState(false);
 
   // Attendance states
   const [state, setState] = useState<Record<string, string>>({});
@@ -259,7 +262,7 @@ export default function AttendancePage() {
           .eq("organization_id", org)
           .order("sort_order"),
         s.from("organizations").select("name").eq("id", org).single(),
-        s.from("organization_settings").select("phone").eq("organization_id", org).maybeSingle(),
+        s.from("organization_settings").select("phone,attendance_cutoff_time,auto_mark_absent").eq("organization_id", org).maybeSingle(),
       ]);
 
       if (stRes.error) {
@@ -273,6 +276,12 @@ export default function AttendancePage() {
       setClasses(clRes.data || []);
       if (orgRes.data?.name) setOrgName(orgRes.data.name);
       if (setRes.data?.phone) setOrgPhone(setRes.data.phone);
+      if ((setRes.data as any)?.attendance_cutoff_time) {
+        setCutoffTime((setRes.data as any).attendance_cutoff_time);
+      }
+      if (typeof (setRes.data as any)?.auto_mark_absent === "boolean") {
+        setAutoMarkAbsent((setRes.data as any).auto_mark_absent);
+      }
 
       const loadedState: Record<string, string> = {};
       (attRes.data || []).forEach((x: A) => {
@@ -750,6 +759,73 @@ export default function AttendancePage() {
     return students.filter((st) => state[st.id] === "absent");
   }, [students, state]);
 
+  const unmarkedStudents = useMemo(() => {
+    return students.filter((st) => !state[st.id]);
+  }, [students, state]);
+
+  const isToday = date === getLocalDateString();
+  const isPastCutoff = useMemo(() => {
+    if (!isToday) return false;
+    const [ch, cm] = (cutoffTime || "09:30").split(":").map(Number);
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const cutoffMinutes = (isNaN(ch) ? 9 : ch) * 60 + (isNaN(cm) ? 30 : cm);
+    return currentMinutes >= cutoffMinutes;
+  }, [cutoffTime, isToday]);
+
+  const handleEnforceCutoff = async () => {
+    if (!canManage) {
+      showToast("You do not have permission to mark attendance.", "error");
+      return;
+    }
+    if (unmarkedStudents.length === 0) {
+      showToast("All students have already been marked for today.", "info");
+      return;
+    }
+    setIsEnforcingCutoff(true);
+    try {
+      let rpcSuccess = false;
+      try {
+        const { data: rpcRes, error: rpcErr } = await s.rpc("enforce_attendance_cutoff", {
+          p_org_id: org,
+          p_date: date,
+        });
+        if (!rpcErr && rpcRes?.success) {
+          rpcSuccess = true;
+        }
+      } catch {}
+
+      if (!rpcSuccess) {
+        const recordsToInsert = unmarkedStudents.map((st) => ({
+          organization_id: org,
+          student_id: st.id,
+          attendance_date: date,
+          status: "absent",
+          note: `Auto-marked absent (Cutoff ${cutoffTime} passed)`,
+        }));
+        const { error: insErr } = await s.from("attendance").upsert(recordsToInsert, {
+          onConflict: "student_id,attendance_date",
+        });
+        if (insErr) throw insErr;
+      }
+
+      setState((prev) => {
+        const updated = { ...prev };
+        unmarkedStudents.forEach((st) => {
+          updated[st.id] = "absent";
+        });
+        return updated;
+      });
+
+      showToast(`✓ Auto-marked ${unmarkedStudents.length} students as Absent after cutoff (${cutoffTime})!`, "success");
+      setShowAbsentModal(true);
+    } catch (err: any) {
+      showToast(`Failed: ${err?.message || "Could not enforce cutoff."}`, "error");
+    } finally {
+      setIsEnforcingCutoff(false);
+    }
+  };
+
   const originUrl =
     typeof window !== "undefined" && window.location.origin
       ? window.location.origin
@@ -797,7 +873,6 @@ export default function AttendancePage() {
   }
 
   const todayStr = getLocalDateString();
-  const isToday = date === todayStr;
 
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-7 space-y-6">
@@ -948,6 +1023,81 @@ export default function AttendancePage() {
           </div>
         </div>
       </div>
+
+      {/* Attendance Cutoff & Absent Enforce Alert Banner */}
+      {isToday && (
+        <div
+          className={`rounded-2xl border p-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition ${
+            isPastCutoff && unmarkedStudents.length > 0
+              ? "border-amber-300 bg-amber-50/90 text-amber-950"
+              : "border-purple-200 bg-purple-50/70 text-purple-900"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className={`grid h-10 w-10 place-items-center rounded-xl shrink-0 ${
+                isPastCutoff && unmarkedStudents.length > 0
+                  ? "bg-amber-200 text-amber-800"
+                  : "bg-purple-200 text-purple-800"
+              }`}
+            >
+              <Clock size={20} />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-sm">
+                  Daily Attendance Cutoff: {cutoffTime}
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    isPastCutoff
+                      ? "bg-amber-200 text-amber-900"
+                      : "bg-emerald-100 text-emerald-800"
+                  }`}
+                >
+                  {isPastCutoff ? "Cutoff Time Passed" : "Upcoming Deadline"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5 font-medium">
+                {isPastCutoff
+                  ? unmarkedStudents.length > 0
+                    ? `${unmarkedStudents.length} students have not marked attendance yet and can be placed in the Absentee list.`
+                    : "All students marked for today! Absentee list is up to date."
+                  : `Students unmarked by ${cutoffTime} will be automatically considered absent.`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            {unmarkedStudents.length > 0 && canManage && (
+              <button
+                type="button"
+                onClick={handleEnforceCutoff}
+                disabled={isEnforcingCutoff}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 text-xs font-bold shadow-md shadow-amber-600/20 transition active:scale-95 disabled:opacity-50"
+              >
+                {isEnforcingCutoff ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <UserX size={13} />
+                )}
+                <span>Auto-Mark {unmarkedStudents.length} as Absent</span>
+              </button>
+            )}
+
+            {absentStudents.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAbsentModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-bold shadow-md shadow-emerald-600/20 transition active:scale-95"
+              >
+                <MessageCircle size={13} />
+                <span>Notify Absentees ({absentStudents.length})</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Attendance Card */}
       <div className="rounded-3xl border border-slate-200 bg-white/95 backdrop-blur-md shadow-sm overflow-hidden">

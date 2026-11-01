@@ -35,6 +35,8 @@ export default function Settings() {
     marksheet_title: "Statement of Marks",
     receipt_footer: "",
     authorized_signatory: "",
+    attendance_cutoff_time: "09:30",
+    auto_mark_absent: true,
   });
   const [saved, setSaved] = useState("");
   const [error, setError] = useState("");
@@ -64,7 +66,7 @@ export default function Settings() {
         s
           .from("organization_settings")
           .select(
-            "institute_type,phone,email,address,website,contact_person,timezone,currency,logo_url,primary_color,secondary_color,marksheet_style,marksheet_title,receipt_footer,authorized_signatory"
+            "institute_type,phone,email,address,website,contact_person,timezone,currency,logo_url,primary_color,secondary_color,marksheet_style,marksheet_title,receipt_footer,authorized_signatory,attendance_cutoff_time,auto_mark_absent"
           )
           .eq("organization_id", p.organization_id)
           .single(),
@@ -88,6 +90,8 @@ export default function Settings() {
         marksheet_title: st?.marksheet_title || "Statement of Marks",
         receipt_footer: st?.receipt_footer || "",
         authorized_signatory: st?.authorized_signatory || "",
+        attendance_cutoff_time: (st as any)?.attendance_cutoff_time || "09:30",
+        auto_mark_absent: (st as any)?.auto_mark_absent !== false,
       });
     })();
   }, []);
@@ -136,6 +140,8 @@ export default function Settings() {
           marksheet_title: form.marksheet_title,
           receipt_footer: form.receipt_footer || null,
           authorized_signatory: form.authorized_signatory || null,
+          attendance_cutoff_time: form.attendance_cutoff_time || "09:30",
+          auto_mark_absent: form.auto_mark_absent,
         },
         { onConflict: "organization_id" }
       );
@@ -233,7 +239,7 @@ export default function Settings() {
               {l}
               <input
                 disabled={!canManage}
-                value={form[k as keyof typeof form]}
+                value={String(form[k as keyof typeof form] ?? "")}
                 onChange={(e) => setForm({ ...form, [k]: e.target.value })}
                 className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none disabled:bg-slate-50"
               />
@@ -416,6 +422,46 @@ export default function Settings() {
               <option>USD</option>
             </select>
           </label>
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-slate-900">Attendance Timing & Cutoff Automation</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Set your daily attendance cutoff time. Students unmarked after this cutoff can be automatically marked Absent and alerted via WhatsApp.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm font-medium">
+            Daily Attendance Cutoff Time (24h / HH:MM)
+            <input
+              disabled={!canManage}
+              type="time"
+              value={form.attendance_cutoff_time}
+              onChange={(e) => setForm({ ...form, attendance_cutoff_time: e.target.value })}
+              className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none disabled:bg-slate-50"
+            />
+            <span className="mt-1 block text-xs text-slate-400">
+              e.g. 09:30 AM. After this time, any student not marked present is placed on the Absentee list.
+            </span>
+          </label>
+
+          <div className="flex flex-col justify-center">
+            <label className="flex items-center gap-3 cursor-pointer pt-2">
+              <input
+                disabled={!canManage}
+                type="checkbox"
+                checked={form.auto_mark_absent}
+                onChange={(e) => setForm({ ...form, auto_mark_absent: e.target.checked })}
+                className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+              />
+              <div>
+                <span className="text-sm font-semibold text-slate-800">Auto-Enforce Absent on Cutoff</span>
+                <p className="text-xs text-slate-500">
+                  Enable 1-click automatic absentee status for students who haven't arrived by cutoff time.
+                </p>
+              </div>
+            </label>
+          </div>
         </div>
       </section>
 
