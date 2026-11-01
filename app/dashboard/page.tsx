@@ -924,101 +924,161 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* TOP 5 METRIC KPI TILES (EXACT CLEAN PASTELS FROM SCREENSHOT) */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
+          {/* TOP 5 METRIC KPI TILES (HIGH-DEFINITION CRYSTAL GLASSMORPHISM) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3.5 sm:gap-4">
             {/* 1. Total Students */}
             <div
               onClick={() => setActiveReport("students")}
-              className="cursor-pointer rounded-2xl border border-blue-100 bg-blue-50/50 p-4 hover:border-blue-300 hover:shadow-md transition group"
+              className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-blue-500/10 hover:border-white"
             >
-              <div className="flex items-center justify-between">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-700 group-hover:scale-105 transition">
-                  <Users size={18} />
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              {/* Ambient Glow Orb */}
+              <div className="absolute -top-10 -right-10 h-28 w-28 rounded-full bg-blue-500/12 blur-2xl transition duration-500 group-hover:bg-blue-500/22 pointer-events-none" />
+
+              <div className="relative z-10 flex items-center justify-between">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/30 ring-2 ring-white/90 group-hover:scale-110 group-hover:rotate-2 transition duration-300">
+                  <Users size={19} />
                 </span>
-                <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-0.5">
-                  ↑ +12 this month
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-700 backdrop-blur-md">
+                  ↑ Active
                 </span>
               </div>
-              <p className="mt-3 text-2xl sm:text-3xl font-black text-slate-900">
-                {loading ? "—" : activeStudents.length}
-              </p>
-              <span className="text-xs font-bold text-slate-600 block mt-0.5">Total Students</span>
+              <div className="relative z-10 mt-4">
+                <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+                  {loading ? "—" : activeStudents.length}
+                </p>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">Total Students</span>
+                  <span className="text-[10px] font-bold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    View list →
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* 2. Total Staff */}
             <div
               onClick={() => setActiveReport("students")}
-              className="cursor-pointer rounded-2xl border border-purple-100 bg-purple-50/50 p-4 hover:border-purple-300 hover:shadow-md transition group"
+              className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-purple-500/10 hover:border-white"
             >
-              <div className="flex items-center justify-between">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-purple-100 text-purple-700 group-hover:scale-105 transition">
-                  <GraduationCap size={18} />
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              {/* Ambient Glow Orb */}
+              <div className="absolute -top-10 -right-10 h-28 w-28 rounded-full bg-purple-500/12 blur-2xl transition duration-500 group-hover:bg-purple-500/22 pointer-events-none" />
+
+              <div className="relative z-10 flex items-center justify-between">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-md shadow-purple-500/30 ring-2 ring-white/90 group-hover:scale-110 group-hover:rotate-2 transition duration-300">
+                  <GraduationCap size={19} />
                 </span>
-                <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-0.5">
-                  ↑ +1 this month
+                <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/10 border border-purple-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-purple-700 backdrop-blur-md">
+                  Faculty
                 </span>
               </div>
-              <p className="mt-3 text-2xl sm:text-3xl font-black text-slate-900">
-                {loading ? "—" : teachersCount}
-              </p>
-              <span className="text-xs font-bold text-slate-600 block mt-0.5">Total Staff</span>
+              <div className="relative z-10 mt-4">
+                <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+                  {loading ? "—" : teachersCount}
+                </p>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">Total Staff</span>
+                  <span className="text-[10px] font-bold text-purple-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    Directory →
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* 3. Total Classes */}
             <div
               onClick={() => setActiveReport("students")}
-              className="cursor-pointer rounded-2xl border border-amber-100 bg-amber-50/50 p-4 hover:border-amber-300 hover:shadow-md transition group"
+              className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-amber-500/10 hover:border-white"
             >
-              <div className="flex items-center justify-between">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-100 text-amber-700 group-hover:scale-105 transition">
-                  <Layers size={18} />
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              {/* Ambient Glow Orb */}
+              <div className="absolute -top-10 -right-10 h-28 w-28 rounded-full bg-amber-500/12 blur-2xl transition duration-500 group-hover:bg-amber-500/22 pointer-events-none" />
+
+              <div className="relative z-10 flex items-center justify-between">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/30 ring-2 ring-white/90 group-hover:scale-110 group-hover:rotate-2 transition duration-300">
+                  <Layers size={19} />
                 </span>
-                <span className="text-[11px] font-bold text-slate-400">
-                  No change
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-amber-700 backdrop-blur-md">
+                  Active
                 </span>
               </div>
-              <p className="mt-3 text-2xl sm:text-3xl font-black text-slate-900">
-                {loading ? "—" : classesList.length}
-              </p>
-              <span className="text-xs font-bold text-slate-600 block mt-0.5">Total Classes</span>
+              <div className="relative z-10 mt-4">
+                <p className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+                  {loading ? "—" : classesList.length}
+                </p>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">Total Classes</span>
+                  <span className="text-[10px] font-bold text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    Batches →
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* 4. Today's Attendance */}
             <div
               onClick={() => setActiveReport("attendance")}
-              className="cursor-pointer rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 hover:border-emerald-300 hover:shadow-md transition group"
+              className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-white"
             >
-              <div className="flex items-center justify-between">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700 group-hover:scale-105 transition">
-                  <Calendar size={18} />
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              {/* Ambient Glow Orb */}
+              <div className="absolute -top-10 -right-10 h-28 w-28 rounded-full bg-emerald-500/12 blur-2xl transition duration-500 group-hover:bg-emerald-500/22 pointer-events-none" />
+
+              <div className="relative z-10 flex items-center justify-between">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/30 ring-2 ring-white/90 group-hover:scale-110 group-hover:rotate-2 transition duration-300">
+                  <Calendar size={19} />
                 </span>
-                <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-0.5">
-                  ↑ +1.8%
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-700 backdrop-blur-md">
+                  Live Rate
                 </span>
               </div>
-              <p className="mt-3 text-2xl sm:text-3xl font-black text-emerald-800">
-                {loading ? "—" : attendanceStats.rate !== null ? `${attendanceStats.rate}%` : "0%"}
-              </p>
-              <span className="text-xs font-bold text-slate-600 block mt-0.5">Today&apos;s Attendance</span>
+              <div className="relative z-10 mt-4">
+                <p className="text-3xl sm:text-4xl font-black text-emerald-700 tracking-tight">
+                  {loading ? "—" : attendanceStats.rate !== null ? `${attendanceStats.rate}%` : "0%"}
+                </p>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">Today&apos;s Attendance</span>
+                  <span className="text-[10px] font-bold text-emerald-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    Breakdown →
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* 5. Fees Collected */}
             <div
               onClick={() => setActiveReport("fees")}
-              className="cursor-pointer rounded-2xl border border-rose-100 bg-rose-50/50 p-4 hover:border-rose-300 hover:shadow-md transition group col-span-2 sm:col-span-1"
+              className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-rose-500/10 hover:border-white col-span-2 sm:col-span-1"
             >
-              <div className="flex items-center justify-between">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-rose-100 text-rose-700 group-hover:scale-105 transition">
-                  <WalletCards size={18} />
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              {/* Ambient Glow Orb */}
+              <div className="absolute -top-10 -right-10 h-28 w-28 rounded-full bg-rose-500/12 blur-2xl transition duration-500 group-hover:bg-rose-500/22 pointer-events-none" />
+
+              <div className="relative z-10 flex items-center justify-between">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-md shadow-rose-500/30 ring-2 ring-white/90 group-hover:scale-110 group-hover:rotate-2 transition duration-300">
+                  <WalletCards size={19} />
                 </span>
-                <span className="text-[11px] font-bold text-emerald-700">
-                  ↑ {feeCollectedRate}% of ₹{feeTotalExpected.toLocaleString("en-IN")}
+                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 border border-rose-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-rose-700 backdrop-blur-md">
+                  {feeCollectedRate}% rec.
                 </span>
               </div>
-              <p className="mt-3 text-2xl sm:text-3xl font-black text-slate-900 truncate">
-                {loading ? "—" : `₹${feeStats.totalCollected.toLocaleString("en-IN")}`}
-              </p>
-              <span className="text-xs font-bold text-slate-600 block mt-0.5">Fees Collected</span>
+              <div className="relative z-10 mt-4">
+                <p className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">
+                  {loading ? "—" : `₹${feeStats.totalCollected.toLocaleString("en-IN")}`}
+                </p>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">Fees Collected</span>
+                  <span className="text-[10px] font-bold text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    Ledger →
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1027,24 +1087,29 @@ export default function Dashboard() {
             {/* Card 1: Today's Student Attendance Overview */}
             <div
               onClick={() => setActiveReport("attendance")}
-              className="group cursor-pointer rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs hover:border-emerald-300 hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
+              className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/80 p-6 sm:p-7 backdrop-blur-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-900/[0.04] hover:bg-white/95 hover:border-white hover:shadow-xl hover:shadow-emerald-500/10 transition-all duration-300 flex flex-col justify-between"
             >
-              <div>
-                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
-                      <ClipboardCheck size={18} />
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              {/* Ambient Glow Orb */}
+              <div className="absolute -top-12 -right-12 h-36 w-36 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none group-hover:bg-emerald-500/18 transition duration-500" />
+
+              <div className="relative z-10">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100/80">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/25 ring-2 ring-white/90">
+                      <ClipboardCheck size={20} />
                     </span>
                     <div>
                       <h3 className="font-extrabold text-base text-slate-900 group-hover:text-emerald-700 transition">
                         Today&apos;s Attendance Overview
                       </h3>
                       <p className="text-xs text-slate-500 font-medium">
-                        Student presence & class-wise performance
+                        Student presence &amp; class-wise performance
                       </p>
                     </div>
                   </div>
-                  <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                  <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-[11px] font-extrabold text-emerald-700 backdrop-blur-md">
                     Live Record
                   </span>
                 </div>
@@ -1066,11 +1131,11 @@ export default function Dashboard() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-center">
+                    <div className="rounded-2xl border border-white/80 bg-white/80 px-3.5 py-2 text-center backdrop-blur-md shadow-2xs ring-1 ring-slate-900/[0.04]">
                       <span className="text-[10px] text-emerald-800 font-bold block">Present</span>
                       <strong className="text-base font-black text-emerald-700">{attendanceStats.present}</strong>
                     </div>
-                    <div className="rounded-2xl border border-rose-100 bg-rose-50/80 px-3 py-2 text-center">
+                    <div className="rounded-2xl border border-white/80 bg-white/80 px-3.5 py-2 text-center backdrop-blur-md shadow-2xs ring-1 ring-slate-900/[0.04]">
                       <span className="text-[10px] text-rose-800 font-bold block">Absent</span>
                       <strong className="text-base font-black text-rose-700">{attendanceStats.absent}</strong>
                     </div>
@@ -1078,7 +1143,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Visual Progress Bar */}
-                <div className="mt-4 h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div className="mt-4 h-2.5 w-full rounded-full bg-slate-100 overflow-hidden ring-1 ring-slate-200/50">
                   <div
                     className="h-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-full transition-all duration-700"
                     style={{ width: `${attendanceStats.rate || 0}%` }}
@@ -1087,7 +1152,7 @@ export default function Dashboard() {
 
                 {/* Best & Lowest Attendance Class (User explicitly requested!) */}
                 <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-emerald-200/70 bg-gradient-to-r from-emerald-50/70 to-teal-50/50 p-3.5">
+                  <div className="rounded-2xl border border-white/80 bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-white/70 p-4 backdrop-blur-md shadow-2xs ring-1 ring-emerald-500/10">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-extrabold text-emerald-900 flex items-center gap-1">
                         🏆 Best Attendance Class
@@ -1106,7 +1171,7 @@ export default function Dashboard() {
                     </span>
                   </div>
 
-                  <div className="rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50/70 to-orange-50/50 p-3.5">
+                  <div className="rounded-2xl border border-white/80 bg-gradient-to-br from-amber-50/90 via-orange-50/50 to-white/70 p-4 backdrop-blur-md shadow-2xs ring-1 ring-amber-500/10">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1">
                         ⚠️ Lowest Attendance Class
@@ -1128,7 +1193,7 @@ export default function Dashboard() {
               </div>
 
               {/* Click banner */}
-              <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700 group-hover:text-emerald-800">
+              <div className="relative z-10 mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700 group-hover:text-emerald-800">
                 <span>View Full Class Breakdown & Absentee List with WhatsApp Alerts</span>
                 <ArrowRight size={15} className="group-hover:translate-x-1 transition" />
               </div>
@@ -1137,24 +1202,29 @@ export default function Dashboard() {
             {/* Card 2: Fee Collection Overview (Exact circular Donut Ring chart!) */}
             <div
               onClick={() => setActiveReport("fees")}
-              className="group cursor-pointer rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs hover:border-emerald-300 hover:shadow-xl transition-all duration-300 flex flex-col justify-between"
+              className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/80 p-6 sm:p-7 backdrop-blur-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-900/[0.04] hover:bg-white/95 hover:border-white hover:shadow-xl hover:shadow-teal-500/10 transition-all duration-300 flex flex-col justify-between"
             >
-              <div>
-                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
-                      <WalletCards size={18} />
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              {/* Ambient Glow Orb */}
+              <div className="absolute -top-12 -right-12 h-36 w-36 rounded-full bg-teal-500/10 blur-3xl pointer-events-none group-hover:bg-teal-500/18 transition duration-500" />
+
+              <div className="relative z-10">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100/80">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white shadow-md shadow-teal-500/25 ring-2 ring-white/90">
+                      <WalletCards size={20} />
                     </span>
                     <div>
                       <h3 className="font-extrabold text-base text-slate-900 group-hover:text-emerald-700 transition">
                         Fee Collection Overview
                       </h3>
                       <p className="text-xs text-slate-500 font-medium">
-                        Monthly collection progress & outstanding ledger
+                        Monthly collection progress &amp; outstanding ledger
                       </p>
                     </div>
                   </div>
-                  <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+                  <span className="rounded-full bg-slate-100/90 border border-slate-200/80 px-3 py-1 text-[11px] font-bold text-slate-700 backdrop-blur-md">
                     This Month
                   </span>
                 </div>
@@ -1235,212 +1305,234 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* TEACHER & STAFF DAILY ATTENDANCE SECTION (USER EXPLICIT REQUEST) */}
-          <div className="rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-100 gap-3">
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-purple-100 text-purple-700">
-                    <GraduationCap size={18} />
-                  </span>
-                  <div>
-                    <h3 className="font-extrabold text-base text-slate-900">
-                      Teacher & Staff Attendance Today
-                    </h3>
-                    <p className="text-xs text-slate-500 font-medium">
-                      Kon teacher present hai kon absent &bull; Tap status badge to toggle
-                    </p>
+          {/* TEACHER & STAFF DAILY ATTENDANCE SECTION (CRYSTAL GLASSMORPHISM) */}
+          <div className="group relative overflow-hidden rounded-3xl border border-white/90 bg-white/80 p-6 sm:p-7 backdrop-blur-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-900/[0.04] transition-all duration-300">
+            {/* Gloss Specular Light Beam */}
+            <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+            {/* Ambient Glow Orb */}
+            <div className="absolute -top-12 -right-12 h-36 w-36 rounded-full bg-purple-500/10 blur-3xl pointer-events-none group-hover:bg-purple-500/18 transition duration-500" />
+
+            <div className="relative z-10">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-100/80 gap-3">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-md shadow-purple-500/25 ring-2 ring-white/90">
+                      <GraduationCap size={20} />
+                    </span>
+                    <div>
+                      <h3 className="font-extrabold text-base text-slate-900">
+                        Teacher &amp; Staff Attendance Today
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Live faculty tracking &bull; Tap status badge to toggle
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-xl bg-slate-100 p-1 text-xs font-bold text-slate-600">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex rounded-2xl bg-white/90 border border-slate-200/70 p-1 text-xs font-bold text-slate-600 backdrop-blur-md shadow-2xs">
+                    <button
+                      onClick={() => setTeacherFilter("all")}
+                      className={`px-3 py-1 rounded-xl transition ${
+                        teacherFilter === "all" ? "bg-slate-900 text-white shadow-xs" : "hover:text-slate-900"
+                      }`}
+                    >
+                      All ({teacherStats.total})
+                    </button>
+                    <button
+                      onClick={() => setTeacherFilter("present")}
+                      className={`px-3 py-1 rounded-xl transition ${
+                        teacherFilter === "present" ? "bg-emerald-600 text-white shadow-xs" : "hover:text-slate-900"
+                      }`}
+                    >
+                      Present ({teacherStats.present})
+                    </button>
+                    <button
+                      onClick={() => setTeacherFilter("absent")}
+                      className={`px-3 py-1 rounded-xl transition ${
+                        teacherFilter === "absent" ? "bg-rose-600 text-white shadow-xs" : "hover:text-slate-900"
+                      }`}
+                    >
+                      Absent ({teacherStats.absent})
+                    </button>
+                  </div>
+
                   <button
-                    onClick={() => setTeacherFilter("all")}
-                    className={`px-3 py-1 rounded-lg transition ${
-                      teacherFilter === "all" ? "bg-white text-slate-900 shadow-xs" : "hover:text-slate-900"
-                    }`}
+                    onClick={handleMarkAllTeachersPresent}
+                    className="inline-flex items-center gap-1.5 rounded-2xl border border-emerald-300 bg-emerald-500/10 px-3.5 py-1.5 text-xs font-extrabold text-emerald-800 hover:bg-emerald-500/20 backdrop-blur-md transition active:scale-95"
                   >
-                    All ({teacherStats.total})
-                  </button>
-                  <button
-                    onClick={() => setTeacherFilter("present")}
-                    className={`px-3 py-1 rounded-lg transition ${
-                      teacherFilter === "present" ? "bg-emerald-600 text-white shadow-xs" : "hover:text-slate-900"
-                    }`}
-                  >
-                    Present ({teacherStats.present})
-                  </button>
-                  <button
-                    onClick={() => setTeacherFilter("absent")}
-                    className={`px-3 py-1 rounded-lg transition ${
-                      teacherFilter === "absent" ? "bg-rose-600 text-white shadow-xs" : "hover:text-slate-900"
-                    }`}
-                  >
-                    Absent ({teacherStats.absent})
+                    <UserCheck size={14} className="text-emerald-700" />
+                    <span>Mark All Present</span>
                   </button>
                 </div>
-
-                <button
-                  onClick={handleMarkAllTeachersPresent}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition active:scale-95"
-                >
-                  <UserCheck size={14} className="text-emerald-600" />
-                  <span>Mark All Present</span>
-                </button>
               </div>
-            </div>
 
-            {/* Teacher Cards Grid */}
-            <div className="mt-5">
-              {teachersList.length === 0 ? (
-                <div className="text-center py-8 text-sm text-slate-400 font-medium">
-                  No teachers added to the directory yet.{" "}
-                  <Link href="/teachers" className="text-purple-600 font-bold underline">
-                    Add teachers here
-                  </Link>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {teachersList
-                    .filter((t) => {
-                      const st = teacherAttendance[t.id];
-                      if (teacherFilter === "present") return st === "present";
-                      if (teacherFilter === "absent") return st === "absent";
-                      return true;
-                    })
-                    .map((t) => {
-                      const status = teacherAttendance[t.id] || "unmarked";
-                      const tInitials = t.full_name
-                        .split(/\s+/)
-                        .map((n) => n[0])
-                        .join("")
-                        .slice(0, 2)
-                        .toUpperCase();
+              {/* Teacher Cards Grid */}
+              <div className="mt-5">
+                {teachersList.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-slate-400 font-medium">
+                    No teachers added to the directory yet.{" "}
+                    <Link href="/teachers" className="text-purple-600 font-bold underline">
+                      Add teachers here
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {teachersList
+                      .filter((t) => {
+                        const st = teacherAttendance[t.id];
+                        if (teacherFilter === "present") return st === "present";
+                        if (teacherFilter === "absent") return st === "absent";
+                        return true;
+                      })
+                      .map((t) => {
+                        const status = teacherAttendance[t.id] || "unmarked";
+                        const tInitials = t.full_name
+                          .split(/\s+/)
+                          .map((n) => n[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase();
 
-                      return (
-                        <div
-                          key={t.id}
-                          className="flex items-center justify-between p-3 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-xs transition"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="grid h-9 w-9 place-items-center rounded-xl bg-purple-100 text-purple-700 text-xs font-bold shrink-0">
-                              {tInitials}
-                            </div>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-bold text-slate-900 truncate">{t.full_name}</h4>
-                              <p className="text-[10px] text-slate-400 font-medium truncate">
-                                {t.phone || "Faculty Member"}
-                              </p>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTeacher(t.id, status)}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold transition active:scale-95 ${
-                              status === "present"
-                                ? "bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200"
-                                : status === "absent"
-                                ? "bg-rose-100 text-rose-800 border border-rose-200 hover:bg-rose-200"
-                                : "bg-slate-200/80 text-slate-700 hover:bg-emerald-100 hover:text-emerald-800"
-                            }`}
-                            title="Click to toggle teacher attendance"
+                        return (
+                          <div
+                            key={t.id}
+                            className="flex items-center justify-between p-3.5 rounded-2xl border border-white/80 bg-white/70 hover:bg-white/95 hover:border-purple-200/80 shadow-2xs hover:shadow-md backdrop-blur-xl ring-1 ring-slate-900/[0.03] transition-all duration-200"
                           >
-                            {status === "present" ? (
-                              <>
-                                <Check size={11} />
-                                <span>Present</span>
-                              </>
-                            ) : status === "absent" ? (
-                              <>
-                                <X size={11} />
-                                <span>Absent</span>
-                              </>
-                            ) : (
-                              <span>Mark Present</span>
-                            )}
-                          </button>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="grid h-9 w-9 place-items-center rounded-xl bg-purple-100 text-purple-700 text-xs font-bold shrink-0">
+                                {tInitials}
+                              </div>
+                              <div className="min-w-0">
+                                <h4 className="text-xs font-bold text-slate-900 truncate">{t.full_name}</h4>
+                                <p className="text-[10px] text-slate-400 font-medium truncate">
+                                  {t.phone || "Faculty Member"}
+                                </p>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleTeacher(t.id, status)}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold transition active:scale-95 ${
+                                status === "present"
+                                  ? "bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200"
+                                  : status === "absent"
+                                  ? "bg-rose-100 text-rose-800 border border-rose-200 hover:bg-rose-200"
+                                  : "bg-slate-200/80 text-slate-700 hover:bg-emerald-100 hover:text-emerald-800"
+                              }`}
+                              title="Click to toggle teacher attendance"
+                            >
+                              {status === "present" ? (
+                                <>
+                                  <Check size={11} />
+                                  <span>Present</span>
+                                </>
+                              ) : status === "absent" ? (
+                                <>
+                                  <X size={11} />
+                                  <span>Absent</span>
+                                </>
+                              ) : (
+                                <span>Mark Present</span>
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* BOTTOM ROW: QUICK REPORTS (4 PASTEL TILES) + RECENT ACTIVITIES FEED */}
+          {/* BOTTOM ROW: QUICK REPORTS (CRYSTAL GLASSMORPHISM) + RECENT ACTIVITIES FEED */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left 2 Cols: Quick Reports (Matching Screenshot) */}
-            <div className="lg:col-span-2 rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs">
-              <div className="flex items-center gap-2 pb-4 border-b border-slate-100">
-                <FileText size={18} className="text-slate-600" />
-                <h3 className="font-extrabold text-base text-slate-900">Quick Reports</h3>
-              </div>
-
-              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-                {/* 1. Attendance Report */}
-                <button
-                  type="button"
-                  onClick={() => setActiveReport("attendance")}
-                  className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-center hover:bg-blue-100/70 hover:border-blue-300 transition group flex flex-col items-center justify-center gap-2"
-                >
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-100 text-blue-700 group-hover:scale-110 transition">
-                    <Calendar size={18} />
+            {/* Left 2 Cols: Quick Reports */}
+            <div className="group relative overflow-hidden lg:col-span-2 rounded-3xl border border-white/90 bg-white/80 p-6 sm:p-7 backdrop-blur-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-900/[0.04]">
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              <div className="relative z-10">
+                <div className="flex items-center gap-2.5 pb-4 border-b border-slate-100/80">
+                  <span className="grid h-8 w-8 place-items-center rounded-xl bg-purple-100 text-purple-700">
+                    <FileText size={16} />
                   </span>
-                  <span className="text-xs font-bold text-slate-800">Attendance Report</span>
-                </button>
+                  <h3 className="font-extrabold text-base text-slate-900">Quick Reports</h3>
+                </div>
 
-                {/* 2. Fees Report */}
-                <button
-                  type="button"
-                  onClick={() => setActiveReport("fees")}
-                  className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 text-center hover:bg-amber-100/70 hover:border-amber-300 transition group flex flex-col items-center justify-center gap-2"
-                >
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-100 text-amber-700 group-hover:scale-110 transition">
-                    <WalletCards size={18} />
-                  </span>
-                  <span className="text-xs font-bold text-slate-800">Fees Report</span>
-                </button>
+                <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                  {/* 1. Attendance Report */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveReport("attendance")}
+                    className="group/btn relative cursor-pointer overflow-hidden rounded-2xl border border-white/90 bg-white/75 p-4 text-center shadow-[0_4px_20px_rgb(0,0,0,0.02)] backdrop-blur-xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/95 hover:shadow-lg hover:shadow-blue-500/10 hover:border-white flex flex-col items-center justify-center gap-2.5"
+                  >
+                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white to-transparent opacity-90" />
+                    <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md shadow-blue-500/25 ring-2 ring-white/90 group-hover/btn:scale-110 group-hover/btn:rotate-2 transition duration-300">
+                      <Calendar size={18} />
+                    </span>
+                    <span className="text-xs font-black text-slate-800 group-hover/btn:text-blue-700 transition">Attendance Report</span>
+                  </button>
 
-                {/* 3. Result Report */}
-                <button
-                  type="button"
-                  onClick={() => setActiveReport("exams")}
-                  className="rounded-2xl border border-purple-100 bg-purple-50/60 p-4 text-center hover:bg-purple-100/70 hover:border-purple-300 transition group flex flex-col items-center justify-center gap-2"
-                >
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-purple-100 text-purple-700 group-hover:scale-110 transition">
-                    <TrendingUp size={18} />
-                  </span>
-                  <span className="text-xs font-bold text-slate-800">Result Report</span>
-                </button>
+                  {/* 2. Fees Report */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveReport("fees")}
+                    className="group/btn relative cursor-pointer overflow-hidden rounded-2xl border border-white/90 bg-white/75 p-4 text-center shadow-[0_4px_20px_rgb(0,0,0,0.02)] backdrop-blur-xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/95 hover:shadow-lg hover:shadow-amber-500/10 hover:border-white flex flex-col items-center justify-center gap-2.5"
+                  >
+                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white to-transparent opacity-90" />
+                    <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/25 ring-2 ring-white/90 group-hover/btn:scale-110 group-hover/btn:rotate-2 transition duration-300">
+                      <WalletCards size={18} />
+                    </span>
+                    <span className="text-xs font-black text-slate-800 group-hover/btn:text-amber-700 transition">Fees Report</span>
+                  </button>
 
-                {/* 4. Student Summary */}
-                <button
-                  type="button"
-                  onClick={() => setActiveReport("students")}
-                  className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 text-center hover:bg-emerald-100/70 hover:border-emerald-300 transition group flex flex-col items-center justify-center gap-2"
-                >
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-100 text-emerald-700 group-hover:scale-110 transition">
-                    <Users size={18} />
-                  </span>
-                  <span className="text-xs font-bold text-slate-800">Student Summary</span>
-                </button>
+                  {/* 3. Result Report */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveReport("exams")}
+                    className="group/btn relative cursor-pointer overflow-hidden rounded-2xl border border-white/90 bg-white/75 p-4 text-center shadow-[0_4px_20px_rgb(0,0,0,0.02)] backdrop-blur-xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/95 hover:shadow-lg hover:shadow-purple-500/10 hover:border-white flex flex-col items-center justify-center gap-2.5"
+                  >
+                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white to-transparent opacity-90" />
+                    <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-md shadow-purple-500/25 ring-2 ring-white/90 group-hover/btn:scale-110 group-hover/btn:rotate-2 transition duration-300">
+                      <TrendingUp size={18} />
+                    </span>
+                    <span className="text-xs font-black text-slate-800 group-hover/btn:text-purple-700 transition">Result Report</span>
+                  </button>
+
+                  {/* 4. Student Summary */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveReport("students")}
+                    className="group/btn relative cursor-pointer overflow-hidden rounded-2xl border border-white/90 bg-white/75 p-4 text-center shadow-[0_4px_20px_rgb(0,0,0,0.02)] backdrop-blur-xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/95 hover:shadow-lg hover:shadow-emerald-500/10 hover:border-white flex flex-col items-center justify-center gap-2.5"
+                  >
+                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white to-transparent opacity-90" />
+                    <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/25 ring-2 ring-white/90 group-hover/btn:scale-110 group-hover/btn:rotate-2 transition duration-300">
+                      <Users size={18} />
+                    </span>
+                    <span className="text-xs font-black text-slate-800 group-hover/btn:text-emerald-700 transition">Student Summary</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Right 1 Col: Recent Activities (Matching Screenshot) */}
-            <div className="rounded-3xl border border-slate-200/90 bg-white/95 p-6 backdrop-blur-xl shadow-xs">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <Clock size={18} className="text-slate-600" />
-                  <h3 className="font-extrabold text-base text-slate-900">Recent Activities</h3>
+            {/* Right 1 Col: Recent Activities */}
+            <div className="group relative overflow-hidden rounded-3xl border border-white/90 bg-white/80 p-6 sm:p-7 backdrop-blur-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-900/[0.04]">
+              {/* Gloss Specular Light Beam */}
+              <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+              <div className="relative z-10">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100/80">
+                  <div className="flex items-center gap-2.5">
+                    <span className="grid h-8 w-8 place-items-center rounded-xl bg-slate-100 text-slate-600">
+                      <Clock size={16} />
+                    </span>
+                    <h3 className="font-extrabold text-base text-slate-900">Recent Activities</h3>
+                  </div>
+                  <Link href="/notices" className="text-xs font-extrabold text-purple-600 hover:underline">
+                    View All
+                  </Link>
                 </div>
-                <Link href="/notices" className="text-xs font-bold text-purple-600 hover:underline">
-                  View All
-                </Link>
-              </div>
 
               <div className="mt-4 space-y-3">
                 {recentActivities.map((act) => (
@@ -1463,8 +1555,9 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-        </main>
-      </div>
+        </div>
+      </main>
+    </div>
 
       {/* ============================================================== */}
       {/* INTERACTIVE FULL REPORT MODAL (LIGHT FROSTED GLASS)            */}
