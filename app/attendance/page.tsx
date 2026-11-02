@@ -43,6 +43,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
+import InstitutePausedModal from "@/components/InstitutePausedModal";
 import jsQR from "jsqr";
 import {
   createWhatsAppUrl,
@@ -161,7 +162,16 @@ type ToastState = {
 
 export default function AttendancePage() {
   const s = createClient();
-  const { loading: authLoading, orgId: org, hasAccess, can } = useUserAccess([
+  const {
+    loading: authLoading,
+    orgId: org,
+    hasAccess,
+    can,
+    isPaused,
+    pauseReason,
+    pausedAt,
+    orgName: authOrgName,
+  } = useUserAccess([
     "attendance.view",
     "attendance.manage",
   ]);
@@ -895,6 +905,16 @@ export default function AttendancePage() {
           <span>Verifying attendance permissions...</span>
         </div>
       </main>
+    );
+  }
+
+  if (isPaused) {
+    return (
+      <InstitutePausedModal
+        organizationName={authOrgName || orgName}
+        pauseReason={pauseReason}
+        pausedAt={pausedAt}
+      />
     );
   }
 

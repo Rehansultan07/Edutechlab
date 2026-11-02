@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, FormEvent, ChangeEvent } from "react";
+import { useEffect, useState, useMemo, FormEvent, ChangeEvent } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -51,6 +51,13 @@ import {
   MapPin,
   Megaphone,
   Youtube,
+  Pause,
+  Play,
+  TrendingUp,
+  TrendingDown,
+  IndianRupee,
+  BarChart3,
+  HelpCircle,
 } from "lucide-react";
 import {
   PLATFORM_FEATURES,
@@ -87,11 +94,18 @@ type InstitutionItem = {
   owner_name: string | null;
   owner_login_id: string | null;
   enabled_features?: EnabledFeaturesMap;
+  is_paused?: boolean;
+  pause_reason?: string | null;
+  paused_at?: string | null;
   subscription?: {
     student_limit: number;
     status: string;
     is_trial: boolean;
     current_period_ends_at: string;
+    is_paused?: boolean;
+    pause_reason?: string | null;
+    paused_at?: string | null;
+    monthly_amount?: number;
   } | null;
 };
 
@@ -159,7 +173,9 @@ export default function SuperAdminPage() {
     pro_rate: 7,
   });
 
-  const [activeTab, setActiveTab] = useState<"institutions" | "requests" | "pricing" | "features">("institutions");
+  const [activeTab, setActiveTab] = useState<
+    "institutions" | "requests" | "revenue" | "pricing" | "features"
+  >("institutions");
   // Feature Controller State
   const [managingFeaturesInst, setManagingFeaturesInst] = useState<InstitutionItem | null>(null);
   const [currentFeatures, setCurrentFeatures] = useState<EnabledFeaturesMap>(getDefaultFeaturesMap());
@@ -172,6 +188,16 @@ export default function SuperAdminPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cleaningUp, setCleaningUp] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
+
+  // Modals state: Pause Institute
+  const [pausingInst, setPausingInst] = useState<InstitutionItem | null>(null);
+  const [pauseReasonInput, setPauseReasonInput] = useState<string>("Monthly subscription fee overdue");
+  const [pauseDateInput, setPauseDateInput] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [isPausing, setIsPausing] = useState(false);
+
+  // Revenue Filter & Search States
+  const [revenueFilter, setRevenueFilter] = useState<"all" | "active" | "paused" | "trial" | "expired">("all");
+  const [revenueSearch, setRevenueSearch] = useState("");
 
   // Modals state: Quota override
   const [editingInst, setEditingInst] = useState<InstitutionItem | null>(null);
@@ -292,7 +318,7 @@ export default function SuperAdminPage() {
           .select("*, organizations(name)")
           .order("created_at", { ascending: false }),
         supabase.from("platform_settings").select("*").eq("id", "global").maybeSingle(),
-        supabase.from("organizations").select("id, enabled_features"),
+        supabase.from("organizations").select("id, enabled_features, is_paused, pause_reason, paused_at"),
       ]);
 
       if (statsRes.data) {
@@ -300,12 +326,13 @@ export default function SuperAdminPage() {
       }
 
       const subMap = new Map((subsRes.data || []).map((s: any) => [s.organization_id, s]));
-      const featMap = new Map((orgsFeatRes.data || []).map((o: any) => [o.id, o.enabled_features]));
+      const orgMap = new Map((orgsFeatRes.data || []).map((o: any) => [o.id, o]));
 
       if (listRes.data) {
         const enrichedInsts = (listRes.data as InstitutionItem[]).map((inst) => {
           const sub = subMap.get(inst.id);
-          let rawFeat = featMap.get(inst.id);
+          const org = orgMap.get(inst.id);
+          let rawFeat = org?.enabled_features;
           if (!rawFeat && typeof window !== "undefined") {
             try {
               const local = localStorage.getItem(`edutechlab_features_${inst.id}`);
@@ -314,8 +341,15 @@ export default function SuperAdminPage() {
           }
           const parsedFeat = parseFeatures(rawFeat);
 
+          const isPaused = Boolean(sub?.is_paused ?? org?.is_paused ?? false);
+          const pauseReason = sub?.pause_reason ?? org?.pause_reason ?? null;
+          const pausedAt = sub?.paused_at ?? org?.paused_at ?? null;
+
           return {
             ...inst,
+            is_paused: isPaused,
+            pause_reason: pauseReason,
+            paused_at: pausedAt,
             enabled_features: parsedFeat,
             subscription: sub
               ? {
@@ -323,6 +357,10 @@ export default function SuperAdminPage() {
                   status: sub.status,
                   is_trial: sub.is_trial,
                   current_period_ends_at: sub.current_period_ends_at,
+                  is_paused: isPaused,
+                  pause_reason: pauseReason,
+                  paused_at: pausedAt,
+                  monthly_amount: sub.monthly_amount ? Number(sub.monthly_amount) : undefined,
                 }
               : null,
           };
@@ -399,6 +437,105 @@ export default function SuperAdminPage() {
       await checkAndLoad();
     } catch (err: any) {
       setError(err.message || `Failed to ${actionWord} institution.`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Open Pause Modal
+  const openPauseModal = (inst: InstitutionItem) => {
+    setPausingInst(inst);
+    setPauseReasonInput(inst.pause_reason || "Monthly subscription fee overdue");
+    setPauseDateInput(
+      inst.paused_at
+        ? new Date(inst.paused_at).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10)
+    );
+  };
+
+  // Confirm Pause Institute
+  const handleConfirmPause = async () => {
+    if (!pausingInst) return;
+    if (!pauseReasonInput.trim()) {
+      alert("Please enter a reason for pausing this school.");
+      return;
+    }
+
+    setIsPausing(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const pauseDateIso = new Date(pauseDateInput).toISOString();
+      const { data, error: err } = await supabase.rpc("pause_institution", {
+        p_org_id: pausingInst.id,
+        p_reason: pauseReasonInput.trim(),
+        p_pause_date: pauseDateIso,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+
+      if (err) {
+        // Fallback direct update
+        await Promise.all([
+          supabase.from("organizations").update({
+            is_paused: true,
+            pause_reason: pauseReasonInput.trim(),
+            paused_at: pauseDateIso,
+          }).eq("id", pausingInst.id),
+          supabase.from("institution_subscriptions").update({
+            is_paused: true,
+            pause_reason: pauseReasonInput.trim(),
+            paused_at: pauseDateIso,
+          }).eq("organization_id", pausingInst.id),
+        ]);
+      }
+
+      setSuccess(`Institution "${pausingInst.name}" has been paused. All operational services are locked with your notice.`);
+      setPausingInst(null);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to pause institution.");
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  // Resume Institute
+  const handleResumeInstitute = async (inst: InstitutionItem) => {
+    if (!confirm(`Are you sure you want to resume and reactivate all services for "${inst.name}"?`)) {
+      return;
+    }
+
+    setBusyId(inst.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { error: err } = await supabase.rpc("resume_institution", {
+        p_org_id: inst.id,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+
+      if (err) {
+        // Fallback direct update
+        await Promise.all([
+          supabase.from("organizations").update({
+            is_paused: false,
+            pause_reason: null,
+            paused_at: null,
+          }).eq("id", inst.id),
+          supabase.from("institution_subscriptions").update({
+            is_paused: false,
+            pause_reason: null,
+            paused_at: null,
+          }).eq("organization_id", inst.id),
+        ]);
+      }
+
+      setSuccess(`Institution "${inst.name}" has been resumed successfully! All services are now active.`);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to resume institution.");
     } finally {
       setBusyId(null);
     }
@@ -656,7 +793,30 @@ export default function SuperAdminPage() {
       });
 
       if (err) throw err;
-      setSuccess(`Payment for ${pay.organization_name} approved! Subscription activated for 30 days.`);
+
+      // If institute was paused, automatically resume it upon payment approval
+      try {
+        await supabase.rpc("resume_institution", {
+          p_org_id: pay.organization_id,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+      } catch {}
+      try {
+        await Promise.all([
+          supabase.from("organizations").update({
+            is_paused: false,
+            pause_reason: null,
+            paused_at: null,
+          }).eq("id", pay.organization_id),
+          supabase.from("institution_subscriptions").update({
+            is_paused: false,
+            pause_reason: null,
+            paused_at: null,
+          }).eq("organization_id", pay.organization_id),
+        ]);
+      } catch {}
+
+      setSuccess(`Payment for ${pay.organization_name} approved! Subscription activated for 30 days & services active.`);
       await checkAndLoad();
     } catch (err: any) {
       setError(err.message || "Failed to approve payment.");
@@ -994,6 +1154,94 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
 
   const pendingRequestsCount = paymentRequests.filter((p) => p.status === "pending").length;
 
+  // Revenue Metrics Calculations
+  const revenueMetrics = useMemo(() => {
+    let totalProjectedMRR = 0;
+    let totalSubscribedCapacity = 0;
+    const ratePerStudent = Number(pricing.standard_rate || 5);
+
+    institutions.forEach((inst) => {
+      const quota = inst.subscription?.student_limit || inst.student_count || pricing.base_students || 20;
+      totalSubscribedCapacity += quota;
+      const schoolMRR = inst.subscription?.monthly_amount
+        ? Number(inst.subscription.monthly_amount)
+        : Math.max(pricing.base_price, quota * ratePerStudent);
+      totalProjectedMRR += schoolMRR;
+    });
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    let allTimeApprovedRevenue = 0;
+    let thisMonthApprovedRevenue = 0;
+    let todayApprovedRevenue = 0;
+    let pendingApprovalRevenue = 0;
+    let approvedPaymentsCount = 0;
+    let thisMonthApprovedCount = 0;
+
+    const approvedLedger: PaymentRequest[] = [];
+
+    paymentRequests.forEach((p) => {
+      const amt = Number(p.amount) || 0;
+      if (p.status === "approved") {
+        allTimeApprovedRevenue += amt;
+        approvedPaymentsCount++;
+        approvedLedger.push(p);
+
+        const pDate = new Date(p.created_at);
+        if (pDate.getFullYear() === currentYear && pDate.getMonth() === currentMonth) {
+          thisMonthApprovedRevenue += amt;
+          thisMonthApprovedCount++;
+        }
+        if (p.created_at.slice(0, 10) === todayStr) {
+          todayApprovedRevenue += amt;
+        }
+      } else if (p.status === "pending") {
+        pendingApprovalRevenue += amt;
+      }
+    });
+
+    return {
+      totalProjectedMRR,
+      totalSubscribedCapacity,
+      ratePerStudent,
+      allTimeApprovedRevenue,
+      thisMonthApprovedRevenue,
+      todayApprovedRevenue,
+      pendingApprovalRevenue,
+      approvedPaymentsCount,
+      thisMonthApprovedCount,
+      approvedLedger,
+    };
+  }, [institutions, paymentRequests, pricing]);
+
+  const filteredRevenueInstitutions = institutions.filter((inst) => {
+    const q = revenueSearch.toLowerCase();
+    const matchesSearch =
+      inst.name.toLowerCase().includes(q) ||
+      inst.slug.toLowerCase().includes(q) ||
+      (inst.owner_login_id && inst.owner_login_id.toLowerCase().includes(q));
+
+    if (!matchesSearch) return false;
+
+    if (revenueFilter === "active") {
+      return !inst.is_paused && inst.is_active && !inst.subscription?.is_trial;
+    }
+    if (revenueFilter === "paused") {
+      return Boolean(inst.is_paused);
+    }
+    if (revenueFilter === "trial") {
+      return Boolean(inst.subscription?.is_trial);
+    }
+    if (revenueFilter === "expired") {
+      const sub = inst.subscription;
+      return Boolean(sub?.current_period_ends_at && new Date(sub.current_period_ends_at) < new Date());
+    }
+    return true;
+  });
+
   if (loading) {
     return (
       <main className="mx-auto max-w-7xl p-8 text-center text-sm text-slate-500">
@@ -1087,9 +1335,13 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
               <Building2 size={18} className="text-purple-600" />
             </div>
             <p className="mt-3 text-3xl font-bold text-slate-900">{stats.total_institutions}</p>
-            <div className="mt-2 flex items-center gap-3 text-xs">
+            <div className="mt-2 flex items-center gap-2 text-xs flex-wrap">
               <span className="font-semibold text-emerald-600">
                 {stats.active_institutions} active
+              </span>
+              <span className="text-slate-300">•</span>
+              <span className="font-semibold text-amber-700">
+                {institutions.filter((i) => i.is_paused).length} paused
               </span>
               <span className="text-slate-300">•</span>
               <span className="text-slate-500">{stats.suspended_institutions} suspended</span>
@@ -1102,40 +1354,45 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
               <Users size={18} className="text-blue-600" />
             </div>
             <p className="mt-3 text-3xl font-bold text-slate-900">{stats.total_students}</p>
-            <p className="mt-2 text-xs text-slate-500">Enrolled across all tenants</p>
+            <p className="mt-2 text-xs text-slate-500">
+              Enrolled across all tenants ({revenueMetrics.totalSubscribedCapacity} capacity quota)
+            </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-500">
-              <span className="text-sm font-medium">Pending Approvals</span>
-              <Clock size={18} className="text-amber-600" />
+          <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-5 shadow-sm">
+            <div className="flex items-center justify-between text-purple-700">
+              <span className="text-sm font-medium">Projected Monthly MRR</span>
+              <TrendingUp size={18} className="text-purple-600" />
             </div>
-            <p className="mt-3 text-3xl font-bold text-slate-900">{pendingRequestsCount}</p>
-            <p className="mt-2 text-xs text-slate-500">Subscription payment requests</p>
+            <p className="mt-3 text-3xl font-bold text-purple-950">
+              ₹{revenueMetrics.totalProjectedMRR.toLocaleString("en-IN")}
+            </p>
+            <p className="mt-2 text-xs text-purple-700">
+              Expected monthly calculation ({institutions.length} schools @ ₹{pricing.standard_rate || 5}/child)
+            </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-500">
-              <span className="text-sm font-medium">Platform Fee Volume</span>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5 shadow-sm">
+            <div className="flex items-center justify-between text-emerald-700">
+              <span className="text-sm font-medium">Approved Collections</span>
               <Wallet size={18} className="text-emerald-600" />
             </div>
-            <p className="mt-3 text-3xl font-bold text-slate-900">
-              {stats.total_fee_volume.toLocaleString("en-IN", {
-                style: "currency",
-                currency: "INR",
-                maximumFractionDigits: 0,
-              })}
+            <p className="mt-3 text-3xl font-bold text-emerald-950">
+              ₹{revenueMetrics.allTimeApprovedRevenue.toLocaleString("en-IN")}
             </p>
-            <p className="mt-2 text-xs text-slate-500">Recorded fee transactions</p>
+            <div className="mt-2 flex items-center gap-2 text-xs text-emerald-800">
+              <span className="font-bold">₹{revenueMetrics.thisMonthApprovedRevenue.toLocaleString("en-IN")}</span>
+              <span>this month ({revenueMetrics.thisMonthApprovedCount} approved)</span>
+            </div>
           </div>
         </div>
       )}
 
       {/* Tabs Navigation */}
-      <div className="mt-8 flex border-b border-slate-200 text-sm font-bold">
+      <div className="mt-8 flex border-b border-slate-200 text-sm font-bold overflow-x-auto">
         <button
           onClick={() => setActiveTab("institutions")}
-          className={`flex items-center gap-2 border-b-2 px-5 py-3 transition ${
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
             activeTab === "institutions"
               ? "border-purple-600 text-purple-700"
               : "border-transparent text-slate-500 hover:text-slate-900"
@@ -1146,8 +1403,20 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
         </button>
 
         <button
+          onClick={() => setActiveTab("revenue")}
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
+            activeTab === "revenue"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <Wallet size={16} />
+          Revenue &amp; Subscriptions
+        </button>
+
+        <button
           onClick={() => setActiveTab("requests")}
-          className={`relative flex items-center gap-2 border-b-2 px-5 py-3 transition ${
+          className={`relative flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
             activeTab === "requests"
               ? "border-purple-600 text-purple-700"
               : "border-transparent text-slate-500 hover:text-slate-900"
@@ -1164,26 +1433,26 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
 
         <button
           onClick={() => setActiveTab("pricing")}
-          className={`flex items-center gap-2 border-b-2 px-5 py-3 transition ${
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
             activeTab === "pricing"
               ? "border-purple-600 text-purple-700"
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
           <Globe size={16} />
-          Website, Contact & Pricing
+          Website, Contact &amp; Pricing
         </button>
 
         <button
           onClick={() => setActiveTab("features")}
-          className={`flex items-center gap-2 border-b-2 px-5 py-3 transition ${
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
             activeTab === "features"
               ? "border-purple-600 text-purple-700"
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
           <Sliders size={16} />
-          Feature Controller & Matrix
+          Feature Controller &amp; Matrix
         </button>
       </div>
 
@@ -1284,13 +1553,33 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                               Standard Active
                             </span>
                           )}
-                          <div className="mt-1">
-                            {inst.is_active ? (
-                              <span className="text-[11px] text-emerald-600 font-medium">● Operational</span>
-                            ) : (
-                              <span className="text-[11px] text-red-600 font-medium">● Suspended</span>
-                            )}
-                          </div>
+                          {inst.is_paused ? (
+                            <div className="mt-1">
+                              <span
+                                className="inline-flex items-center gap-1 rounded-md bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-bold text-amber-900"
+                                title={inst.pause_reason || "Services Paused"}
+                              >
+                                <Pause size={10} className="fill-amber-700 text-amber-700" />
+                                Paused ({inst.paused_at ? new Date(inst.paused_at).toLocaleDateString("en-IN") : "Active"})
+                              </span>
+                              {inst.pause_reason && (
+                                <div
+                                  className="mt-0.5 max-w-[170px] truncate text-[10px] font-medium text-amber-800"
+                                  title={inst.pause_reason}
+                                >
+                                  "{inst.pause_reason}"
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="mt-1">
+                              {inst.is_active ? (
+                                <span className="text-[11px] text-emerald-600 font-medium">● Operational</span>
+                              ) : (
+                                <span className="text-[11px] text-red-600 font-medium">● Suspended</span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-4 text-xs text-slate-500">
                           {sub?.current_period_ends_at
@@ -1328,6 +1617,29 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                               <Edit size={12} />
                               Edit Quota
                             </button>
+
+                            {/* Pause / Resume Button */}
+                            {inst.is_paused ? (
+                              <button
+                                onClick={() => handleResumeInstitute(inst)}
+                                disabled={busyId === inst.id}
+                                className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 shadow-xs transition disabled:opacity-50"
+                                title="Resume institute services and reactivate portal"
+                              >
+                                <Play size={12} className="fill-emerald-700 text-emerald-700" />
+                                Resume
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => openPauseModal(inst)}
+                                disabled={busyId === inst.id}
+                                className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 shadow-xs transition disabled:opacity-50"
+                                title="Pause institute services with custom reason and date"
+                              >
+                                <Pause size={12} />
+                                Pause
+                              </button>
+                            )}
 
                             {/* Suspend / Activate Toggle */}
                             <button
@@ -2055,7 +2367,477 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
       )}
 
       {/* ============================================================== */}
-      {/* MODAL 1: EDIT QUOTA / EXTEND PLAN (SUPER ADMIN OVERRIDE)       */}
+      {/* TAB 5: REVENUE & MONTHLY SUBSCRIPTION ANALYTICS               */}
+      {/* ============================================================== */}
+      {activeTab === "revenue" && (
+        <section className="mt-6 space-y-6">
+          {/* Top Banner */}
+          <div className="rounded-3xl border border-purple-200 bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 p-6 text-white shadow-xl">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wider text-purple-200 border border-purple-400/30">
+                  <Wallet size={13} />
+                  Revenue Analytics Engine
+                </div>
+                <h2 className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl">
+                  Platform Revenue &amp; Monthly Subscriptions
+                </h2>
+                <p className="mt-1 text-xs text-purple-200 max-w-xl">
+                  Live calculation based on student capacity subscribed by each onboarded institution @ ₹{pricing.standard_rate || 5}/child and approved payment receipts reviewed by Super Admin.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={checkAndLoad}
+                  className="inline-flex items-center gap-1.5 rounded-2xl bg-white/10 px-4 py-2.5 text-xs font-bold text-white backdrop-blur-md hover:bg-white/20 transition border border-white/10"
+                >
+                  <RefreshCw size={14} />
+                  Refresh Revenue
+                </button>
+                <button
+                  onClick={() => setActiveTab("requests")}
+                  className="inline-flex items-center gap-1.5 rounded-2xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-400 transition shadow-md"
+                >
+                  <FileCheck size={14} />
+                  Review Approvals ({pendingRequestsCount})
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 4 Glassmorphic KPI Cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Card 1: Expected MRR */}
+            <div className="rounded-3xl border border-purple-200 bg-gradient-to-br from-purple-50 via-white to-indigo-50/50 p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-purple-800">
+                  Projected Monthly MRR
+                </span>
+                <div className="grid h-8 w-8 place-items-center rounded-xl bg-purple-200/60 text-purple-700">
+                  <TrendingUp size={16} />
+                </div>
+              </div>
+              <p className="mt-3 text-3xl font-black text-purple-950">
+                ₹{revenueMetrics.totalProjectedMRR.toLocaleString("en-IN")}
+                <span className="text-xs font-bold text-purple-600"> /mo</span>
+              </p>
+              <p className="mt-2 text-[11px] text-purple-700">
+                From {institutions.length} institutions ({revenueMetrics.totalSubscribedCapacity} total student quota)
+              </p>
+            </div>
+
+            {/* Card 2: This Month Approved */}
+            <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50/50 p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                  Approved This Month
+                </span>
+                <div className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-200/60 text-emerald-700">
+                  <CheckCircle2 size={16} />
+                </div>
+              </div>
+              <p className="mt-3 text-3xl font-black text-emerald-950">
+                ₹{revenueMetrics.thisMonthApprovedRevenue.toLocaleString("en-IN")}
+              </p>
+              <p className="mt-2 text-[11px] text-emerald-700">
+                {revenueMetrics.thisMonthApprovedCount} verified payments in {new Date().toLocaleString("default", { month: "long" })}
+              </p>
+            </div>
+
+            {/* Card 3: All-Time Approved */}
+            <div className="rounded-3xl border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50/50 p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-800">
+                  Lifetime Approved Revenue
+                </span>
+                <div className="grid h-8 w-8 place-items-center rounded-xl bg-blue-200/60 text-blue-700">
+                  <Wallet size={16} />
+                </div>
+              </div>
+              <p className="mt-3 text-3xl font-black text-blue-950">
+                ₹{revenueMetrics.allTimeApprovedRevenue.toLocaleString("en-IN")}
+              </p>
+              <p className="mt-2 text-[11px] text-blue-700">
+                {revenueMetrics.approvedPaymentsCount} total platform payments collected
+              </p>
+            </div>
+
+            {/* Card 4: Pending Approvals */}
+            <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50/50 p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                  Pending Verification
+                </span>
+                <div className="grid h-8 w-8 place-items-center rounded-xl bg-amber-200/60 text-amber-700">
+                  <Clock size={16} />
+                </div>
+              </div>
+              <p className="mt-3 text-3xl font-black text-amber-950">
+                ₹{revenueMetrics.pendingApprovalRevenue.toLocaleString("en-IN")}
+              </p>
+              <p className="mt-2 text-[11px] text-amber-700">
+                {pendingRequestsCount} receipts awaiting your approval
+              </p>
+            </div>
+          </div>
+
+          {/* School-Wise Revenue Breakdown Table */}
+          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  School-by-School Monthly Billing &amp; Subscriptions
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Subscription capacity, monthly revenue calculation, and pause/resume control.
+                </p>
+              </div>
+
+              {/* Filters & Search */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search school name..."
+                    value={revenueSearch}
+                    onChange={(e) => setRevenueSearch(e.target.value)}
+                    className="rounded-xl border border-slate-200 pl-8 pr-3 py-1.5 text-xs text-slate-800 outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div className="flex rounded-xl bg-slate-100 p-0.5 text-xs font-semibold">
+                  {(["all", "active", "paused", "trial", "expired"] as const).map((filterKey) => (
+                    <button
+                      key={filterKey}
+                      onClick={() => setRevenueFilter(filterKey)}
+                      className={`rounded-lg px-2.5 py-1 capitalize transition ${
+                        revenueFilter === filterKey
+                          ? "bg-white text-purple-700 shadow-xs font-bold"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      {filterKey}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-100 bg-slate-50/75 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3.5">Institution</th>
+                    <th className="px-5 py-3.5">Subscribed Capacity</th>
+                    <th className="px-5 py-3.5">Rate / Student</th>
+                    <th className="px-5 py-3.5">Monthly Expected (MRR)</th>
+                    <th className="px-5 py-3.5">Account Status</th>
+                    <th className="px-5 py-3.5">Valid Until</th>
+                    <th className="px-5 py-3.5 text-right">Quick Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredRevenueInstitutions.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-sm text-slate-500">
+                        No institutions match the current filter or search criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRevenueInstitutions.map((inst) => {
+                      const sub = inst.subscription;
+                      const quota = sub?.student_limit || inst.student_count || pricing.base_students || 20;
+                      const rate = Number(pricing.standard_rate || 5);
+                      const expectedMRR = sub?.monthly_amount
+                        ? Number(sub.monthly_amount)
+                        : Math.max(pricing.base_price, quota * rate);
+                      const isExpired = sub?.current_period_ends_at && new Date(sub.current_period_ends_at) < new Date();
+
+                      return (
+                        <tr key={inst.id} className="hover:bg-slate-50/50">
+                          <td className="px-5 py-3.5">
+                            <div className="font-semibold text-slate-900">{inst.name}</div>
+                            <div className="text-[11px] text-slate-400 font-mono">/{inst.slug} • {inst.owner_login_id || "No ID"}</div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                              <span>{inst.student_count}</span>
+                              <span className="text-slate-400 font-normal">/ {quota} students</span>
+                            </div>
+                            <div className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+                              <div
+                                className="h-full bg-purple-600 rounded-full"
+                                style={{
+                                  width: `${Math.min(100, Math.round((inst.student_count / quota) * 100))}%`,
+                                }}
+                              />
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700">
+                              ₹{rate} / student
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 font-bold text-slate-900">
+                            ₹{expectedMRR.toLocaleString("en-IN")}
+                            <span className="text-[10px] text-slate-400 font-normal"> /mo</span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            {inst.is_paused ? (
+                              <div>
+                                <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-bold text-amber-900">
+                                  <Pause size={10} className="fill-amber-700 text-amber-700" />
+                                  Paused ({inst.paused_at ? new Date(inst.paused_at).toLocaleDateString("en-IN") : "Active"})
+                                </span>
+                                {inst.pause_reason && (
+                                  <div className="mt-0.5 max-w-[170px] truncate text-[10px] text-amber-800 font-medium" title={inst.pause_reason}>
+                                    "{inst.pause_reason}"
+                                  </div>
+                                )}
+                              </div>
+                            ) : sub?.is_trial ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700">
+                                <Sparkles size={11} /> Trial ({Math.max(0, Math.ceil((new Date(sub.current_period_ends_at).getTime() - Date.now()) / 86400000))}d left)
+                              </span>
+                            ) : isExpired ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                                Expired Plan
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                Active Standard
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5 text-slate-500">
+                            {sub?.current_period_ends_at
+                              ? new Date(sub.current_period_ends_at).toLocaleDateString("en-IN")
+                              : "—"}
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {inst.is_paused ? (
+                                <button
+                                  onClick={() => handleResumeInstitute(inst)}
+                                  disabled={busyId === inst.id}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition disabled:opacity-50"
+                                >
+                                  <Play size={11} className="fill-emerald-700 text-emerald-700" />
+                                  Resume
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => openPauseModal(inst)}
+                                  disabled={busyId === inst.id}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 transition disabled:opacity-50"
+                                >
+                                  <Pause size={11} />
+                                  Pause
+                                </button>
+                              )}
+                              <button
+                                onClick={() => openEditQuotaModal(inst)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                              >
+                                <Edit size={11} />
+                                Quota
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Approved Payments Ledger */}
+          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="border-b border-slate-100 p-5">
+              <h3 className="text-base font-bold text-slate-900">
+                Approved Payment Transactions &amp; Receipts Ledger
+              </h3>
+              <p className="text-xs text-slate-500">
+                Permanent log of all subscription payments verified and approved by Platform Super Admin.
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-100 bg-slate-50/75 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3.5">Institution</th>
+                    <th className="px-5 py-3.5">Amount (₹)</th>
+                    <th className="px-5 py-3.5">UTR / Txn ID</th>
+                    <th className="px-5 py-3.5">Capacity Allocated</th>
+                    <th className="px-5 py-3.5">Approved On</th>
+                    <th className="px-5 py-3.5 text-right">Proof</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {revenueMetrics.approvedLedger.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-sm text-slate-500">
+                        No approved subscription payments found yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    revenueMetrics.approvedLedger.map((pay) => (
+                      <tr key={pay.id} className="hover:bg-slate-50/50">
+                        <td className="px-5 py-3.5 font-semibold text-slate-900">
+                          {pay.organization_name}
+                        </td>
+                        <td className="px-5 py-3.5 font-bold text-emerald-700">
+                          ₹{Number(pay.amount).toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-5 py-3.5 font-mono text-xs text-purple-700 font-semibold">
+                          {pay.utr_number}
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-700">
+                          {pay.student_limit} students quota
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-500">
+                          {new Date(pay.created_at).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          {pay.screenshot_url ? (
+                            <button
+                              onClick={() => setViewScreenshotUrl(pay.screenshot_url)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-50"
+                            >
+                              <Eye size={12} />
+                              View Receipt
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">No image</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL: PAUSE INSTITUTION SERVICES WITH REASON & DATE          */}
+      {/* ============================================================== */}
+      {pausingInst && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-lg rounded-3xl border border-amber-300 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between border-b pb-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-amber-800">
+                  <Pause size={10} />
+                  Suspend Services
+                </div>
+                <h3 className="mt-1 text-lg font-bold text-slate-900">
+                  Pause Institution: {pausingInst.name}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  School admins can still log in, but all daily functional modules will be locked with your notice.
+                </p>
+              </div>
+              <button
+                onClick={() => setPausingInst(null)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {/* Effective Pause Date */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Effective Pause Date (Monthly Billing Context)
+                </label>
+                <input
+                  type="date"
+                  value={pauseDateInput}
+                  onChange={(e) => setPauseDateInput(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 p-2.5 text-xs text-slate-900 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-semibold"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  This date will be displayed to the school admin on their screen.
+                </p>
+              </div>
+
+              {/* Pause Reason */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Reason for Pausing (Visible to School Admin)
+                </label>
+                <textarea
+                  rows={3}
+                  value={pauseReasonInput}
+                  onChange={(e) => setPauseReasonInput(e.target.value)}
+                  placeholder="e.g. Monthly subscription fee overdue for November 2026. Please clear dues to resume."
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 p-3 text-xs text-slate-900 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 leading-relaxed font-sans"
+                />
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div>
+                <span className="text-[11px] font-bold text-slate-500">Quick Reason Presets:</span>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {[
+                    "Monthly subscription fee overdue",
+                    "Subscription period expired, renewal pending",
+                    "Awaiting monthly fee payment verification",
+                    "Institute temporarily paused per management request",
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setPauseReasonInput(preset)}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-amber-50 hover:border-amber-300 transition"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                <strong>Notice:</strong> Once paused, all software services remain disabled until you click <strong>Resume</strong> on this school.
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setPausingInst(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmPause}
+                  disabled={isPausing}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-amber-500 shadow-sm disabled:opacity-50"
+                >
+                  <Pause size={14} />
+                  {isPausing ? "Pausing Institute..." : "Confirm & Pause Institute"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ============================================================== */}
       {editingInst && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">

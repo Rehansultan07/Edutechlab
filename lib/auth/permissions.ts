@@ -165,6 +165,10 @@ export function useUserAccess(requiredCodes: string[] = []) {
   const [permissions, setPermissions] = useState<Set<string>>(new Set());
   const [hasAccess, setHasAccess] = useState(false);
   const [error, setError] = useState("");
+  const [isPaused, setIsPaused] = useState(false);
+  const [pauseReason, setPauseReason] = useState<string | null>(null);
+  const [pausedAt, setPausedAt] = useState<string | null>(null);
+  const [orgName, setOrgName] = useState<string>("Your Institution");
 
   const check = useCallback(async () => {
     try {
@@ -177,33 +181,52 @@ export function useUserAccess(requiredCodes: string[] = []) {
         return;
       }
 
+      let pData: any = null;
       const { data: p, error: pErr } = await supabase
         .from("profiles")
-        .select("id, organization_id, role, full_name, login_id, phone, is_active, organizations(name, is_active, status)")
+        .select("id, organization_id, role, full_name, login_id, phone, is_active, organizations(name, is_active, status, is_paused, pause_reason, paused_at)")
         .eq("id", user.id)
         .single();
 
       if (pErr || !p) {
-        setError("Could not load user profile or organization.");
-        setLoading(false);
-        return;
+        const { data: pFallback } = await supabase
+          .from("profiles")
+          .select("id, organization_id, role, full_name, login_id, phone, is_active, organizations(name, is_active, status)")
+          .eq("id", user.id)
+          .single();
+
+        if (!pFallback) {
+          setError("Could not load user profile or organization.");
+          setLoading(false);
+          return;
+        }
+        pData = pFallback;
+      } else {
+        pData = p;
       }
 
-      if (p.is_active === false) {
+      if (pData.is_active === false) {
         await supabase.auth.signOut();
         window.location.href = "/login";
         return;
       }
 
-      const orgData = (p as any).organizations;
+      const orgData = (pData as any).organizations;
       if (orgData && (orgData.is_active === false || orgData.status === "suspended")) {
         setError("This institution has been suspended by the platform administrator.");
         setLoading(false);
         return;
       }
 
-      setProfile(p as Profile);
-      const role = String(p.role || "").trim().toLowerCase();
+      if (orgData) {
+        setIsPaused(Boolean(orgData.is_paused));
+        setPauseReason(orgData.pause_reason || null);
+        setPausedAt(orgData.paused_at || null);
+        if (orgData.name) setOrgName(orgData.name);
+      }
+
+      setProfile(pData as Profile);
+      const role = String(pData.role || "").trim().toLowerCase();
       const isAdmin = role === "owner" || role === "admin";
 
       let granted = new Set<string>();
@@ -215,7 +238,7 @@ export function useUserAccess(requiredCodes: string[] = []) {
           .from("staff_permissions")
           .select("permissions(code)")
           .eq("staff_id", user.id)
-          .eq("organization_id", p.organization_id)
+          .eq("organization_id", pData.organization_id)
           .eq("enabled", true);
 
         granted = new Set(
@@ -260,6 +283,10 @@ export function useUserAccess(requiredCodes: string[] = []) {
     loading,
     profile,
     orgId: profile?.organization_id || "",
+    orgName,
+    isPaused,
+    pauseReason,
+    pausedAt,
     permissions,
     hasAccess,
     can,

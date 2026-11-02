@@ -54,6 +54,7 @@ import {
   formatAbsentAlertMessage,
   formatFeeReminderMessage,
 } from "@/lib/whatsapp";
+import InstitutePausedModal from "@/components/InstitutePausedModal";
 
 const ROUTE_FEATURE_MAP: Record<string, FeatureKey> = {
   "/students": "students",
@@ -117,6 +118,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [subInfo, setSubInfo] = useState<any>(null);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [pauseReason, setPauseReason] = useState<string | null>(null);
+  const [pausedAt, setPausedAt] = useState<string | null>(null);
   const [birthdays, setBirthdays] = useState<any[]>([]);
   const [features, setFeatures] = useState<EnabledFeaturesMap>(getDefaultFeaturesMap());
 
@@ -164,21 +168,40 @@ export default function Dashboard() {
           return;
         }
 
+        let pData: any = null;
         const { data: p, error: pError } = await supabase
           .from("profiles")
-          .select("full_name,login_id,organization_id,role,organizations(name,enabled_features)")
+          .select("full_name,login_id,organization_id,role,organizations(name,enabled_features,is_paused,pause_reason,paused_at)")
           .eq("id", user.id)
           .single();
 
         if (pError || !p) {
-          setError("We couldn't load your institute workspace.");
-          setLoading(false);
-          return;
+          const { data: pFallback } = await supabase
+            .from("profiles")
+            .select("full_name,login_id,organization_id,role,organizations(name,enabled_features)")
+            .eq("id", user.id)
+            .single();
+
+          if (!pFallback) {
+            setError("We couldn't load your institute workspace.");
+            setLoading(false);
+            return;
+          }
+          pData = pFallback;
+        } else {
+          pData = p;
         }
 
-        setProfile(p as unknown as Profile);
-        const orgId = p.organization_id;
-        const role = String(p.role || "").trim().toLowerCase();
+        const orgData = (pData as any)?.organizations;
+        if (orgData?.is_paused) {
+          setIsPaused(true);
+          setPauseReason(orgData.pause_reason || null);
+          setPausedAt(orgData.paused_at || null);
+        }
+
+        setProfile(pData as unknown as Profile);
+        const orgId = pData.organization_id;
+        const role = String(pData.role || "").trim().toLowerCase();
         const isAdmin = role === "owner" || role === "admin";
         if (!isAdmin) {
           window.location.replace("/staff-dashboard");
@@ -200,7 +223,7 @@ export default function Dashboard() {
         setPermissions(granted);
 
         // Fetch institution enabled features
-        const pFeat = (p as any)?.organizations?.enabled_features;
+        const pFeat = (pData as any)?.organizations?.enabled_features;
         if (pFeat) {
           setFeatures(parseFeatures(pFeat));
         }
@@ -302,7 +325,14 @@ export default function Dashboard() {
         setMonthlyExpense(totalExp);
         setExpenseList(expRes.data || []);
 
-        if (subRes.data) setSubInfo(subRes.data);
+        if (subRes.data) {
+          setSubInfo(subRes.data);
+          if (subRes.data.is_paused) {
+            setIsPaused(true);
+            setPauseReason(subRes.data.pause_reason || null);
+            setPausedAt(subRes.data.paused_at || null);
+          }
+        }
       } catch (err: any) {
         setError(err.message || "Failed to initialize dashboard.");
       } finally {
@@ -707,6 +737,14 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 relative overflow-x-hidden selection:bg-purple-600 selection:text-white">
+      {/* Institute Paused Modal Lockout */}
+      {isPaused && (
+        <InstitutePausedModal
+          organizationName={instituteName}
+          pauseReason={pauseReason}
+          pausedAt={pausedAt}
+        />
+      )}
       {/* ============================================================== */}
       {/* AMBIENT LIGHT PASTEL MESH GLOW ORBS (CLEAN & EYE-PLEASING)     */}
       {/* ============================================================== */}

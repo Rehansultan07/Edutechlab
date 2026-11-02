@@ -1,6 +1,7 @@
 "use client";
 
 import FeatureGate from "@/components/FeatureGate";
+import InstitutePausedModal from "@/components/InstitutePausedModal";
 import { fetchInstitutionFeatures } from "@/lib/features";
 
 import { useEffect, useMemo, useState } from "react";
@@ -41,7 +42,17 @@ type SectionItem = { id: string; class_id: string; name: string };
 // FeatureGate state flag
 export default function Students() {
   const s = createClient();
-  const { loading: authLoading, orgId: org, hasAccess, can, isAdmin } = useUserAccess([
+  const {
+    loading: authLoading,
+    orgId: org,
+    hasAccess,
+    can,
+    isAdmin,
+    isPaused,
+    pauseReason,
+    pausedAt,
+    orgName: authOrgName,
+  } = useUserAccess([
     "students.view",
     "students.manage",
     "admissions.manage",
@@ -420,6 +431,16 @@ export default function Students() {
       <main className="mx-auto max-w-7xl p-8 text-center text-sm text-slate-500">
         Verifying permissions...
       </main>
+    );
+  }
+
+  if (isPaused) {
+    return (
+      <InstitutePausedModal
+        organizationName={authOrgName || orgName}
+        pauseReason={pauseReason}
+        pausedAt={pausedAt}
+      />
     );
   }
 

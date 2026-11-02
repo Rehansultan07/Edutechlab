@@ -54,6 +54,9 @@ type SubscriptionData = {
   current_period_ends_at: string;
   days_remaining: number;
   is_expired: boolean;
+  is_paused?: boolean;
+  pause_reason?: string | null;
+  paused_at?: string | null;
   can_admit_students: boolean;
   pricing: PricingConfig;
   latest_payment: {
@@ -243,6 +246,42 @@ export default function SubscriptionPage() {
           <RefreshCw size={14} /> Refresh Status
         </button>
       </div>
+
+      {/* Institution Paused Notice Banner */}
+      {subData?.is_paused && (
+        <div className="mb-6 rounded-3xl border-2 border-amber-300 bg-amber-50/95 p-5 sm:p-6 shadow-md backdrop-blur-sm">
+          <div className="flex flex-col sm:flex-row items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+              <AlertTriangle size={26} />
+            </div>
+            <div className="flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-amber-200/80 px-2.5 py-0.5 text-xs font-black uppercase text-amber-900">
+                  Services Paused by Super Admin
+                </span>
+                {subData.paused_at && (
+                  <span className="text-xs font-semibold text-slate-500">
+                    Effective Date:{" "}
+                    <strong className="text-slate-800">
+                      {new Date(subData.paused_at).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </strong>
+                  </span>
+                )}
+              </div>
+              <div className="mt-2.5 rounded-2xl border border-amber-200 bg-white/80 p-3 text-xs leading-relaxed text-amber-950 font-medium font-sans">
+                <strong>Reason:</strong> "{subData.pause_reason || "Monthly subscription dues pending or account verification in progress."}"
+              </div>
+              <p className="mt-2.5 text-xs text-slate-600">
+                Please scan the official UPI QR code below, complete your monthly payment, and submit your UTR number. As soon as the Platform Super Admin approves your payment proof, your portal services will be restored automatically.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Alerts */}
       {error && (
