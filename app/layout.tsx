@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import InstallAppPrompt from "@/components/pwa/InstallAppPrompt";
+import GlobalInstitutePausedGuard from "@/components/GlobalInstitutePausedGuard";
 
 export const metadata: Metadata = {
   title: "EduTechLab — Modern Education Management Platform",
@@ -50,6 +51,7 @@ export default function RootLayout({
         />
       </head>
       <body>
+        <GlobalInstitutePausedGuard />
         {children}
         <InstallAppPrompt />
       </body>

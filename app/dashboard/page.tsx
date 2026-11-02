@@ -193,10 +193,22 @@ export default function Dashboard() {
         }
 
         const orgData = (pData as any)?.organizations;
-        if (orgData?.is_paused) {
+        const rawFeat = orgData?.enabled_features;
+        if (
+          orgData?.is_paused ||
+          (rawFeat && typeof rawFeat === "object" && rawFeat._is_paused === true)
+        ) {
           setIsPaused(true);
-          setPauseReason(orgData.pause_reason || null);
-          setPausedAt(orgData.paused_at || null);
+          setPauseReason(
+            orgData?.pause_reason ||
+            (rawFeat && typeof rawFeat === "object" ? rawFeat._pause_reason : null) ||
+            null
+          );
+          setPausedAt(
+            orgData?.paused_at ||
+            (rawFeat && typeof rawFeat === "object" ? rawFeat._paused_at : null) ||
+            null
+          );
         }
 
         setProfile(pData as unknown as Profile);

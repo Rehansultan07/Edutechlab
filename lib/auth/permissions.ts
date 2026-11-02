@@ -184,14 +184,14 @@ export function useUserAccess(requiredCodes: string[] = []) {
       let pData: any = null;
       const { data: p, error: pErr } = await supabase
         .from("profiles")
-        .select("id, organization_id, role, full_name, login_id, phone, is_active, organizations(name, is_active, status, is_paused, pause_reason, paused_at)")
+        .select("id, organization_id, role, full_name, login_id, phone, is_active, organizations(name, is_active, status, is_paused, pause_reason, paused_at, enabled_features)")
         .eq("id", user.id)
         .single();
 
       if (pErr || !p) {
         const { data: pFallback } = await supabase
           .from("profiles")
-          .select("id, organization_id, role, full_name, login_id, phone, is_active, organizations(name, is_active, status)")
+          .select("id, organization_id, role, full_name, login_id, phone, is_active, organizations(name, is_active, status, enabled_features)")
           .eq("id", user.id)
           .single();
 
@@ -219,9 +219,21 @@ export function useUserAccess(requiredCodes: string[] = []) {
       }
 
       if (orgData) {
-        setIsPaused(Boolean(orgData.is_paused));
-        setPauseReason(orgData.pause_reason || null);
-        setPausedAt(orgData.paused_at || null);
+        let isPausedVal = Boolean(orgData.is_paused);
+        let reasonVal = orgData.pause_reason || null;
+        let dateVal = orgData.paused_at || null;
+
+        // Check enabled_features fallback
+        const rawFeat = orgData.enabled_features;
+        if (rawFeat && typeof rawFeat === "object" && rawFeat._is_paused === true) {
+          isPausedVal = true;
+          reasonVal = rawFeat._pause_reason || reasonVal;
+          dateVal = rawFeat._paused_at || dateVal;
+        }
+
+        setIsPaused(isPausedVal);
+        setPauseReason(reasonVal);
+        setPausedAt(dateVal);
         if (orgData.name) setOrgName(orgData.name);
       }
 
