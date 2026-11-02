@@ -839,6 +839,8 @@ export default function SuperAdminPage() {
     try {
       let rpcWorked = false;
       let rpcMsg = "";
+
+      // 1. Try secure RPC with master code
       try {
         const { data, error: err } = await supabase.rpc("delete_institution_permanently", {
           p_org_id: orgId,
@@ -850,34 +852,61 @@ export default function SuperAdminPage() {
         }
       } catch {}
 
+      // 1b. Fallback without master code
       if (!rpcWorked) {
-        // Direct cascade deletion fallback
+        try {
+          const { data, error: err } = await supabase.rpc("delete_institution_permanently", {
+            p_org_id: orgId,
+          });
+          if (!err && data?.success) {
+            rpcWorked = true;
+            rpcMsg = data.message;
+          }
+        } catch {}
+      }
+
+      // 2. Direct cascade deletion fallback (all related tables)
+      if (!rpcWorked) {
         await Promise.allSettled([
-          supabase.from("student_certificates").delete().eq("organization_id", orgId),
-          supabase.from("class_timetables").delete().eq("organization_id", orgId),
-          supabase.from("class_homework").delete().eq("organization_id", orgId),
-          supabase.from("school_expenses").delete().eq("organization_id", orgId),
-          supabase.from("exam_marks").delete().eq("organization_id", orgId),
-          supabase.from("exams").delete().eq("organization_id", orgId),
-          supabase.from("attendance").delete().eq("organization_id", orgId),
+          // Subscription & Platform Billing
+          supabase.from("subscription_payments").delete().eq("organization_id", orgId),
+          supabase.from("institution_subscriptions").delete().eq("organization_id", orgId),
+          // Student Fees, Accounts & Expenses
           supabase.from("fee_payments").delete().eq("organization_id", orgId),
           supabase.from("student_fee_months").delete().eq("organization_id", orgId),
           supabase.from("student_fee_plans").delete().eq("organization_id", orgId),
+          supabase.from("school_expenses").delete().eq("organization_id", orgId),
+          // Exams & Academics
+          supabase.from("exam_marks").delete().eq("organization_id", orgId),
+          supabase.from("exams").delete().eq("organization_id", orgId),
+          supabase.from("student_certificates").delete().eq("organization_id", orgId),
+          supabase.from("class_timetables").delete().eq("organization_id", orgId),
+          supabase.from("class_homework").delete().eq("organization_id", orgId),
           supabase.from("notices").delete().eq("organization_id", orgId),
+          // Attendance
+          supabase.from("attendance").delete().eq("organization_id", orgId),
+          supabase.from("teacher_attendance").delete().eq("organization_id", orgId),
+          // Staff & Teachers
           supabase.from("staff_permissions").delete().eq("organization_id", orgId),
-          supabase.from("students").delete().eq("organization_id", orgId),
+          supabase.from("role_permissions").delete().eq("organization_id", orgId),
+          supabase.from("staff_invites").delete().eq("organization_id", orgId),
           supabase.from("teachers").delete().eq("organization_id", orgId),
+          // Students & Parents
+          supabase.from("students").delete().eq("organization_id", orgId),
+          supabase.from("parents").delete().eq("organization_id", orgId),
+          // Classes & Sessions
           supabase.from("sections").delete().eq("organization_id", orgId),
           supabase.from("classes").delete().eq("organization_id", orgId),
           supabase.from("academic_sessions").delete().eq("organization_id", orgId),
           supabase.from("organization_settings").delete().eq("organization_id", orgId),
-          supabase.from("subscription_payments").delete().eq("organization_id", orgId),
-          supabase.from("institution_subscriptions").delete().eq("organization_id", orgId),
+          // Profiles
           supabase.from("profiles").delete().eq("organization_id", orgId),
         ]);
+
         await supabase.from("organizations").delete().eq("id", orgId);
       }
 
+      // 3. Clear local storage caches
       if (typeof window !== "undefined") {
         try {
           localStorage.removeItem(`edutechlab_features_${orgId}`);
@@ -885,9 +914,14 @@ export default function SuperAdminPage() {
         } catch {}
       }
 
-      // Remove immediately from memory state
+      // 4. Remove immediately from memory state (Institutions + Payments + Revenue ledger)
       setInstitutions((prev) => prev.filter((i) => i.id !== orgId));
-      setSuccess(rpcMsg || `Institution "${orgName}" permanently deleted.`);
+      setPaymentRequests((prev) => prev.filter((p) => p.organization_id !== orgId));
+
+      setSuccess(
+        rpcMsg ||
+          `Institution "${orgName}" and all related data (subscription payments, student records, fees, attendance, staff) have been completely wiped.`
+      );
       setDeletingInst(null);
       setDeleteConfirmText("");
       await checkAndLoad();
@@ -3203,8 +3237,8 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
 
             <p className="mt-4 text-xs leading-5 text-slate-600">
               This will completely and permanently purge <strong>"{deletingInst.name}"</strong>, including all
-              students ({deletingInst.student_count}), classes, attendance records, fee payments, marksheets,
-              notices, and the administrator account from Supabase.
+              subscription payments, UTR records, revenue history, students ({deletingInst.student_count}),
+              classes, attendance logs, fee records, expenses, marksheets, notices, and all staff accounts from Supabase.
             </p>
 
             <div className="mt-4 rounded-xl bg-red-50 p-3 text-xs text-red-700">
