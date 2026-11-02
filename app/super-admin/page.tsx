@@ -2340,19 +2340,31 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                     )}
 
                     <div className="space-y-2">
-                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50">
-                        <Upload size={14} />
-                        {uploadingQr ? "Uploading..." : "Upload New QR Image"}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleUploadQrCode}
-                          disabled={uploadingQr}
-                        />
-                      </label>
-                      <p className="text-[11px] text-slate-400">
-                        Agar custom QR na ho toh dynamic amount QR code auto generate hoga.
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs hover:bg-slate-50">
+                          <Upload size={14} />
+                          {uploadingQr ? "Uploading..." : "Upload New QR Image"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleUploadQrCode}
+                            disabled={uploadingQr}
+                          />
+                        </label>
+                        {pricing.upi_qr_url && (
+                          <button
+                            type="button"
+                            onClick={() => setPricing({ ...pricing, upi_qr_url: "" })}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-100 transition"
+                          >
+                            <Trash2 size={13} />
+                            Remove Static Image
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        ⚡ <strong>Dynamic QR Mode:</strong> Aapke upar diye gaye UPI ID se automatically har school ke liye exact amount wala QR code generate hota hai. Static QR upload karna zaroori nahi hai.
                       </p>
                     </div>
                   </div>

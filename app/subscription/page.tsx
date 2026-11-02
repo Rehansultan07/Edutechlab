@@ -85,6 +85,7 @@ export default function SubscriptionPage() {
   // Plan Selection & Calculation
   const [targetStudents, setTargetStudents] = useState<number>(100);
   const [selectedPlan, setSelectedPlan] = useState<"standard" | "pro">("pro");
+  const [qrMode, setQrMode] = useState<"dynamic" | "uploaded">("dynamic");
   const [utrNumber, setUtrNumber] = useState("");
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -207,15 +208,22 @@ export default function SubscriptionPage() {
     ? Math.min(100, Math.round((subData.current_student_count / subData.student_limit) * 100))
     : 0;
 
-  const dynamicQrCodeUrl = subData?.pricing.upi_qr_url
-    ? subData.pricing.upi_qr_url
-    : `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-        `upi://pay?pa=${subData?.pricing.upi_id || "edutechlab@upi"}&pn=${encodeURIComponent(
-          subData?.pricing.upi_name || "EduTechLab"
-        )}&am=${calculatedPrice}&cu=INR&tn=${encodeURIComponent(
-          `EduTechLab ${selectedPlan.toUpperCase()} Plan for ${targetStudents} Students`
-        )}`
-      )}`;
+  const upiId = (subData?.pricing.upi_id || "edutechlab@upi").trim();
+  const payeeName = (subData?.pricing.upi_name || "EduTechLab Platform").trim();
+  const planNote = `EduTechLab ${selectedPlan.toUpperCase()} Plan (${targetStudents} Students)`;
+  const upiIntentUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(
+    payeeName
+  )}&am=${calculatedPrice}&cu=INR&tn=${encodeURIComponent(planNote)}`;
+
+  // Real-time Dynamic UPI QR with exact amount and plan note pre-configured
+  const dynamicQrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(
+    upiIntentUrl
+  )}`;
+
+  const displayedQrUrl =
+    qrMode === "uploaded" && subData?.pricing.upi_qr_url
+      ? subData.pricing.upi_qr_url
+      : dynamicQrCodeUrl;
 
   return (
     <main className="mx-auto max-w-5xl p-5 sm:p-8">
@@ -669,22 +677,73 @@ export default function SubscriptionPage() {
 
           {/* QR Code Card */}
           <div className="mt-5 flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <div className="overflow-hidden rounded-xl border border-white bg-white p-2 shadow-sm">
+            {/* Mode Switcher if custom static QR was uploaded */}
+            {subData?.pricing.upi_qr_url && (
+              <div className="mb-4 flex items-center justify-center gap-1 rounded-xl bg-slate-200/80 p-1 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setQrMode("dynamic")}
+                  className={`rounded-lg px-3 py-1.5 transition ${
+                    qrMode === "dynamic"
+                      ? "bg-white text-purple-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  ⚡ Dynamic QR (Auto ₹{calculatedPrice})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQrMode("uploaded")}
+                  className={`rounded-lg px-3 py-1.5 transition ${
+                    qrMode === "uploaded"
+                      ? "bg-white text-purple-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  🖼️ Static PhonePe QR
+                </button>
+              </div>
+            )}
+
+            <div className="relative overflow-hidden rounded-2xl border-2 border-purple-200/60 bg-white p-3 shadow-md">
               <img
-                src={dynamicQrCodeUrl}
+                src={displayedQrUrl}
                 alt="UPI Payment QR Code"
-                className="h-44 w-44 object-contain"
+                className="h-48 w-48 object-contain"
               />
+              {qrMode === "dynamic" && (
+                <div className="mt-2 text-center">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-700 ring-1 ring-emerald-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Exact Amount ₹{calculatedPrice} Pre-Filled
+                  </span>
+                </div>
+              )}
             </div>
-            <p className="mt-3 text-xs font-medium text-slate-500">
-              Scan with any UPI App • Exact Amount:{" "}
-              <strong className="text-slate-900">₹{calculatedPrice}</strong>
+
+            <p className="mt-3 text-xs font-semibold text-slate-800 text-center">
+              Scan with PhonePe, Google Pay, Paytm, or any UPI App
+            </p>
+            <p className="text-[11px] text-slate-500 text-center">
+              Auto Locked Amount: <strong className="text-purple-700 font-bold">₹{calculatedPrice}</strong> • Plan: {selectedPlan.toUpperCase()} ({targetStudents} Students)
+            </p>
+
+            {/* Mobile 1-Tap UPI Intent Button */}
+            <a
+              href={upiIntentUrl}
+              className="mt-3.5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-purple-600/20 hover:bg-purple-700 active:scale-[0.98] transition"
+            >
+              <CreditCard size={15} />
+              Open UPI App to Pay ₹{calculatedPrice}
+            </a>
+            <p className="mt-1 text-center text-[10px] text-slate-400">
+              (Phone me tap karne par direct UPI app me ₹{calculatedPrice} pre-filled open hoga)
             </p>
 
             {/* UPI ID with 1-click copy */}
             <div className="mt-3 flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs">
               <span className="font-mono text-slate-700 truncate">
-                {subData?.pricing.upi_id || "edutechlab@upi"}
+                {upiId}
               </span>
               <button
                 type="button"
@@ -692,7 +751,7 @@ export default function SubscriptionPage() {
                 className="ml-2 inline-flex items-center gap-1 font-semibold text-purple-600 hover:text-purple-700"
               >
                 {copiedUpi ? <Check size={14} /> : <Copy size={14} />}
-                {copiedUpi ? "Copied" : "Copy"}
+                {copiedUpi ? "Copied" : "Copy UPI"}
               </button>
             </div>
           </div>
