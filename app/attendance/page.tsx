@@ -240,7 +240,7 @@ export default function AttendancePage() {
     try {
       let studentQuery = s
         .from("students")
-        .select("id,first_name,last_name,admission_no,class_id,photo_url,phone,guardian_phone,father_name,roll_no")
+        .select("id,first_name,last_name,admission_no,class_id,photo_url,phone,guardian_phone,father_name")
         .eq("organization_id", org)
         .eq("status", "active")
         .order("first_name");
@@ -262,7 +262,7 @@ export default function AttendancePage() {
           .eq("organization_id", org)
           .order("sort_order"),
         s.from("organizations").select("name").eq("id", org).single(),
-        s.from("organization_settings").select("phone,attendance_cutoff_time,auto_mark_absent").eq("organization_id", org).maybeSingle(),
+        s.from("organization_settings").select("*").eq("organization_id", org).maybeSingle(),
       ]);
 
       if (stRes.error) {
@@ -272,21 +272,59 @@ export default function AttendancePage() {
         console.warn("Attendance load error:", attRes.error.message);
       }
 
-      setStudents(stRes.data || []);
+      const fetchedStudents = stRes.data || [];
+      setStudents(fetchedStudents);
       setClasses(clRes.data || []);
       if (orgRes.data?.name) setOrgName(orgRes.data.name);
       if (setRes.data?.phone) setOrgPhone(setRes.data.phone);
-      if ((setRes.data as any)?.attendance_cutoff_time) {
-        setCutoffTime((setRes.data as any).attendance_cutoff_time);
-      }
-      if (typeof (setRes.data as any)?.auto_mark_absent === "boolean") {
-        setAutoMarkAbsent((setRes.data as any).auto_mark_absent);
-      }
+
+      const resolvedCutoff = (setRes.data as any)?.attendance_cutoff_time || "09:30";
+      const resolvedAutoAbsent = typeof (setRes.data as any)?.auto_mark_absent === "boolean"
+        ? (setRes.data as any).auto_mark_absent
+        : true;
+
+      setCutoffTime(resolvedCutoff);
+      setAutoMarkAbsent(resolvedAutoAbsent);
 
       const loadedState: Record<string, string> = {};
       (attRes.data || []).forEach((x: A) => {
         loadedState[x.student_id] = x.status;
       });
+
+      // AUTO-MARK CUTOFF ENFORCEMENT ON LOAD:
+      // If viewing today, and current time is past cutoff time, and there are unmarked active students:
+      const isViewingToday = date === getLocalDateString();
+      const [ch, cm] = resolvedCutoff.split(":").map(Number);
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const cutoffMinutes = (isNaN(ch) ? 9 : ch) * 60 + (isNaN(cm) ? 30 : cm);
+      const isPastCutoffTime = isViewingToday && currentMinutes >= cutoffMinutes;
+
+      const unmarkeds = fetchedStudents.filter((st: any) => !loadedState[st.id]);
+      if (isPastCutoffTime && unmarkeds.length > 0 && resolvedAutoAbsent !== false) {
+        // Immediately mark all unmarked students as absent in state
+        unmarkeds.forEach((st: any) => {
+          loadedState[st.id] = "absent";
+        });
+        // Persist to Supabase in the background
+        (async () => {
+          try {
+            const recordsToInsert = unmarkeds.map((st: any) => ({
+              organization_id: org,
+              student_id: st.id,
+              attendance_date: date,
+              status: "absent",
+              note: `Auto-marked absent (Cutoff ${resolvedCutoff} passed)`,
+            }));
+            await s.from("attendance").upsert(recordsToInsert, {
+              onConflict: "student_id,attendance_date",
+            });
+          } catch (persistErr) {
+            console.warn("Auto-absent background sync error:", persistErr);
+          }
+        })();
+      }
+
       setState(loadedState);
       setGlobalAutoSaveStatus("synced");
     } catch (err: any) {
@@ -737,7 +775,7 @@ export default function AttendancePage() {
         st.first_name.toLowerCase().includes(q) ||
         (st.last_name && st.last_name.toLowerCase().includes(q)) ||
         st.admission_no.toLowerCase().includes(q) ||
-        (st.roll_no && st.roll_no.toLowerCase().includes(q)) ||
+        ((st as any).roll_no && String((st as any).roll_no).toLowerCase().includes(q)) ||
         (st.father_name && st.father_name.toLowerCase().includes(q))
     );
   }, [students, searchQuery]);
@@ -1312,9 +1350,9 @@ export default function AttendancePage() {
                         <span className="text-[11px] text-slate-500 font-medium">
                           {cName}
                         </span>
-                        {st.roll_no && (
+                        {(st as any).roll_no && (
                           <span className="text-[11px] text-slate-400 font-mono">
-                            Roll: #{st.roll_no}
+                            Roll: #{(st as any).roll_no}
                           </span>
                         )}
                         {(st.guardian_phone || st.phone) && (
@@ -1361,7 +1399,7 @@ export default function AttendancePage() {
                       })}
                     </div>
 
-                    {/* Absent WhatsApp Alert Button */}
+                    {/* Absent WhatsApp Alert Button (Always prominent and ready to send) */}
                     {currentStatus === "absent" && (
                       <a
                         href={createWhatsAppUrl(
@@ -1379,20 +1417,20 @@ export default function AttendancePage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => markAsNotified(st.id)}
-                        className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition shadow-xs ${
+                        className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition shadow-xs active:scale-95 ${
                           notifiedStudents.has(st.id)
-                            ? "bg-slate-100 text-slate-500 border border-slate-200"
-                            : "bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 shadow-emerald-600/25"
+                            ? "bg-slate-100 text-slate-600 border border-slate-200"
+                            : "bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 shadow-md shadow-emerald-600/30 ring-1 ring-emerald-500/40"
                         }`}
                         title={
                           st.guardian_phone || st.phone
-                            ? `Send absent WhatsApp message to parent (${st.guardian_phone || st.phone})`
-                            : "No parent phone number registered"
+                            ? `Send absent WhatsApp alert to parent (${st.guardian_phone || st.phone})`
+                            : "Open WhatsApp to choose parent contact"
                         }
                       >
-                        <MessageCircle size={14} />
-                        <span className="hidden md:inline">
-                          {notifiedStudents.has(st.id) ? "Sent ✓" : "WhatsApp"}
+                        <MessageCircle size={14} className={notifiedStudents.has(st.id) ? "text-emerald-600" : "text-white"} />
+                        <span>
+                          {notifiedStudents.has(st.id) ? "Alert Sent ✓" : "WhatsApp Msg"}
                         </span>
                       </a>
                     )}

@@ -65,14 +65,15 @@ export default function Settings() {
         s.from("organizations").select("name").eq("id", p.organization_id).single(),
         s
           .from("organization_settings")
-          .select(
-            "institute_type,phone,email,address,website,contact_person,timezone,currency,logo_url,primary_color,secondary_color,marksheet_style,marksheet_title,receipt_footer,authorized_signatory,attendance_cutoff_time,auto_mark_absent"
-          )
+          .select("*")
           .eq("organization_id", p.organization_id)
-          .single(),
+          .maybeSingle(),
       ]);
 
-      if (oe || se) setError((oe || se)?.message || "Could not load settings");
+      if (oe) setError(oe.message || "Could not load organization");
+      if (se && !se.message?.includes("schema cache")) {
+        console.warn("organization_settings load note:", se.message);
+      }
       setForm({
         name: o?.name || "",
         type: st?.institute_type || "school",
@@ -122,29 +123,36 @@ export default function Settings() {
       }
 
       const a = await s.from("organizations").update({ name: form.name.trim() }).eq("id", org);
-      const b = await s.from("organization_settings").upsert(
-        {
-          organization_id: org,
-          institute_type: form.type,
-          phone: form.phone || null,
-          email: form.email || null,
-          address: form.address || null,
-          website: form.website || null,
-          contact_person: form.contact_person || null,
-          timezone: form.timezone,
-          currency: form.currency,
-          logo_url: logoUrl || null,
-          primary_color: form.primary_color,
-          secondary_color: form.secondary_color,
-          marksheet_style: form.marksheet_style,
-          marksheet_title: form.marksheet_title,
-          receipt_footer: form.receipt_footer || null,
-          authorized_signatory: form.authorized_signatory || null,
-          attendance_cutoff_time: form.attendance_cutoff_time || "09:30",
-          auto_mark_absent: form.auto_mark_absent,
-        },
-        { onConflict: "organization_id" }
-      );
+      
+      const settingsPayload: Record<string, any> = {
+        organization_id: org,
+        institute_type: form.type,
+        phone: form.phone || null,
+        email: form.email || null,
+        address: form.address || null,
+        website: form.website || null,
+        contact_person: form.contact_person || null,
+        timezone: form.timezone,
+        currency: form.currency,
+        logo_url: logoUrl || null,
+        primary_color: form.primary_color,
+        secondary_color: form.secondary_color,
+        marksheet_style: form.marksheet_style,
+        marksheet_title: form.marksheet_title,
+        receipt_footer: form.receipt_footer || null,
+        authorized_signatory: form.authorized_signatory || null,
+        attendance_cutoff_time: form.attendance_cutoff_time || "09:30",
+        auto_mark_absent: form.auto_mark_absent,
+      };
+
+      let b = await s.from("organization_settings").upsert(settingsPayload, { onConflict: "organization_id" });
+      
+      // If schema cache hasn't loaded cutoff column yet, retry without it so other settings save
+      if (b.error && (b.error.message?.includes("attendance_cutoff_time") || b.error.message?.includes("schema cache"))) {
+        delete settingsPayload.attendance_cutoff_time;
+        delete settingsPayload.auto_mark_absent;
+        b = await s.from("organization_settings").upsert(settingsPayload, { onConflict: "organization_id" });
+      }
 
       const {
         data: { user },

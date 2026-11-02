@@ -1392,4 +1392,18 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.enforce_attendance_cutoff(uuid, date) TO authenticated, anon;
 
+-- =====================================================================
+-- Migration 0016: Safe Cutoff Columns, Student Roll No & Schema Reload
+-- =====================================================================
+
+ALTER TABLE public.organization_settings
+  ADD COLUMN IF NOT EXISTS attendance_cutoff_time text DEFAULT '09:30',
+  ADD COLUMN IF NOT EXISTS auto_mark_absent boolean DEFAULT true;
+
+ALTER TABLE public.students
+  ADD COLUMN IF NOT EXISTS roll_no text;
+
+NOTIFY pgrst, 'reload schema';
+
+
 

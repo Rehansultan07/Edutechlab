@@ -102,6 +102,8 @@ type ActiveReportType =
   | "attendance"
   | "fees"
   | "students"
+  | "staff"
+  | "classes"
   | "finances"
   | "exams"
   | "idcards";
@@ -143,6 +145,7 @@ export default function Dashboard() {
 
   // Interactive Report Modal State
   const [activeReport, setActiveReport] = useState<ActiveReportType>(null);
+  const [modalSearchQuery, setModalSearchQuery] = useState<string>("");
   const [notifiedParents, setNotifiedParents] = useState<Set<string>>(new Set());
 
   const handleSignOut = async () => {
@@ -242,8 +245,8 @@ export default function Dashboard() {
           supabase.from("school_expenses").select("id,title,category,amount,expense_date").eq("organization_id", orgId).gte("expense_date", monthDate),
           supabase.from("exams").select("id,name,exam_date").eq("organization_id", orgId).order("created_at", { ascending: false }).limit(6),
           supabase.from("academic_sessions").select("name,is_current").eq("organization_id", orgId),
-          supabase.from("teacher_attendance").select("teacher_id,status").eq("organization_id", orgId).eq("attendance_date", today),
-          supabase.from("organization_settings").select("institute_type,attendance_cutoff_time,phone").eq("organization_id", orgId).maybeSingle(),
+          supabase.from("teacher_attendance").select("teacher_id,status").eq("organization_id", orgId).eq("attendance_date", today).then((r) => r, () => ({ data: [], error: null })),
+          supabase.from("organization_settings").select("*").eq("organization_id", orgId).maybeSingle(),
           supabase.from("notices").select("id,title,published_at,created_at").eq("organization_id", orgId).order("created_at", { ascending: false }).limit(4),
         ]);
 
@@ -341,20 +344,47 @@ export default function Dashboard() {
     return m;
   }, [classesList]);
 
-  // Attendance Analytics
-  const attendanceStats = useMemo(() => {
-    const present = attendanceRecords.filter((x) => x.status === "present").length;
-    const absent = attendanceRecords.filter((x) => x.status === "absent").length;
-    const late = attendanceRecords.filter((x) => x.status === "late").length;
-    const leave = attendanceRecords.filter((x) => x.status === "leave").length;
-    const marked = present + absent + late + leave;
-    const rate = marked > 0 ? Math.round((present / marked) * 100) : null;
+  // Check if current time is past daily attendance cutoff
+  const isPastCutoff = useMemo(() => {
+    const [ch, cm] = (cutoffTime || "09:30").split(":").map(Number);
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const cutoffMinutes = (isNaN(ch) ? 9 : ch) * 60 + (isNaN(cm) ? 30 : cm);
+    return currentMinutes >= cutoffMinutes;
+  }, [cutoffTime]);
 
-    // Absent students list for 1-click WhatsApp
-    const absentIds = new Set(
+  // Attendance Analytics (Accurately auto-accounts for absentees after cutoff time)
+  const attendanceStats = useMemo(() => {
+    const presentIds = new Set(
+      attendanceRecords.filter((x) => x.status === "present").map((x) => x.student_id)
+    );
+    const lateIds = new Set(
+      attendanceRecords.filter((x) => x.status === "late").map((x) => x.student_id)
+    );
+    const leaveIds = new Set(
+      attendanceRecords.filter((x) => x.status === "leave").map((x) => x.student_id)
+    );
+    const explicitlyAbsentIds = new Set(
       attendanceRecords.filter((x) => x.status === "absent").map((x) => x.student_id)
     );
-    const absentStudents = activeStudents.filter((s) => absentIds.has(s.id));
+
+    const present = presentIds.size;
+    const late = lateIds.size;
+    const leave = leaveIds.size;
+
+    // After cutoff time, any student without present/late/leave is automatically considered absent
+    const effectiveAbsentStudents = activeStudents.filter((s) => {
+      if (explicitlyAbsentIds.has(s.id)) return true;
+      if (isPastCutoff && !presentIds.has(s.id) && !lateIds.has(s.id) && !leaveIds.has(s.id)) {
+        return true;
+      }
+      return false;
+    });
+
+    const absent = effectiveAbsentStudents.length;
+    const totalActive = activeStudents.length;
+    const marked = present + absent + late + leave;
+    const rate = totalActive > 0 ? Math.round((present / totalActive) * 100) : 0;
 
     // Class wise presence percentage
     const classBreakdown = classesList.map((c) => {
@@ -363,17 +393,25 @@ export default function Dashboard() {
       const classPresent = attendanceRecords.filter(
         (x) => studentIds.has(x.student_id) && x.status === "present"
       ).length;
-      const classMarked = attendanceRecords.filter((x) => studentIds.has(x.student_id)).length;
       return {
         className: c.name,
         total: classStudents.length,
         present: classPresent,
-        rate: classMarked > 0 ? Math.round((classPresent / classMarked) * 100) : 0,
+        rate: classStudents.length > 0 ? Math.round((classPresent / classStudents.length) * 100) : 0,
       };
     });
 
-    return { present, absent, late, leave, marked, rate, absentStudents, classBreakdown };
-  }, [attendanceRecords, activeStudents, classesList]);
+    return {
+      present,
+      absent,
+      late,
+      leave,
+      marked,
+      rate,
+      absentStudents: effectiveAbsentStudents,
+      classBreakdown,
+    };
+  }, [attendanceRecords, activeStudents, classesList, isPastCutoff]);
 
   // Fee Analytics
   const feeStats = useMemo(() => {
@@ -928,7 +966,10 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3.5 sm:gap-4">
             {/* 1. Total Students */}
             <div
-              onClick={() => setActiveReport("students")}
+              onClick={() => {
+                setModalSearchQuery("");
+                setActiveReport("students");
+              }}
               className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-blue-500/10 hover:border-white"
             >
               {/* Gloss Specular Light Beam */}
@@ -959,7 +1000,10 @@ export default function Dashboard() {
 
             {/* 2. Total Staff */}
             <div
-              onClick={() => setActiveReport("students")}
+              onClick={() => {
+                setModalSearchQuery("");
+                setActiveReport("staff");
+              }}
               className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-purple-500/10 hover:border-white"
             >
               {/* Gloss Specular Light Beam */}
@@ -990,7 +1034,10 @@ export default function Dashboard() {
 
             {/* 3. Total Classes */}
             <div
-              onClick={() => setActiveReport("students")}
+              onClick={() => {
+                setModalSearchQuery("");
+                setActiveReport("classes");
+              }}
               className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-amber-500/10 hover:border-white"
             >
               {/* Gloss Specular Light Beam */}
@@ -1021,7 +1068,10 @@ export default function Dashboard() {
 
             {/* 4. Today's Attendance */}
             <div
-              onClick={() => setActiveReport("attendance")}
+              onClick={() => {
+                setModalSearchQuery("");
+                setActiveReport("attendance");
+              }}
               className="group relative cursor-pointer overflow-hidden rounded-3xl border border-white/90 bg-white/75 p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-2xl ring-1 ring-slate-900/[0.04] transition-all duration-300 hover:-translate-y-1 hover:bg-white/90 hover:shadow-xl hover:shadow-emerald-500/10 hover:border-white"
             >
               {/* Gloss Specular Light Beam */}
@@ -1572,6 +1622,8 @@ export default function Dashboard() {
                   {activeReport === "attendance" && <ClipboardCheck size={24} className="text-emerald-600" />}
                   {activeReport === "fees" && <WalletCards size={24} className="text-amber-600" />}
                   {activeReport === "students" && <Users size={24} className="text-purple-600" />}
+                  {activeReport === "staff" && <GraduationCap size={24} className="text-violet-600" />}
+                  {activeReport === "classes" && <Layers size={24} className="text-amber-600" />}
                   {activeReport === "finances" && <TrendingUp size={24} className="text-rose-600" />}
                   {activeReport === "exams" && <FileText size={24} className="text-cyan-600" />}
                   {activeReport === "idcards" && <QrCode size={24} className="text-pink-600" />}
@@ -1580,7 +1632,9 @@ export default function Dashboard() {
                   <h3 className="text-xl font-black text-slate-900">
                     {activeReport === "attendance" && "Comprehensive Attendance & Absentee Report"}
                     {activeReport === "fees" && "Fee Collection Ledger & Dues Breakdown"}
-                    {activeReport === "students" && "Class-Wise Enrollment & Demographics"}
+                    {activeReport === "students" && "Student Directory & Enrollment Roster"}
+                    {activeReport === "staff" && "Faculty & Staff Directory (Teachers & Staff)"}
+                    {activeReport === "classes" && "Academic Classes & Sections Breakdown"}
                     {activeReport === "finances" && "Financial Pulse: Revenue vs Expenses (P&L)"}
                     {activeReport === "exams" && "Academic Examination Performance Report"}
                     {activeReport === "idcards" && "Smart PVC ID Cards & Gate Kiosk Overview"}
@@ -1604,6 +1658,28 @@ export default function Dashboard() {
             {/* -------------------------------------------------------- */}
             {activeReport === "attendance" && (
               <div className="space-y-5">
+                {/* Cutoff Status Banner */}
+                <div
+                  className={`rounded-2xl border p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs font-semibold ${
+                    isPastCutoff
+                      ? "border-amber-200 bg-amber-50/80 text-amber-900"
+                      : "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Clock size={16} className={isPastCutoff ? "text-amber-600" : "text-emerald-600"} />
+                    <span>
+                      Daily Attendance Cutoff: <strong>{cutoffTime}</strong> &bull;{" "}
+                      {isPastCutoff
+                        ? "Cutoff passed! Unmarked students are automatically accounted as Absent."
+                        : "Cutoff pending. Students can still be marked present."}
+                    </span>
+                  </div>
+                  <span className="rounded-full bg-white/90 border border-slate-200 px-2.5 py-0.5 text-[11px] font-bold text-slate-700">
+                    Live Status
+                  </span>
+                </div>
+
                 {/* 4 Metric Badges */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 text-center">
@@ -1621,7 +1697,7 @@ export default function Dashboard() {
                   <div className="rounded-2xl border border-cyan-200 bg-cyan-50/70 p-3 text-center">
                     <span className="text-[10px] text-cyan-800 uppercase font-semibold">Attendance Ratio</span>
                     <p className="text-xl font-black text-cyan-800 mt-0.5">
-                      {attendanceStats.rate ? `${attendanceStats.rate}%` : "Not Marked"}
+                      {attendanceStats.rate !== null ? `${attendanceStats.rate}%` : "Not Marked"}
                     </p>
                   </div>
                 </div>
@@ -1653,14 +1729,31 @@ export default function Dashboard() {
                 </div>
 
                 {/* Absent Students with 1-Click WhatsApp Button */}
-                {attendanceStats.absentStudents.length > 0 && (
+                {attendanceStats.absentStudents.length > 0 ? (
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-rose-700">
-                        Absent Students Today ({attendanceStats.absentStudents.length}) &bull; 1-Click Parent WhatsApp
+                        Absent Students Today ({attendanceStats.absentStudents.length}) &bull; 1-Click Parent WhatsApp Alert
                       </h4>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const lines = attendanceStats.absentStudents.map((st, i) => {
+                            const parentPhone = st.guardian_phone || st.phone || "No Phone";
+                            const cName = st.class_id ? classMap.get(st.class_id) || "Class" : "Class";
+                            return `${i + 1}. ${st.first_name} ${st.last_name || ""} (${cName}, Adm: ${st.admission_no}) - Parent: ${parentPhone}`;
+                          });
+                          navigator.clipboard.writeText(
+                            `📢 ABSENT STUDENTS LIST - ${todayDate}\n🏫 ${instituteName}\n\n${lines.join("\n")}`
+                          );
+                          alert("✓ Absent students list copied to clipboard!");
+                        }}
+                        className="text-[11px] font-bold text-purple-600 hover:text-purple-800 underline"
+                      >
+                        Copy All Absent List
+                      </button>
                     </div>
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                       {attendanceStats.absentStudents.map((st) => {
                         const targetPhone = st.guardian_phone || st.phone;
                         const isSent = notifiedParents.has(st.id);
@@ -1672,7 +1765,7 @@ export default function Dashboard() {
                             admissionNo: st.admission_no,
                             className: cName,
                             schoolName: instituteName,
-                            date: new Date().toISOString().slice(0, 10),
+                            date: todayDate,
                             originUrl,
                             studentId: st.id,
                           })
@@ -1681,39 +1774,50 @@ export default function Dashboard() {
                         return (
                           <div
                             key={st.id}
-                            className="flex items-center justify-between p-3 rounded-2xl border border-slate-200 bg-white shadow-xs"
+                            className="flex items-center justify-between p-3 rounded-2xl border border-rose-100 bg-rose-50/30 hover:bg-white hover:border-slate-300 transition shadow-2xs gap-3"
                           >
-                            <div>
-                              <span className="font-bold text-xs text-slate-900">
+                            <div className="min-w-0">
+                              <span className="font-bold text-xs text-slate-900 truncate block">
                                 {st.first_name} {st.last_name || ""}
                               </span>
-                              <span className="text-[10px] text-slate-500 block font-medium">
-                                {cName} &bull; Adm: {st.admission_no} &bull; {targetPhone ? `📞 ${targetPhone}` : "No Phone"}
+                              <span className="text-[10px] text-slate-500 block font-medium truncate">
+                                {cName} &bull; Adm: {st.admission_no} &bull;{" "}
+                                {targetPhone ? (
+                                  <span className="font-semibold text-slate-700">📞 {targetPhone}</span>
+                                ) : (
+                                  <span className="text-rose-500 font-semibold">⚠️ No parent phone</span>
+                                )}
                               </span>
                             </div>
 
-                            {targetPhone ? (
-                              <a
-                                href={waUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={() => setNotifiedParents((p) => new Set(p).add(st.id))}
-                                className={`inline-flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
-                                  isSent
-                                    ? "bg-slate-100 text-slate-600 border border-slate-200"
-                                    : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                                }`}
-                              >
-                                <MessageCircle size={13} />
-                                <span>{isSent ? "Sent ✓" : "WhatsApp"}</span>
-                              </a>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 font-medium">Missing Phone</span>
-                            )}
+                            {/* Ready-to-send WhatsApp button right next to each absent student */}
+                            <a
+                              href={waUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => setNotifiedParents((p) => new Set(p).add(st.id))}
+                              className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-black transition active:scale-95 shadow-xs ${
+                                isSent
+                                  ? "bg-slate-100 text-slate-600 border border-slate-300"
+                                  : "bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/40"
+                              }`}
+                              title={
+                                targetPhone
+                                  ? `Send absent alert to parent (${targetPhone})`
+                                  : "Open WhatsApp to choose parent contact"
+                              }
+                            >
+                              <MessageCircle size={14} className={isSent ? "text-emerald-600" : "text-white"} />
+                              <span>{isSent ? "Alert Sent ✓" : "WhatsApp Msg"}</span>
+                            </a>
                           </div>
                         );
                       })}
                     </div>
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-xs font-semibold text-emerald-700 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+                    🎉 Excellent! Zero students absent today. All students are present!
                   </div>
                 )}
 
@@ -1860,7 +1964,7 @@ export default function Dashboard() {
             )}
 
             {/* -------------------------------------------------------- */}
-            {/* 3. STUDENT ENROLLMENT & DEMOGRAPHICS                     */}
+            {/* 3. STUDENT ENROLLMENT & DIRECTORY                        */}
             {/* -------------------------------------------------------- */}
             {activeReport === "students" && (
               <div className="space-y-5">
@@ -1876,6 +1980,74 @@ export default function Dashboard() {
                   <div className="rounded-2xl border border-pink-200 bg-pink-50/70 p-3.5">
                     <span className="text-[10px] text-pink-800 uppercase font-semibold">Girls</span>
                     <p className="text-2xl font-black text-pink-700 mt-0.5">{studentStats.girls}</p>
+                  </div>
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative">
+                  <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search enrolled student by name, admission no, or phone..."
+                    value={modalSearchQuery}
+                    onChange={(e) => setModalSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-purple-500 focus:bg-white transition"
+                  />
+                </div>
+
+                {/* Student Roster List */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-2">
+                    Enrolled Students List ({activeStudents.filter((st) => {
+                      if (!modalSearchQuery.trim()) return true;
+                      const q = modalSearchQuery.toLowerCase();
+                      return (
+                        st.first_name?.toLowerCase().includes(q) ||
+                        st.last_name?.toLowerCase().includes(q) ||
+                        st.admission_no?.toLowerCase().includes(q) ||
+                        st.phone?.includes(q)
+                      );
+                    }).length})
+                  </h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {activeStudents
+                      .filter((st) => {
+                        if (!modalSearchQuery.trim()) return true;
+                        const q = modalSearchQuery.toLowerCase();
+                        return (
+                          st.first_name?.toLowerCase().includes(q) ||
+                          st.last_name?.toLowerCase().includes(q) ||
+                          st.admission_no?.toLowerCase().includes(q) ||
+                          st.phone?.includes(q)
+                        );
+                      })
+                      .map((st) => {
+                        const cName = st.class_id ? classMap.get(st.class_id) || "Class" : "Class";
+                        const targetPhone = st.guardian_phone || st.phone;
+                        return (
+                          <div
+                            key={st.id}
+                            className="flex items-center justify-between p-3 rounded-2xl border border-slate-200/90 bg-white hover:border-purple-300 transition shadow-2xs text-xs"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="grid h-8 w-8 place-items-center rounded-xl bg-purple-100 text-purple-700 font-bold text-xs shrink-0">
+                                {st.first_name?.[0]?.toUpperCase() || "S"}
+                              </div>
+                              <div className="min-w-0">
+                                <span className="font-bold text-slate-900 truncate block">
+                                  {st.first_name} {st.last_name || ""}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-medium truncate block">
+                                  {cName} &bull; Adm: <strong>{st.admission_no}</strong> {targetPhone && `• 📞 ${targetPhone}`}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 rounded-lg px-2 py-0.5 shrink-0">
+                              Active
+                            </span>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
 
@@ -1900,7 +2072,230 @@ export default function Dashboard() {
                     href="/students"
                     className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 px-4 py-2 text-xs font-bold text-white transition shadow-sm"
                   >
-                    <span>Open Student Directory</span>
+                    <span>Open Full Student Directory</span>
+                    <ExternalLink size={13} />
+                  </Link>
+                  <button
+                    onClick={() => setActiveReport(null)}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-sm"
+                  >
+                    Close Report
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* -------------------------------------------------------- */}
+            {/* 3B. FACULTY & STAFF DIRECTORY MODAL                      */}
+            {/* -------------------------------------------------------- */}
+            {activeReport === "staff" && (
+              <div className="space-y-5">
+                {/* 3 Metric Badges */}
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-2xl border border-purple-200 bg-purple-50/70 p-3.5">
+                    <span className="text-[10px] text-purple-800 uppercase font-semibold">Total Faculty</span>
+                    <p className="text-2xl font-black text-slate-900 mt-0.5">{teachersCount}</p>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3.5">
+                    <span className="text-[10px] text-emerald-800 uppercase font-semibold">Present Today</span>
+                    <p className="text-2xl font-black text-emerald-700 mt-0.5">{teacherStats.present}</p>
+                  </div>
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-3.5">
+                    <span className="text-[10px] text-rose-800 uppercase font-semibold">Absent Today</span>
+                    <p className="text-2xl font-black text-rose-700 mt-0.5">{teacherStats.absent}</p>
+                  </div>
+                </div>
+
+                {/* Search Bar & Mark All Present */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="relative flex-1 w-full">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search teacher by name, phone, or email..."
+                      value={modalSearchQuery}
+                      onChange={(e) => setModalSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-purple-500 focus:bg-white transition"
+                    />
+                  </div>
+                  <button
+                    onClick={handleMarkAllTeachersPresent}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition active:scale-95 shrink-0"
+                  >
+                    <UserCheck size={14} className="text-emerald-600" />
+                    <span>Mark All Present Today</span>
+                  </button>
+                </div>
+
+                {/* Faculty List */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-2">
+                    Faculty Roster & Today&apos;s Presence ({teachersList.filter((t) => {
+                      if (!modalSearchQuery.trim()) return true;
+                      const q = modalSearchQuery.toLowerCase();
+                      return (
+                        t.full_name?.toLowerCase().includes(q) ||
+                        t.phone?.includes(q) ||
+                        t.email?.toLowerCase().includes(q)
+                      );
+                    }).length})
+                  </h4>
+                  <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                    {teachersList.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400 font-medium">
+                        No teachers logged yet. Add your teaching staff in the directory.
+                      </div>
+                    ) : (
+                      teachersList
+                        .filter((t) => {
+                          if (!modalSearchQuery.trim()) return true;
+                          const q = modalSearchQuery.toLowerCase();
+                          return (
+                            t.full_name?.toLowerCase().includes(q) ||
+                            t.phone?.includes(q) ||
+                            t.email?.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((t) => {
+                          const status = teacherAttendance[t.id] || "unmarked";
+                          const tInitials = t.full_name
+                            .split(/\s+/)
+                            .map((n) => n[0])
+                            .join("")
+                            .slice(0, 2)
+                            .toUpperCase();
+
+                          return (
+                            <div
+                              key={t.id}
+                              className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-white hover:border-slate-300 transition shadow-2xs gap-3 text-xs"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="grid h-9 w-9 place-items-center rounded-xl bg-purple-100 text-purple-700 text-xs font-bold shrink-0">
+                                  {tInitials}
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className="font-bold text-slate-900 truncate">{t.full_name}</h4>
+                                  <p className="text-[10px] text-slate-400 font-medium truncate">
+                                    {t.phone ? `📞 ${t.phone}` : "Faculty Member"} {t.email && `• ${t.email}`}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleTeacher(t.id, status)}
+                                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 ${
+                                    status === "present"
+                                      ? "bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200"
+                                      : status === "absent"
+                                      ? "bg-rose-100 text-rose-800 border border-rose-200 hover:bg-rose-200"
+                                      : "bg-slate-100 text-slate-700 hover:bg-emerald-100 hover:text-emerald-800 border border-slate-200"
+                                  }`}
+                                  title="Click to toggle teacher attendance"
+                                >
+                                  {status === "present" ? (
+                                    <>
+                                      <Check size={12} />
+                                      <span>Present</span>
+                                    </>
+                                  ) : status === "absent" ? (
+                                    <>
+                                      <X size={12} />
+                                      <span>Absent</span>
+                                    </>
+                                  ) : (
+                                    <span>Mark Present</span>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <Link
+                    href="/teachers"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 px-4 py-2 text-xs font-bold text-white transition shadow-sm"
+                  >
+                    <span>Open Staff Directory & Payroll</span>
+                    <ExternalLink size={13} />
+                  </Link>
+                  <button
+                    onClick={() => setActiveReport(null)}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition shadow-sm"
+                  >
+                    Close Report
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* -------------------------------------------------------- */}
+            {/* 3C. ACADEMIC CLASSES & ENROLLMENT BREAKDOWN              */}
+            {/* -------------------------------------------------------- */}
+            {activeReport === "classes" && (
+              <div className="space-y-5">
+                {/* 3 Metric Badges */}
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3.5">
+                    <span className="text-[10px] text-amber-800 uppercase font-semibold">Total Classes</span>
+                    <p className="text-2xl font-black text-slate-900 mt-0.5">{classesList.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-purple-200 bg-purple-50/70 p-3.5">
+                    <span className="text-[10px] text-purple-800 uppercase font-semibold">Total Students</span>
+                    <p className="text-2xl font-black text-purple-700 mt-0.5">{activeStudents.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-cyan-200 bg-cyan-50/70 p-3.5">
+                    <span className="text-[10px] text-cyan-800 uppercase font-semibold">Avg Class Size</span>
+                    <p className="text-2xl font-black text-cyan-800 mt-0.5">
+                      {classesList.length > 0 ? Math.round(activeStudents.length / classesList.length) : 0}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Class Breakdown Grid */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-2">
+                    Class Roster & Attendance Health
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {attendanceStats.classBreakdown.map((c) => (
+                      <div
+                        key={c.className}
+                        className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs hover:border-amber-300 transition"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-sm text-slate-900">{c.className}</span>
+                          <span className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg">
+                            {c.rate}% Present
+                          </span>
+                        </div>
+                        <div className="mt-3 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full"
+                            style={{ width: `${c.rate}%` }}
+                          />
+                        </div>
+                        <div className="mt-2.5 flex items-center justify-between text-xs text-slate-500 font-medium">
+                          <span>{c.total} Enrolled</span>
+                          <span>{c.present} Present</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <Link
+                    href="/academics"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 px-4 py-2 text-xs font-bold text-white transition shadow-sm"
+                  >
+                    <span>Manage Classes, Subjects & Timetable</span>
                     <ExternalLink size={13} />
                   </Link>
                   <button
