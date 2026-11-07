@@ -39,6 +39,10 @@ import {
   UserCheck,
   UserX,
   ChevronDown,
+  Lock,
+  Unlock,
+  Edit3,
+  ShieldAlert,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
@@ -135,6 +139,9 @@ type QrScanResult = {
     date: string;
     time: string;
     already_marked: boolean;
+    past_cutoff?: boolean;
+    cutoff_time?: string;
+    warning?: string;
   };
   fee?: {
     has_dues: boolean;
@@ -153,6 +160,8 @@ type ScanLogItem = {
   hasDues: boolean;
   dueAmount: number;
   alreadyMarked: boolean;
+  status?: string;
+  isPastCutoff?: boolean;
 };
 
 type ToastState = {
@@ -167,6 +176,8 @@ export default function AttendancePage() {
     orgId: org,
     hasAccess,
     can,
+    isAdmin,
+    profile,
     isPaused,
     pauseReason,
     pausedAt,
@@ -186,6 +197,10 @@ export default function AttendancePage() {
   const [cutoffTime, setCutoffTime] = useState("09:30");
   const [autoMarkAbsent, setAutoMarkAbsent] = useState(true);
   const [isEnforcingCutoff, setIsEnforcingCutoff] = useState(false);
+
+  // Attendance lock & 2-step confirmation state
+  const [isLocked, setIsLocked] = useState(true);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
 
   // Attendance states
   const [state, setState] = useState<Record<string, string>>({});
@@ -335,6 +350,13 @@ export default function AttendancePage() {
         })();
       }
 
+      const existingRecordsCount = (attRes.data || []).length;
+      if (existingRecordsCount > 0 || isPastCutoffTime) {
+        setIsLocked(true);
+      } else {
+        setIsLocked(false);
+      }
+
       setState(loadedState);
       setGlobalAutoSaveStatus("synced");
     } catch (err: any) {
@@ -350,12 +372,160 @@ export default function AttendancePage() {
     }
   }, [org, date, selectedClass, hasAccess, load]);
 
+  // Derived filtered students
+  const filteredStudents = useMemo(() => {
+    if (!searchQuery.trim()) return students;
+    const q = searchQuery.toLowerCase().trim();
+    return students.filter(
+      (st) =>
+        st.first_name.toLowerCase().includes(q) ||
+        (st.last_name && st.last_name.toLowerCase().includes(q)) ||
+        st.admission_no.toLowerCase().includes(q) ||
+        ((st as any).roll_no && String((st as any).roll_no).toLowerCase().includes(q)) ||
+        (st.father_name && st.father_name.toLowerCase().includes(q))
+    );
+  }, [students, searchQuery]);
+
+  // Derived statistics
+  const presentCount = Object.values(state).filter((v) => v === "present").length;
+  const absentCount = Object.values(state).filter((v) => v === "absent").length;
+  const lateCount = Object.values(state).filter((v) => v === "late").length;
+  const leaveCount = Object.values(state).filter((v) => v === "leave").length;
+  const markedCount = Object.keys(state).length;
+
+  const classMap = useMemo(() => {
+    const m = new Map<string, string>();
+    classes.forEach((c) => m.set(c.id, c.name));
+    return m;
+  }, [classes]);
+
+  const absentStudents = useMemo(() => {
+    return students.filter((st) => state[st.id] === "absent");
+  }, [students, state]);
+
+  const unmarkedStudents = useMemo(() => {
+    return students.filter((st) => !state[st.id]);
+  }, [students, state]);
+
+  const isToday = date === getLocalDateString();
+  const isPastCutoff = useMemo(() => {
+    const todayStr = getLocalDateString();
+    if (date < todayStr) return true; // Past dates are past cutoff
+    if (date > todayStr) return false; // Future dates are not past cutoff
+    const [ch, cm] = (cutoffTime || "09:30").split(":").map(Number);
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const cutoffMinutes = (isNaN(ch) ? 9 : ch) * 60 + (isNaN(cm) ? 30 : cm);
+    return currentMinutes >= cutoffMinutes;
+  }, [cutoffTime, date]);
+
+  // Handler to enforce cutoff and mark remaining unmarked students as absent
+  const handleEnforceCutoff = useCallback(
+    async (isAuto = false) => {
+      if (!canManage) {
+        if (!isAuto) showToast("You do not have permission to mark attendance.", "error");
+        return;
+      }
+      if (unmarkedStudents.length === 0) {
+        if (!isAuto) showToast("All students have already been marked for today.", "info");
+        return;
+      }
+      setIsEnforcingCutoff(true);
+      try {
+        let rpcSuccess = false;
+        try {
+          const { data: rpcRes, error: rpcErr } = await s.rpc("enforce_attendance_cutoff", {
+            p_org_id: org,
+            p_date: date,
+          });
+          if (!rpcErr && rpcRes?.success) {
+            rpcSuccess = true;
+          }
+        } catch {}
+
+        if (!rpcSuccess) {
+          const recordsToInsert = unmarkedStudents.map((st) => ({
+            organization_id: org,
+            student_id: st.id,
+            attendance_date: date,
+            status: "absent",
+            note: `Auto-marked absent (Cutoff ${cutoffTime} passed)`,
+          }));
+          const { error: insErr } = await s.from("attendance").upsert(recordsToInsert, {
+            onConflict: "student_id,attendance_date",
+          });
+          if (insErr) throw insErr;
+        }
+
+        setState((prev) => {
+          const updated = { ...prev };
+          unmarkedStudents.forEach((st) => {
+            updated[st.id] = "absent";
+          });
+          return updated;
+        });
+
+        // Auto-lock register once cutoff is enforced
+        setIsLocked(true);
+
+        if (isAuto) {
+          showToast(`⏰ Cutoff (${cutoffTime}) reached! ${unmarkedStudents.length} unmarked students automatically saved as Absent.`, "info");
+        } else {
+          showToast(`✓ Auto-marked and saved ${unmarkedStudents.length} students as Absent after cutoff (${cutoffTime})!`, "success");
+          setShowAbsentModal(true);
+        }
+      } catch (err: any) {
+        showToast(`Failed: ${err?.message || "Could not enforce cutoff."}`, "error");
+      } finally {
+        setIsEnforcingCutoff(false);
+      }
+    },
+    [canManage, unmarkedStudents, s, org, date, cutoffTime, showToast]
+  );
+
+  // Real-time automatic cutoff trigger ticker (runs every 10 seconds)
+  useEffect(() => {
+    if (!org || !hasAccess || !canManage) return;
+
+    const checkCutoffTicker = () => {
+      const isViewingToday = date === getLocalDateString();
+      if (!isViewingToday) return;
+
+      const [ch, cm] = (cutoffTime || "09:30").split(":").map(Number);
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const cutoffMinutes = (isNaN(ch) ? 9 : ch) * 60 + (isNaN(cm) ? 30 : cm);
+
+      if (currentMinutes >= cutoffMinutes && unmarkedStudents.length > 0 && !isEnforcingCutoff) {
+        handleEnforceCutoff(true);
+      }
+    };
+
+    checkCutoffTicker();
+    const interval = setInterval(checkCutoffTicker, 10000);
+    return () => clearInterval(interval);
+  }, [org, hasAccess, canManage, date, cutoffTime, unmarkedStudents.length, isEnforcingCutoff, handleEnforceCutoff]);
+
   // ==============================================================
   // REAL-TIME AUTO-SAVE FOR SINGLE STUDENT RECORD
   // ==============================================================
   const markSingleAttendance = async (studentId: string, newStatus: string) => {
     if (!canManage) {
       showToast("You do not have permission to mark attendance.", "error");
+      return;
+    }
+
+    if (isLocked) {
+      setShowUnlockModal(true);
+      showToast("Attendance is locked. Please unlock first to make edits.", "info");
+      return;
+    }
+
+    // STRICT CUTOFF ROLE CHECK:
+    // If student is being marked "present" after cutoff time, ONLY School Admin / Owner can do so!
+    if (newStatus === "present" && isPastCutoff && !isAdmin) {
+      if (soundEnabled) playSound("warning");
+      showToast(`⛔ Attendance cutoff (${cutoffTime}) passed. Only School Admin can mark Present.`, "error");
       return;
     }
 
@@ -460,6 +630,18 @@ export default function AttendancePage() {
       return;
     }
 
+    if (isLocked) {
+      setShowUnlockModal(true);
+      showToast("Attendance is locked. Please unlock first to make edits.", "info");
+      return;
+    }
+
+    if (status === "present" && isPastCutoff && !isAdmin) {
+      if (soundEnabled) playSound("warning");
+      showToast(`⛔ Cutoff passed (${cutoffTime}). Only School Admin can mark Present.`, "error");
+      return;
+    }
+
     if (students.length === 0) return;
 
     setSavingBatch(true);
@@ -552,7 +734,8 @@ export default function AttendancePage() {
       if (upsertErr) throw upsertErr;
 
       setGlobalAutoSaveStatus("synced");
-      showToast(`✓ Saved attendance for ${batch.length} students!`, "success");
+      setIsLocked(true);
+      showToast(`✓ Saved and locked attendance for ${batch.length} students!`, "success");
     } catch (err: any) {
       showToast(`Save error: ${err?.message || "Please check network"}`, "error");
       setGlobalAutoSaveStatus("unsaved");
@@ -565,6 +748,12 @@ export default function AttendancePage() {
   const clearAllMarks = async () => {
     if (!canManage) {
       showToast("You do not have permission to clear attendance.", "error");
+      return;
+    }
+
+    if (isLocked) {
+      setShowUnlockModal(true);
+      showToast("Attendance is locked. Please unlock first to clear marks.", "info");
       return;
     }
 
@@ -655,13 +844,24 @@ export default function AttendancePage() {
           return;
         }
 
-        // Success!
-        if (soundEnabled) playSound("ding");
+        // Check if marked absent due to late arrival / cutoff time
+        const markedStatus = res.attendance?.status || (res.attendance?.past_cutoff ? "absent" : "present");
+        const isAbsentLate = markedStatus === "absent" || !!res.attendance?.past_cutoff;
+
+        // Feedback Audio: ding for present, warning chime for late/absent
+        if (soundEnabled) {
+          if (isAbsentLate) {
+            playSound("warning");
+          } else {
+            playSound("ding");
+          }
+        }
+
         setActiveScan(res as QrScanResult);
 
         // Synchronize local attendance table state in real time!
         if (res.student?.id) {
-          setState((prev) => ({ ...prev, [res.student.id]: "present" }));
+          setState((prev) => ({ ...prev, [res.student.id]: markedStatus }));
           setSavedStudents((prev) => new Set(prev).add(res.student.id));
         }
 
@@ -675,15 +875,17 @@ export default function AttendancePage() {
           hasDues: !!res.fee?.has_dues,
           dueAmount: Number(res.fee?.due_amount || 0),
           alreadyMarked: !!res.attendance?.already_marked,
+          status: markedStatus,
+          isPastCutoff: isAbsentLate,
         };
         setScanHistory((prev) => [logItem, ...prev.slice(0, 19)]);
 
-        // Auto-dismiss the active student pop-up after 2.5 seconds to ready camera for next student
+        // Auto-dismiss popup (give 3.5s for late/absent warning, 2.5s for present)
         if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
         autoDismissTimerRef.current = setTimeout(() => {
           setActiveScan(null);
           setIsProcessing(false);
-        }, 2500);
+        }, isAbsentLate ? 3500 : 2500);
       } catch (err: any) {
         if (soundEnabled) playSound("warning");
         setCameraError(err.message || "Failed to record QR attendance.");
@@ -775,104 +977,6 @@ export default function AttendancePage() {
       }
     };
   }, [showScanner, cameraFacing, processQrCode]);
-
-  // Derived filtered students
-  const filteredStudents = useMemo(() => {
-    if (!searchQuery.trim()) return students;
-    const q = searchQuery.toLowerCase().trim();
-    return students.filter(
-      (st) =>
-        st.first_name.toLowerCase().includes(q) ||
-        (st.last_name && st.last_name.toLowerCase().includes(q)) ||
-        st.admission_no.toLowerCase().includes(q) ||
-        ((st as any).roll_no && String((st as any).roll_no).toLowerCase().includes(q)) ||
-        (st.father_name && st.father_name.toLowerCase().includes(q))
-    );
-  }, [students, searchQuery]);
-
-  // Derived statistics
-  const presentCount = Object.values(state).filter((v) => v === "present").length;
-  const absentCount = Object.values(state).filter((v) => v === "absent").length;
-  const lateCount = Object.values(state).filter((v) => v === "late").length;
-  const leaveCount = Object.values(state).filter((v) => v === "leave").length;
-  const markedCount = Object.keys(state).length;
-
-  const classMap = useMemo(() => {
-    const m = new Map<string, string>();
-    classes.forEach((c) => m.set(c.id, c.name));
-    return m;
-  }, [classes]);
-
-  const absentStudents = useMemo(() => {
-    return students.filter((st) => state[st.id] === "absent");
-  }, [students, state]);
-
-  const unmarkedStudents = useMemo(() => {
-    return students.filter((st) => !state[st.id]);
-  }, [students, state]);
-
-  const isToday = date === getLocalDateString();
-  const isPastCutoff = useMemo(() => {
-    if (!isToday) return false;
-    const [ch, cm] = (cutoffTime || "09:30").split(":").map(Number);
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const cutoffMinutes = (isNaN(ch) ? 9 : ch) * 60 + (isNaN(cm) ? 30 : cm);
-    return currentMinutes >= cutoffMinutes;
-  }, [cutoffTime, isToday]);
-
-  const handleEnforceCutoff = async () => {
-    if (!canManage) {
-      showToast("You do not have permission to mark attendance.", "error");
-      return;
-    }
-    if (unmarkedStudents.length === 0) {
-      showToast("All students have already been marked for today.", "info");
-      return;
-    }
-    setIsEnforcingCutoff(true);
-    try {
-      let rpcSuccess = false;
-      try {
-        const { data: rpcRes, error: rpcErr } = await s.rpc("enforce_attendance_cutoff", {
-          p_org_id: org,
-          p_date: date,
-        });
-        if (!rpcErr && rpcRes?.success) {
-          rpcSuccess = true;
-        }
-      } catch {}
-
-      if (!rpcSuccess) {
-        const recordsToInsert = unmarkedStudents.map((st) => ({
-          organization_id: org,
-          student_id: st.id,
-          attendance_date: date,
-          status: "absent",
-          note: `Auto-marked absent (Cutoff ${cutoffTime} passed)`,
-        }));
-        const { error: insErr } = await s.from("attendance").upsert(recordsToInsert, {
-          onConflict: "student_id,attendance_date",
-        });
-        if (insErr) throw insErr;
-      }
-
-      setState((prev) => {
-        const updated = { ...prev };
-        unmarkedStudents.forEach((st) => {
-          updated[st.id] = "absent";
-        });
-        return updated;
-      });
-
-      showToast(`✓ Auto-marked ${unmarkedStudents.length} students as Absent after cutoff (${cutoffTime})!`, "success");
-      setShowAbsentModal(true);
-    } catch (err: any) {
-      showToast(`Failed: ${err?.message || "Could not enforce cutoff."}`, "error");
-    } finally {
-      setIsEnforcingCutoff(false);
-    }
-  };
 
   const originUrl =
     typeof window !== "undefined" && window.location.origin
@@ -1130,7 +1234,7 @@ export default function AttendancePage() {
             {unmarkedStudents.length > 0 && canManage && (
               <button
                 type="button"
-                onClick={handleEnforceCutoff}
+                onClick={() => handleEnforceCutoff(false)}
                 disabled={isEnforcingCutoff}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 text-xs font-bold shadow-md shadow-amber-600/20 transition active:scale-95 disabled:opacity-50"
               >
@@ -1232,14 +1336,48 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          {/* Action Buttons: Mark All Present, Clear */}
+          {/* Action Buttons: Edit/Lock, Mark All Present, Clear */}
           <div className="flex flex-wrap items-center gap-2">
             {canManage && students.length > 0 && (
               <>
+                {isLocked ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowUnlockModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 text-xs font-bold shadow-md shadow-amber-600/20 transition active:scale-95"
+                    title="Unlock attendance register to make edits"
+                  >
+                    <Edit3 size={14} />
+                    <span>Edit Attendance</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLocked(true);
+                      showToast("Attendance register locked & protected ✓", "info");
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 text-xs font-bold shadow-md transition active:scale-95"
+                    title="Lock register to protect against accidental changes"
+                  >
+                    <Lock size={14} />
+                    <span>Lock Register</span>
+                  </button>
+                )}
+
                 <button
                   disabled={savingBatch}
-                  onClick={() => markAll("present")}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition active:scale-95 disabled:opacity-50 shadow-xs"
+                  onClick={() => {
+                    if (isLocked) {
+                      setShowUnlockModal(true);
+                      return;
+                    }
+                    markAll("present");
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition active:scale-95 disabled:opacity-50 shadow-xs ${
+                    isLocked ? "opacity-75" : ""
+                  }`}
+                  title={isLocked ? "Click to unlock and mark all present" : "Mark all filtered students as Present"}
                 >
                   <UserCheck size={14} className="text-emerald-600" />
                   <span>{savingBatch ? "Saving All..." : "Mark All Present"}</span>
@@ -1247,15 +1385,71 @@ export default function AttendancePage() {
 
                 <button
                   disabled={savingBatch}
-                  onClick={clearAllMarks}
-                  className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition active:scale-95 disabled:opacity-50"
-                  title="Clear all marked attendance records for this date"
+                  onClick={() => {
+                    if (isLocked) {
+                      setShowUnlockModal(true);
+                      return;
+                    }
+                    clearAllMarks();
+                  }}
+                  className={`rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition active:scale-95 disabled:opacity-50 ${
+                    isLocked ? "opacity-75" : ""
+                  }`}
+                  title={isLocked ? "Click to unlock and clear marks" : "Clear all marked attendance records for this date"}
                 >
                   Clear All Marks
                 </button>
               </>
             )}
           </div>
+        </div>
+
+        {/* Lock Guard Status Banner */}
+        <div className="border-b border-slate-100 px-5 py-2.5 bg-slate-50/80">
+          {isLocked ? (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 text-xs text-amber-950">
+              <div className="flex items-center gap-2">
+                <span className="grid h-6 w-6 place-items-center rounded-lg bg-amber-200 text-amber-800 shrink-0">
+                  <Lock size={13} />
+                </span>
+                <span className="font-bold">
+                  🔒 Register Locked: Attendance records for {date} are saved and protected against accidental edits.
+                </span>
+              </div>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => setShowUnlockModal(true)}
+                  className="self-start sm:self-auto inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 hover:text-amber-950 underline underline-offset-2"
+                >
+                  <Edit3 size={12} />
+                  <span>Click here to unlock & edit</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 text-xs text-emerald-950">
+              <div className="flex items-center gap-2">
+                <span className="grid h-6 w-6 place-items-center rounded-lg bg-emerald-200 text-emerald-800 shrink-0">
+                  <Unlock size={13} />
+                </span>
+                <span className="font-bold">
+                  🔓 Editing Active: You can now modify student attendance. Changes auto-save instantly.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLocked(true);
+                  showToast("Attendance register re-locked & protected ✓", "info");
+                }}
+                className="self-start sm:self-auto inline-flex items-center gap-1 text-[11px] font-bold text-slate-800 hover:text-black underline underline-offset-2"
+              >
+                <Lock size={12} />
+                <span>Done Editing (Lock Register)</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Live Status Sticky Bar */}
@@ -1386,7 +1580,21 @@ export default function AttendancePage() {
 
                   {/* Right: 4 Fast Status Toggle Buttons + WhatsApp Notification Button */}
                   <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                    <div className="flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-2xl border border-slate-200">
+                    <div
+                      className={`flex items-center gap-1.5 p-1 rounded-2xl border transition ${
+                        isLocked
+                          ? "bg-slate-100/60 border-slate-200 cursor-pointer hover:border-amber-300"
+                          : "bg-slate-100/80 border-slate-200"
+                      }`}
+                      onClick={() => {
+                        if (isLocked) setShowUnlockModal(true);
+                      }}
+                    >
+                      {isLocked && (
+                        <span className="pl-1.5 pr-0.5 text-amber-600/70" title="Locked: Click to unlock for editing">
+                          <Lock size={12} />
+                        </span>
+                      )}
                       {[
                         { key: "present", label: "Present", color: "emerald" },
                         { key: "absent", label: "Absent", color: "rose" },
@@ -1394,13 +1602,34 @@ export default function AttendancePage() {
                         { key: "leave", label: "Leave", color: "slate" },
                       ].map(({ key, label, color }) => {
                         const active = currentStatus === key;
+                        const isPresentPostCutoff = key === "present" && isPastCutoff;
+                        const isPresentBlocked = isPresentPostCutoff && !isAdmin;
 
                         return (
                           <button
                             key={key}
                             type="button"
                             disabled={!canManage || isSavingThis}
-                            onClick={() => markSingleAttendance(st.id, key)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isLocked) {
+                                setShowUnlockModal(true);
+                                return;
+                              }
+                              if (isPresentBlocked) {
+                                if (soundEnabled) playSound("warning");
+                                showToast(`⛔ Cutoff passed (${cutoffTime}). Only School Admin can mark Present.`, "error");
+                                return;
+                              }
+                              markSingleAttendance(st.id, key);
+                            }}
+                            title={
+                              isLocked
+                                ? "Attendance is locked. Click to unlock for editing."
+                                : isPresentBlocked
+                                ? `Attendance cutoff passed (${cutoffTime}). Only School Admin can mark Present.`
+                                : undefined
+                            }
                             className={`rounded-xl px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
                               active
                                 ? color === "emerald"
@@ -1410,6 +1639,10 @@ export default function AttendancePage() {
                                   : color === "amber"
                                   ? "bg-amber-600 text-white shadow-md shadow-amber-600/30 ring-2 ring-amber-600/20"
                                   : "bg-slate-800 text-white shadow-md shadow-slate-800/30 ring-2 ring-slate-800/20"
+                                : isPresentBlocked
+                                ? "text-slate-400 hover:text-slate-500 hover:bg-slate-100/60 opacity-60"
+                                : isLocked
+                                ? "text-slate-500 hover:text-slate-700"
                                 : "text-slate-600 hover:text-slate-900 hover:bg-white"
                             } ${!canManage ? "cursor-default opacity-70" : ""}`}
                           >
@@ -1591,91 +1824,133 @@ export default function AttendancePage() {
                 </div>
 
                 {/* Active Student Scan Confirmation Pop-Up */}
-                {activeScan && activeScan.success && activeScan.student && (
-                  <div className="absolute inset-4 z-30 flex items-center justify-center bg-slate-950/95 backdrop-blur-md rounded-2xl p-6 animate-fade-in">
-                    <div className="w-full max-w-md text-center space-y-4">
-                      <div className="mx-auto grid h-16 w-16 place-items-center rounded-3xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-500/20 animate-pulse">
-                        <CheckCircle2 size={36} />
-                      </div>
+                {activeScan && activeScan.success && activeScan.student && (() => {
+                  const isAbsentLate = activeScan.attendance?.status === "absent" || !!activeScan.attendance?.past_cutoff;
 
-                      <div>
-                        <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-300 border border-emerald-500/30">
-                          {activeScan.attendance?.already_marked
-                            ? "ALREADY MARKED PRESENT TODAY"
-                            : "ATTENDANCE RECORDED: PRESENT"}
+                  return (
+                    <div className="absolute inset-4 z-30 flex items-center justify-center bg-slate-950/95 backdrop-blur-md rounded-2xl p-6 animate-fade-in">
+                      <div className="w-full max-w-md text-center space-y-4">
+                        <div
+                          className={`mx-auto grid h-16 w-16 place-items-center rounded-3xl border shadow-lg animate-pulse ${
+                            isAbsentLate
+                              ? "bg-red-500/20 text-red-400 border-red-500/40 shadow-red-500/20"
+                              : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30 shadow-emerald-500/20"
+                          }`}
+                        >
+                          {isAbsentLate ? <AlertTriangle size={36} /> : <CheckCircle2 size={36} />}
                         </div>
-                        <h2 className="mt-2 text-2xl font-black text-white">
-                          {activeScan.student.full_name}
-                        </h2>
-                        <p className="text-xs font-mono text-purple-300">
-                          Class: {activeScan.student.class_name} {activeScan.student.section_name ? `(${activeScan.student.section_name})` : ""} &bull; Adm No: {activeScan.student.admission_no}
-                        </p>
-                        <p className="mt-1 text-[11px] text-slate-400">
-                          Recorded at {activeScan.attendance?.time} on {date}
-                        </p>
-                      </div>
 
-                      {/* Fee Dues Notice Banner */}
-                      <div
-                        className={`rounded-2xl border p-3.5 text-left text-xs ${
-                          activeScan.fee?.has_dues
-                            ? "border-amber-500/40 bg-amber-950/40 text-amber-200"
-                            : "border-emerald-500/40 bg-emerald-950/40 text-emerald-200"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold flex items-center gap-1.5">
-                            <Wallet size={15} />
-                            {activeScan.fee?.has_dues ? "Fee Dues Notice" : "Fee Status"}
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                              activeScan.fee?.has_dues
-                                ? "bg-amber-500/20 text-amber-300"
-                                : "bg-emerald-500/20 text-emerald-300"
+                        <div>
+                          <div
+                            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold border ${
+                              isAbsentLate
+                                ? "bg-red-500/20 text-red-300 border-red-500/30"
+                                : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                             }`}
                           >
-                            {activeScan.fee?.has_dues ? "Pending" : "Cleared ✓"}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs font-semibold">
-                          {activeScan.fee?.status_text}
-                          {activeScan.fee?.has_dues && activeScan.fee?.due_months_count
-                            ? ` (${activeScan.fee.due_months_count} Months Pending)`
-                            : ""}
-                        </p>
-                      </div>
+                            {isAbsentLate
+                              ? `❌ CUTOFF PASSED (${activeScan.attendance?.cutoff_time || cutoffTime}) - MARKED ABSENT`
+                              : activeScan.attendance?.already_marked
+                              ? "ALREADY MARKED PRESENT TODAY"
+                              : "ATTENDANCE RECORDED: PRESENT"}
+                          </div>
+                          <h2 className="mt-2 text-2xl font-black text-white">
+                            {activeScan.student.full_name}
+                          </h2>
+                          <p className="text-xs font-mono text-purple-300">
+                            Class: {activeScan.student.class_name} {activeScan.student.section_name ? `(${activeScan.student.section_name})` : ""} &bull; Adm No: {activeScan.student.admission_no}
+                          </p>
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            Recorded at {activeScan.attendance?.time} on {date}
+                          </p>
 
-                      {/* Optional WhatsApp Arrival Alert to Parent */}
-                      {activeScan.student?.phone && (
-                        <a
-                          href={createWhatsAppUrl(
-                            activeScan.student.phone,
-                            formatAttendanceSuccessMessage({
-                              studentName: activeScan.student.full_name,
-                              admissionNo: activeScan.student.admission_no,
-                              className: activeScan.student.class_name,
-                              schoolName: orgName,
-                              time: activeScan.attendance?.time || new Date().toLocaleTimeString(),
-                              date: date,
-                              feeNotice: activeScan.fee?.has_dues ? activeScan.fee.status_text : undefined,
-                            })
+                          {isAbsentLate && (
+                            <div className="mt-2.5 rounded-xl bg-red-950/60 border border-red-500/40 p-2.5 text-xs text-red-200 font-semibold">
+                              ⚠️ Cutoff time passed ({activeScan.attendance?.cutoff_time || cutoffTime}). Student marked ABSENT. Only School Admin can mark Present.
+                            </div>
                           )}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center gap-1.5 w-full rounded-xl bg-emerald-600/90 hover:bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-md transition"
-                        >
-                          <MessageCircle size={14} />
-                          <span>Send Arrival WhatsApp to Parent ({activeScan.student.phone})</span>
-                        </a>
-                      )}
+                        </div>
 
-                      <div className="pt-2 text-[10px] text-slate-500">
-                        Camera re-arming in 2 seconds for next student...
+                        {/* Fee Dues Notice Banner */}
+                        <div
+                          className={`rounded-2xl border p-3.5 text-left text-xs ${
+                            activeScan.fee?.has_dues
+                              ? "border-amber-500/40 bg-amber-950/40 text-amber-200"
+                              : "border-emerald-500/40 bg-emerald-950/40 text-emerald-200"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold flex items-center gap-1.5">
+                              <Wallet size={15} />
+                              {activeScan.fee?.has_dues ? "Fee Dues Notice" : "Fee Status"}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                activeScan.fee?.has_dues
+                                  ? "bg-amber-500/20 text-amber-300"
+                                  : "bg-emerald-500/20 text-emerald-300"
+                              }`}
+                            >
+                              {activeScan.fee?.has_dues ? "Pending" : "Cleared ✓"}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs font-semibold">
+                            {activeScan.fee?.status_text}
+                            {activeScan.fee?.has_dues && activeScan.fee?.due_months_count
+                              ? ` (${activeScan.fee.due_months_count} Months Pending)`
+                              : ""}
+                          </p>
+                        </div>
+
+                        {/* Optional WhatsApp Arrival Alert to Parent */}
+                        {activeScan.student?.phone && (
+                          <a
+                            href={createWhatsAppUrl(
+                              activeScan.student.phone,
+                              isAbsentLate
+                                ? formatAbsentAlertMessage({
+                                    studentName: activeScan.student.full_name,
+                                    admissionNo: activeScan.student.admission_no,
+                                    className: activeScan.student.class_name,
+                                    schoolName: orgName,
+                                    date: date,
+                                    originUrl,
+                                    studentId: activeScan.student.id,
+                                  })
+                                : formatAttendanceSuccessMessage({
+                                    studentName: activeScan.student.full_name,
+                                    admissionNo: activeScan.student.admission_no,
+                                    className: activeScan.student.class_name,
+                                    schoolName: orgName,
+                                    time: activeScan.attendance?.time || new Date().toLocaleTimeString(),
+                                    date: date,
+                                    feeNotice: activeScan.fee?.has_dues ? activeScan.fee.status_text : undefined,
+                                  })
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`inline-flex items-center justify-center gap-1.5 w-full rounded-xl px-3 py-2 text-xs font-bold text-white shadow-md transition ${
+                              isAbsentLate
+                                ? "bg-rose-600 hover:bg-rose-700"
+                                : "bg-emerald-600/90 hover:bg-emerald-600"
+                            }`}
+                          >
+                            <MessageCircle size={14} />
+                            <span>
+                              {isAbsentLate
+                                ? `Send Late/Absent WhatsApp Alert to Parent (${activeScan.student.phone})`
+                                : `Send Arrival WhatsApp to Parent (${activeScan.student.phone})`}
+                            </span>
+                          </a>
+                        )}
+
+                        <div className="pt-2 text-[10px] text-slate-500">
+                          Camera re-arming for next student...
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Barcode Gun / Manual Admission Input */}
@@ -1747,9 +2022,15 @@ export default function AttendancePage() {
                         </div>
 
                         <div className="text-right">
-                          <span className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
-                            PRESENT
-                          </span>
+                          {item.status === "absent" || item.isPastCutoff ? (
+                            <span className="rounded-md bg-rose-500/20 px-1.5 py-0.5 text-[9px] font-bold text-rose-300 border border-rose-500/30">
+                              ABSENT (Cutoff)
+                            </span>
+                          ) : (
+                            <span className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300">
+                              PRESENT
+                            </span>
+                          )}
                           <span className="block text-[10px] text-slate-500 mt-1 font-mono">
                             {item.time}
                           </span>
@@ -1915,6 +2196,60 @@ export default function AttendancePage() {
                 className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-bold text-slate-700 hover:bg-slate-100 transition shadow-xs ml-auto"
               >
                 Close Assistant
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* 2-STEP CONFIRMATION MODAL: UNLOCK SAVED ATTENDANCE FOR EDITING */}
+      {/* ============================================================== */}
+      {showUnlockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-100 text-amber-700 shrink-0 border border-amber-200">
+                <ShieldAlert size={26} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  Confirm Unlock: Edit Saved Attendance?
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  2-Step Security Check &bull; Date: {date}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-amber-50/90 border border-amber-200 p-4 text-xs text-amber-950 space-y-2">
+              <p className="font-bold leading-relaxed">
+                Attendance records for {date} are currently locked to prevent accidental changes.
+              </p>
+              <p className="text-amber-800 text-[11px] leading-relaxed">
+                Unlocking this register allows modifying student marks. Any change you make will immediately auto-save to cloud. Are you sure you want to proceed?
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowUnlockModal(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition active:scale-95"
+              >
+                Cancel & Keep Locked
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLocked(false);
+                  setShowUnlockModal(false);
+                  showToast("✓ Register unlocked. You can now edit attendance records.", "success");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white px-5 py-2.5 text-xs font-bold shadow-md shadow-amber-600/30 transition active:scale-95"
+              >
+                <Unlock size={14} />
+                <span>Yes, Unlock for Editing</span>
               </button>
             </div>
           </div>
