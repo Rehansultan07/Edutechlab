@@ -829,70 +829,205 @@ export default function AttendancePage() {
       setCameraError("");
 
       try {
-        const { data: res, error: rpcErr } = await s.rpc("mark_qr_attendance", {
-          p_admission_no: trimmed,
-          p_organization_id: org,
-          p_date: date,
-        });
+        // 1. Locate student in local state or database
+        let studentObj: any = students.find(
+          (st) =>
+            st.admission_no.toLowerCase() === trimmed.toLowerCase() ||
+            st.id.toLowerCase() === trimmed.toLowerCase()
+        );
 
-        if (rpcErr) throw rpcErr;
+        if (!studentObj) {
+          const { data: stData } = await s
+            .from("students")
+            .select("id,first_name,last_name,admission_no,class_id,photo_url,phone,guardian_phone,father_name")
+            .eq("organization_id", org)
+            .or(`admission_no.ilike.${trimmed},id.eq.${trimmed}`)
+            .maybeSingle();
+          if (stData) studentObj = stData;
+        }
 
-        if (!res || !res.success) {
+        if (!studentObj) {
           if (soundEnabled) playSound("warning");
-          setCameraError(res?.error || `Admission No. "${trimmed}" not recognized in this institution.`);
+          setCameraError(`Student with Admission/ID "${trimmed}" not found in this institution.`);
           setIsProcessing(false);
           return;
         }
 
-        // Check if marked absent due to late arrival / cutoff time
-        const markedStatus = res.attendance?.status || (res.attendance?.past_cutoff ? "absent" : "present");
-        const isAbsentLate = markedStatus === "absent" || !!res.attendance?.past_cutoff;
+        // 2. Strict Cutoff Calculation at the exact second of scan
+        const [ch, cm] = (cutoffTime || "09:30").split(":").map(Number);
+        const nowObj = new Date();
+        const currentMinutes = nowObj.getHours() * 60 + nowObj.getMinutes();
+        const cutoffMinutes = (isNaN(ch) ? 9 : ch) * 60 + (isNaN(cm) ? 30 : cm);
+        const todayStr = getLocalDateString();
+        const isCurrentlyPastCutoff =
+          date < todayStr || (date === todayStr && currentMinutes >= cutoffMinutes);
 
-        // Feedback Audio: ding for present, warning chime for late/absent
+        // 3. Determine student's existing attendance status for this date
+        const currentStatusInState = state[studentObj.id];
+        let existingStatus = currentStatusInState;
+        if (!existingStatus) {
+          const { data: existingRecord } = await s
+            .from("attendance")
+            .select("status")
+            .eq("organization_id", org)
+            .eq("student_id", studentObj.id)
+            .eq("attendance_date", date)
+            .maybeSingle();
+          if (existingRecord?.status) {
+            existingStatus = existingRecord.status;
+          }
+        }
+
+        let finalStatus = "present";
+        let alreadyMarked = false;
+        let isLateAbsent = false;
+        const scanTimeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+        if (isCurrentlyPastCutoff) {
+          // ========================================================
+          // CUTOFF TIME HAS PASSED:
+          // If student was already marked present before cutoff -> stay present.
+          // Otherwise, scan CANNOT mark them present -> MUST BE MARKED ABSENT!
+          // ========================================================
+          if (existingStatus === "present") {
+            finalStatus = "present";
+            alreadyMarked = true;
+            isLateAbsent = false;
+          } else {
+            finalStatus = "absent";
+            alreadyMarked = false;
+            isLateAbsent = true;
+
+            // Direct save to Supabase database as ABSENT
+            const note = `Scanned after cutoff (${cutoffTime}) at ${scanTimeStr} - Marked ABSENT`;
+            await s.from("attendance").upsert(
+              {
+                organization_id: org,
+                student_id: studentObj.id,
+                attendance_date: date,
+                status: "absent",
+                note: note,
+              },
+              { onConflict: "student_id,attendance_date" }
+            );
+          }
+        } else {
+          // ========================================================
+          // SCANNED BEFORE CUTOFF TIME -> MARK PRESENT
+          // ========================================================
+          finalStatus = "present";
+          if (existingStatus === "present") {
+            alreadyMarked = true;
+          } else {
+            alreadyMarked = false;
+            const note = `QR Gate Scan at ${scanTimeStr}`;
+            await s.from("attendance").upsert(
+              {
+                organization_id: org,
+                student_id: studentObj.id,
+                attendance_date: date,
+                status: "present",
+                note: note,
+              },
+              { onConflict: "student_id,attendance_date" }
+            );
+          }
+        }
+
+        // 4. Fetch Fee Status
+        let feeDue = 0;
+        let dueMonthsCount = 0;
+        try {
+          const { data: feeData } = await s
+            .from("student_fee_months")
+            .select("amount_due, amount_paid, status")
+            .eq("student_id", studentObj.id);
+          (feeData || []).forEach((fm: any) => {
+            if (fm.status === "due" || fm.status === "partial") {
+              feeDue += Number(fm.amount_due || 0) - Number(fm.amount_paid || 0);
+              dueMonthsCount++;
+            }
+          });
+        } catch {}
+
+        // 5. Audio feedback
         if (soundEnabled) {
-          if (isAbsentLate) {
+          if (isLateAbsent) {
             playSound("warning");
           } else {
             playSound("ding");
           }
         }
 
-        setActiveScan(res as QrScanResult);
+        const cName = studentObj.class_id ? classMap.get(studentObj.class_id) || "General" : "General";
+
+        const scanResult: QrScanResult = {
+          success: true,
+          student: {
+            id: studentObj.id,
+            admission_no: studentObj.admission_no,
+            first_name: studentObj.first_name,
+            last_name: studentObj.last_name,
+            full_name: `${studentObj.first_name} ${studentObj.last_name || ""}`.trim(),
+            class_name: cName,
+            section_name: "",
+            photo_url: studentObj.photo_url || null,
+            phone: studentObj.phone || studentObj.guardian_phone || null,
+            father_name: studentObj.father_name || null,
+          },
+          attendance: {
+            status: finalStatus,
+            date: date,
+            time: scanTimeStr,
+            already_marked: alreadyMarked,
+            past_cutoff: isCurrentlyPastCutoff,
+            cutoff_time: cutoffTime,
+            warning: isLateAbsent
+              ? `Cutoff time passed (${cutoffTime}). Student marked ABSENT. Only School Admin can mark Present.`
+              : undefined,
+          },
+          fee: {
+            has_dues: feeDue > 0,
+            due_amount: feeDue,
+            due_months_count: dueMonthsCount,
+            status_text: feeDue > 0 ? `Fee Due: ₹${feeDue}` : "All Fees Cleared ✓",
+          },
+        };
+
+        setActiveScan(scanResult);
 
         // Synchronize local attendance table state in real time!
-        if (res.student?.id) {
-          setState((prev) => ({ ...prev, [res.student.id]: markedStatus }));
-          setSavedStudents((prev) => new Set(prev).add(res.student.id));
-        }
+        setState((prev) => ({ ...prev, [studentObj.id]: finalStatus }));
+        setSavedStudents((prev) => new Set(prev).add(studentObj.id));
 
         // Add to recent scan history
         const logItem: ScanLogItem = {
           id: Math.random().toString(),
-          studentName: res.student?.full_name || "Student",
-          admissionNo: res.student?.admission_no || trimmed,
-          className: `${res.student?.class_name || ""} ${res.student?.section_name || ""}`.trim(),
-          time: res.attendance?.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          hasDues: !!res.fee?.has_dues,
-          dueAmount: Number(res.fee?.due_amount || 0),
-          alreadyMarked: !!res.attendance?.already_marked,
-          status: markedStatus,
-          isPastCutoff: isAbsentLate,
+          studentName: scanResult.student?.full_name || "Student",
+          admissionNo: scanResult.student?.admission_no || trimmed,
+          className: scanResult.student?.class_name || "",
+          time: scanTimeStr,
+          hasDues: feeDue > 0,
+          dueAmount: feeDue,
+          alreadyMarked: alreadyMarked,
+          status: finalStatus,
+          isPastCutoff: isLateAbsent,
         };
         setScanHistory((prev) => [logItem, ...prev.slice(0, 19)]);
 
-        // Auto-dismiss popup (give 3.5s for late/absent warning, 2.5s for present)
+        // Auto-dismiss popup (give 4s for late/absent warning, 2.5s for present)
         if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
         autoDismissTimerRef.current = setTimeout(() => {
           setActiveScan(null);
           setIsProcessing(false);
-        }, isAbsentLate ? 3500 : 2500);
+        }, isLateAbsent ? 4000 : 2500);
       } catch (err: any) {
         if (soundEnabled) playSound("warning");
         setCameraError(err.message || "Failed to record QR attendance.");
         setIsProcessing(false);
       }
     },
-    [org, date, soundEnabled, isProcessing, s]
+    [org, date, cutoffTime, soundEnabled, isProcessing, s, students, state, classMap]
   );
 
   // ==============================================================
