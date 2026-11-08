@@ -263,13 +263,17 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={handleLogoTap}
-              className="flex items-center gap-2.5 text-left outline-none cursor-default"
+              className="flex items-center gap-2.5 text-left outline-none cursor-default group"
               title="EduTechLab Platform"
             >
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[#171625]">
-                <GraduationCap size={18} />
-              </span>
-              <span className="font-bold">EduTechLab</span>
+              <div className="relative h-9 w-9 overflow-hidden rounded-xl bg-white p-0.5 shadow-md flex items-center justify-center">
+                <img
+                  src="/icons/icon-192.png"
+                  alt="EduTechLab Logo"
+                  className="h-full w-full object-contain rounded-lg"
+                />
+              </div>
+              <span className="font-bold text-white text-base">EduTechLab</span>
             </button>
 
             <div className="mt-28">
@@ -317,10 +321,14 @@ export default function LoginPage() {
                 onClick={handleLogoTap}
                 className="flex items-center gap-2.5 text-left outline-none cursor-default"
               >
-                <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#171625] text-white">
-                  <GraduationCap size={18} />
-                </span>
-                <span className="font-bold text-slate-900">EduTechLab</span>
+                <div className="relative h-9 w-9 overflow-hidden rounded-xl bg-white border border-slate-200 p-0.5 shadow-sm flex items-center justify-center">
+                  <img
+                    src="/icons/icon-192.png"
+                    alt="EduTechLab Logo"
+                    className="h-full w-full object-contain rounded-lg"
+                  />
+                </div>
+                <span className="font-bold text-slate-900 text-base">EduTechLab</span>
               </button>
             </div>
 

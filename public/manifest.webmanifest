@@ -6,7 +6,7 @@
   "id": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#171625",
+  "background_color": "#ffffff",
   "theme_color": "#6657e8",
   "orientation": "any",
   "categories": ["education", "productivity", "business"],

@@ -200,10 +200,12 @@ export default function Home() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           {/* Brand Logo */}
           <Link href="/" className="group flex items-center gap-2.5">
-            <div className="relative grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-[#6657e8] p-0.5 shadow-md shadow-purple-500/20 group-hover:scale-105 transition-transform">
-              <div className="grid h-full w-full place-items-center rounded-[14px] bg-slate-900">
-                <GraduationCap size={20} className="text-white" />
-              </div>
+            <div className="relative h-10 w-10 overflow-hidden rounded-2xl bg-white border border-slate-200 p-0.5 shadow-md shadow-purple-500/10 group-hover:scale-105 transition-transform flex items-center justify-center">
+              <img
+                src="/icons/icon-192.png"
+                alt="EduTechLab Logo"
+                className="h-full w-full object-contain rounded-xl"
+              />
             </div>
             <div>
               <span className="text-lg font-black tracking-tight text-slate-900">
@@ -1281,8 +1283,12 @@ export default function Home() {
         <div className="mx-auto flex max-w-7xl flex-col md:flex-row items-center justify-between gap-6 text-xs text-slate-500 font-medium">
           <div className="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-left">
             <div className="flex items-center gap-2">
-              <div className="grid h-7 w-7 place-items-center rounded-lg bg-slate-900 text-white">
-                <GraduationCap size={15} />
+              <div className="h-7 w-7 overflow-hidden rounded-lg border border-slate-200 bg-white p-0.5 shadow-xs flex items-center justify-center">
+                <img
+                  src="/icons/icon-192.png"
+                  alt="EduTechLab Logo"
+                  className="h-full w-full object-contain rounded-md"
+                />
               </div>
               <span className="font-extrabold text-slate-900">{platformSettings.brand_name}</span>
             </div>

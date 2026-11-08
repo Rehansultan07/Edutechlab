@@ -236,15 +236,26 @@ export default function SubscriptionPage() {
           >
             <ArrowLeft size={14} /> Back
           </button>
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-purple-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-purple-700">
-              SaaS Billing
-            </span>
-            <p className="text-xs text-slate-400">EduTechLab Institution Workspace</p>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0.5 shadow-sm flex items-center justify-center">
+              <img
+                src="/icons/icon-192.png"
+                alt="EduTechLab Logo"
+                className="h-full w-full object-contain rounded-lg"
+              />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-md bg-purple-100 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-purple-700">
+                  SaaS Billing
+                </span>
+                <p className="text-xs text-slate-400">EduTechLab Institution Workspace</p>
+              </div>
+              <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                Subscription & Capacity
+              </h1>
+            </div>
           </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            Subscription & Capacity
-          </h1>
         </div>
 
         <button

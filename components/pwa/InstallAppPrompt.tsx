@@ -131,16 +131,12 @@ export default function InstallAppPrompt() {
         {/* Top bar with icon and title */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-tr from-[#171625] via-[#4338ca] to-[#6657e8] p-1.5 shadow-md shadow-purple-500/30 flex items-center justify-center">
+            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white border border-slate-200 p-1 shadow-md shadow-purple-500/10 flex items-center justify-center">
               <img
                 src="/icons/icon-192.png"
                 alt="EduTechLab App"
-                className="h-full w-full object-contain"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = "none";
-                }}
+                className="h-full w-full object-contain rounded-xl"
               />
-              <Smartphone className="text-white" size={24} />
             </div>
 
             <div>

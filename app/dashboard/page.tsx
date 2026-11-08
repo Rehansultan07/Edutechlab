@@ -774,12 +774,21 @@ export default function Dashboard() {
         }`}
       >
         <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xl font-black tracking-tight bg-gradient-to-r from-purple-700 via-indigo-600 to-cyan-600 bg-clip-text text-transparent">
-              EduTechLab
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-xl bg-white border border-slate-200/80 p-0.5 shadow-sm flex items-center justify-center">
+              <img
+                src="/icons/icon-192.png"
+                alt="EduTechLab Logo"
+                className="h-full w-full object-contain rounded-lg"
+              />
             </div>
-            <div className="mt-0.5 max-w-[190px] truncate text-xs font-semibold text-slate-500">
-              {instituteName}
+            <div>
+              <div className="text-base font-black tracking-tight bg-gradient-to-r from-purple-700 via-indigo-600 to-cyan-600 bg-clip-text text-transparent leading-tight">
+                EduTechLab
+              </div>
+              <div className="mt-0.5 max-w-[150px] truncate text-[11px] font-semibold text-slate-500" title={instituteName}>
+                {instituteName}
+              </div>
             </div>
           </div>
           <button

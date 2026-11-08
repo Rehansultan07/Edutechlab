@@ -276,8 +276,12 @@ export default function StaffDashboard() {
         <div className="flex items-center justify-between border-b border-slate-100 pb-4">
           <div>
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-600 to-violet-700 text-white shadow-xs">
-                <Sparkles size={16} />
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white border border-slate-200 p-0.5 shadow-xs overflow-hidden">
+                <img
+                  src="/icons/icon-192.png"
+                  alt="EduTechLab Logo"
+                  className="h-full w-full object-contain rounded-md"
+                />
               </div>
               <span className="text-base font-bold text-slate-900 tracking-tight">EduTechLab</span>
             </div>

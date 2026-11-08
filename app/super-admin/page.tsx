@@ -1418,13 +1418,20 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0"
           >
             <ArrowLeft size={16} />
           </Link>
+          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-2xl border border-purple-200 bg-white p-0.5 shadow-sm flex items-center justify-center">
+            <img
+              src="/icons/icon-192.png"
+              alt="EduTechLab Logo"
+              className="h-full w-full object-contain rounded-xl"
+            />
+          </div>
           <div>
             <div className="flex items-center gap-2">
-          <InstallButton />
+              <InstallButton />
               <span className="rounded-md bg-purple-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-700">
                 Super Admin
               </span>

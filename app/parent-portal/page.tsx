@@ -300,8 +300,8 @@ export default function ParentPortalPage() {
           <div className="mb-6 text-center">
             {!qrProfile && (
               <>
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-md">
-                  <GraduationCap size={24} />
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white border border-slate-200 p-1 shadow-md">
+                  <img src="/icons/icon-192.png" alt="EduTechLab Logo" className="h-full w-full object-contain rounded-xl" />
                 </div>
                 <h1 className="mt-4 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
                   Parent &amp; Guardian Portal

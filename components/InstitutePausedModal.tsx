@@ -57,6 +57,11 @@ export default function InstitutePausedModal({
         <div className="absolute -right-12 -bottom-12 h-36 w-36 rounded-full bg-rose-400/20 blur-2xl pointer-events-none" />
 
         <div className="relative text-center">
+          <div className="mx-auto mb-3 flex items-center justify-center gap-2">
+            <img src="/icons/icon-192.png" alt="EduTechLab Logo" className="h-6 w-6 rounded-md object-contain shadow-xs border border-slate-200" />
+            <span className="text-xs font-black tracking-tight text-slate-800">EduTechLab Platform</span>
+          </div>
+
           {/* Pulsing Icon */}
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-amber-50 text-amber-600 ring-8 ring-amber-100 shadow-sm animate-pulse">
             <AlertOctagon size={42} strokeWidth={2.2} />
