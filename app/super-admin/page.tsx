@@ -187,6 +187,28 @@ type AgentPayoutItem = {
   paid_at: string;
 };
 
+type OnboardingAgentInfo = {
+  id?: string;
+  fullName: string;
+  phone: string;
+  email: string;
+  agentCode: string;
+  password?: string;
+  joiningPercent: number;
+  recurringPercent: number;
+  city?: string;
+  upiId?: string;
+  mode: "created" | "password_reset" | "reshare";
+};
+
+const formatWhatsAppPhone = (rawPhone: string): string => {
+  const digits = (rawPhone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
+  return digits;
+};
+
 type PlatformSettings = {
   base_price: number;
   base_students: number;
@@ -269,6 +291,12 @@ export default function SuperAdminPage() {
   });
   const [savingAgent, setSavingAgent] = useState(false);
   const [agentModalError, setAgentModalError] = useState("");
+
+  // Sales Agent Onboarding & WhatsApp Share Modal
+  const [onboardingAgent, setOnboardingAgent] = useState<OnboardingAgentInfo | null>(null);
+  const [onboardingMsgLang, setOnboardingMsgLang] = useState<"english" | "hinglish">("english");
+  const [onboardingMsgText, setOnboardingMsgText] = useState("");
+  const [onboardingCopied, setOnboardingCopied] = useState(false);
 
   // Record Payout to Agent Modal
   const [payingAgent, setPayingAgent] = useState<SalesAgentItem | null>(null);
@@ -1253,6 +1281,158 @@ export default function SuperAdminPage() {
     setShowAgentModal(true);
   };
 
+  const buildAgentWhatsAppMessage = (
+    agent: OnboardingAgentInfo,
+    lang: "english" | "hinglish" = onboardingMsgLang
+  ): string => {
+    const origin =
+      typeof window !== "undefined" && window.location.origin
+        ? window.location.origin
+        : "https://edutechlab-9fz4.vercel.app";
+    const brandName = (pricing.brand_name || "EduTechLab").trim();
+    const portalUrl = `${origin}/agent-portal`;
+    const referralUrl = `${origin}/register?ref=${encodeURIComponent(agent.agentCode)}`;
+    const supportPhone = pricing.contact_phone || pricing.whatsapp_number || "+91 79031 78550";
+
+    const altLogins: string[] = [];
+    if (agent.phone?.trim()) altLogins.push(agent.phone.trim());
+    if (agent.email?.trim()) altLogins.push(agent.email.trim());
+    const altLoginDisplay =
+      altLogins.length > 0 ? altLogins.join(" / ") : "Registered Mobile Number";
+
+    const cleanPassword = agent.password?.trim() || "";
+    const passwordDisplay = cleanPassword
+      ? `*${cleanPassword}*`
+      : lang === "hinglish"
+      ? "_Aapka existing portal password (bhool gaye ho to Admin se reset karwayein)_"
+      : "_Your existing portal password (contact Admin if you need a reset)_";
+
+    const extraProfileLinesEng = [
+      agent.city?.trim() ? `• *Assigned Territory:* ${agent.city.trim()}` : "",
+      agent.upiId?.trim() ? `• *Payout UPI ID:* ${agent.upiId.trim()}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const extraProfileLinesHin = [
+      agent.city?.trim() ? `• *Assigned Area / City:* ${agent.city.trim()}` : "",
+      agent.upiId?.trim() ? `• *Payout UPI ID:* ${agent.upiId.trim()}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    if (lang === "hinglish") {
+      const introLine =
+        agent.mode === "password_reset"
+          ? `Aapke *${brandName} Sales Partner Portal* ka password Admin dwara update kar diya gaya hai. Naye login details niche diye gaye hain:`
+          : agent.mode === "reshare"
+          ? `Aapke *${brandName} Sales Partner Account* ke official portal login aur referral details niche diye gaye hain:`
+          : `Aapka *${brandName} Sales Partner Account* safaltapoorvak activate ho gaya hai! Ab aap Schools, Madrasas aur Coaching Institutes ko jood kar har joining aur har mahine recurring commission kama sakte hain.`;
+
+      return `🤝 *${brandName} — Sales Partner Portal Details* 🚀
+
+Namaste *${agent.fullName}* ji,
+${introLine}
+
+🔐 *Partner Portal Login Details*
+• *Portal Link:* ${portalUrl}
+• *Agent Code:* *${agent.agentCode}*
+• *Mobile / Email Login:* ${altLoginDisplay}
+• *Password:* ${passwordDisplay}
+
+💰 *Aapka Approved Commission Plan*
+• *One-Time Joining Fee:* *${agent.joiningPercent}%* Commission
+• *Monthly Recurring:* *${agent.recurringPercent}%* (Har mahine jab school renew karega)${extraProfileLinesHin ? `\n${extraProfileLinesHin}` : ""}
+
+🔗 *Aapka Unique School Referral Link*
+${referralUrl}
+_(Jo bhi school is link se ya Referral Code *${agent.agentCode}* daal kar register karega, uska commission seedhe aapke wallet me credit hoga.)_
+
+🚀 *Kaam Kaise Shuru Karein:*
+1. Upar diye *Portal Link* par jaakar Agent Code aur Password se login karein.
+2. Apna *Referral Link* interested schools ko bhejein ya unka free trial start karwayein.
+3. Portal par apni *Live Schools, Commission Earnings aur Payouts* kabhi bhi check karein.
+
+📞 *Partner Support:* ${supportPhone}
+_${cleanPassword ? "Suraksha ke liye pehli baar login karne ke baad apna password zaroor change kar lein." : "Kisi bhi sahayata ya password reset ke liye support par sampark karein."}_
+
+Shubhkamnayein,
+*Team ${brandName}* 🌟`;
+    }
+
+    const introLineEng =
+      agent.mode === "password_reset"
+        ? `Your password for the *${brandName} Sales Partner Portal* has been updated by Admin. Please use your refreshed credentials below:`
+        : agent.mode === "reshare"
+        ? `Here are your official *${brandName} Sales Partner Portal* credentials, commission structure, and school referral link:`
+        : `Welcome to the *${brandName} Partner Network*! Your official Sales Partner account is now active. You can start onboarding Schools, Madrasas, and Coaching Institutes immediately.`;
+
+    return `🤝 *${brandName} — Official Sales Partner Onboarding* 🚀
+
+Namaste *${agent.fullName}* ji,
+${introLineEng}
+
+🔐 *Partner Portal Login Credentials*
+• *Portal URL:* ${portalUrl}
+• *Agent Code:* *${agent.agentCode}*
+• *Registered Phone / Email:* ${altLoginDisplay}
+• *Password:* ${passwordDisplay}
+
+💰 *Approved Commission Structure*
+• *One-Time Joining Fee:* *${agent.joiningPercent}%* Commission
+• *Monthly Subscription:* *${agent.recurringPercent}%* Recurring (Every month on school renewal)${extraProfileLinesEng ? `\n${extraProfileLinesEng}` : ""}
+
+🔗 *Your Exclusive School Referral Link*
+${referralUrl}
+_(Any institution registering through this link or entering Referral Code *${agent.agentCode}* is permanently mapped to your commission wallet.)_
+
+🚀 *Quick Start Guide:*
+1. Open the Partner Portal link above and sign in with your Agent Code & Password.
+2. Share your Referral Link directly with School Directors to start their free trial.
+3. Track onboarded schools, monthly renewals, commission ledger & payouts live in your dashboard.
+
+📞 *Partner Support:* ${supportPhone}
+_${cleanPassword ? "Security tip: Please change your password from the Profile section after your first login." : "Reach out to Partner Support anytime for demos, pricing sheets, or assistance."}_
+
+Warm regards,
+*Team ${brandName}* 🌟`;
+  };
+
+  const openAgentOnboardingModal = (
+    agentInfo: OnboardingAgentInfo,
+    lang: "english" | "hinglish" = onboardingMsgLang
+  ) => {
+    setOnboardingAgent(agentInfo);
+    setOnboardingMsgLang(lang);
+    setOnboardingMsgText(buildAgentWhatsAppMessage(agentInfo, lang));
+    setOnboardingCopied(false);
+  };
+
+  const handleOpenReshareAgentModal = (agent: SalesAgentItem) => {
+    openAgentOnboardingModal({
+      id: agent.id,
+      fullName: agent.full_name,
+      phone: agent.phone,
+      email: agent.email || "",
+      agentCode: agent.agent_code,
+      password: "",
+      joiningPercent: Number(agent.joining_commission_percent ?? 50),
+      recurringPercent: Number(agent.recurring_commission_percent ?? 20),
+      city: agent.city || "",
+      upiId: agent.upi_id || "",
+      mode: "reshare",
+    });
+  };
+
+  const handleCopyOnboardingText = () => {
+    if (!onboardingMsgText) return;
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(onboardingMsgText);
+      setOnboardingCopied(true);
+      setTimeout(() => setOnboardingCopied(false), 3000);
+    }
+  };
+
   const handleSaveAgent = async (e: FormEvent) => {
     e.preventDefault();
     setAgentModalError("");
@@ -1270,6 +1450,8 @@ export default function SuperAdminPage() {
     setSuccess("");
 
     try {
+      let nextOnboardingPayload: OnboardingAgentInfo | null = null;
+
       if (editingAgent) {
         const { data, error: rpcErr } = await supabase.rpc("admin_update_sales_agent", {
           p_agent_id: editingAgent.id,
@@ -1288,6 +1470,22 @@ export default function SuperAdminPage() {
         });
         if (rpcErr) throw rpcErr;
         setSuccess(data?.message || `Agent "${agentForm.fullName.trim()}" updated.`);
+
+        if (agentForm.password.trim()) {
+          nextOnboardingPayload = {
+            id: editingAgent.id,
+            fullName: agentForm.fullName.trim(),
+            phone: agentForm.phone.trim(),
+            email: agentForm.email.trim(),
+            agentCode: editingAgent.agent_code,
+            password: agentForm.password.trim(),
+            joiningPercent: Number(agentForm.joiningPercent) || 0,
+            recurringPercent: Number(agentForm.recurringPercent) || 0,
+            city: agentForm.city.trim(),
+            upiId: agentForm.upiId.trim(),
+            mode: "password_reset",
+          };
+        }
       } else {
         const cleanCode = agentForm.agentCode
           .toUpperCase()
@@ -1311,9 +1509,26 @@ export default function SuperAdminPage() {
           data?.message ||
             `Sales Agent "${agentForm.fullName.trim()}" created! Agent Portal Login ready.`
         );
+
+        nextOnboardingPayload = {
+          id: data?.agent_id,
+          fullName: agentForm.fullName.trim(),
+          phone: agentForm.phone.trim(),
+          email: agentForm.email.trim(),
+          agentCode: data?.agent_code || cleanCode,
+          password: agentForm.password.trim(),
+          joiningPercent: Number(agentForm.joiningPercent) || 0,
+          recurringPercent: Number(agentForm.recurringPercent) || 0,
+          city: agentForm.city.trim(),
+          upiId: agentForm.upiId.trim(),
+          mode: "created",
+        };
       }
 
       setShowAgentModal(false);
+      if (nextOnboardingPayload) {
+        openAgentOnboardingModal(nextOnboardingPayload);
+      }
       await checkAndLoad();
     } catch (err: any) {
       setAgentModalError(err.message || "Failed to save sales agent.");
@@ -3035,6 +3250,14 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                             className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                           >
                             <Edit size={12} /> Edit Rates
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenReshareAgentModal(agent)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition"
+                            title="Open complete WhatsApp onboarding & login template"
+                          >
+                            <MessageCircle size={12} /> WhatsApp Details
                           </button>
                           <button
                             type="button"
@@ -5499,6 +5722,276 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
           </div>
         </div>
       )}
+
+      {/* ============================================================== */}
+      {/* MODAL 8B: SALES AGENT ONBOARDING & WHATSAPP TEMPLATE MODAL     */}
+      {/* ============================================================== */}
+      {onboardingAgent && (() => {
+        const waPhone = formatWhatsAppPhone(onboardingAgent.phone);
+        const origin =
+          typeof window !== "undefined" && window.location.origin
+            ? window.location.origin
+            : "https://edutechlab-9fz4.vercel.app";
+        const portalUrl = `${origin}/agent-portal`;
+        const referralUrl = `${origin}/register?ref=${encodeURIComponent(onboardingAgent.agentCode)}`;
+        const matchedExistingAgent = salesAgents.find(
+          (a) =>
+            a.agent_code === onboardingAgent.agentCode ||
+            (onboardingAgent.id && a.id === onboardingAgent.id)
+        );
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm overflow-y-auto">
+            <div className="w-full max-w-2xl rounded-3xl border border-emerald-200 bg-white p-5 sm:p-6 shadow-2xl my-8">
+              {/* Top Header */}
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-emerald-100 text-emerald-600 shadow-xs">
+                    {onboardingAgent.mode === "created" ? (
+                      <CheckCircle2 size={26} />
+                    ) : (
+                      <MessageCircle size={24} />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-extrabold text-slate-900">
+                      {onboardingAgent.mode === "created"
+                        ? "Sales Partner Account Ready!"
+                        : onboardingAgent.mode === "password_reset"
+                        ? "Partner Password Updated — Share on WhatsApp"
+                        : "Partner Login & WhatsApp Template"}
+                    </h3>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Send complete portal credentials, commission terms &amp; referral link directly to{" "}
+                      <strong className="text-slate-700">{onboardingAgent.fullName}</strong> ({onboardingAgent.phone}).
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOnboardingAgent(null)}
+                  className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                {/* Partner Credential Highlight Card */}
+                <div className="rounded-2xl bg-slate-900 p-4 sm:p-5 text-white shadow-inner">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                        Sales Partner
+                      </span>
+                      <span className="text-sm font-extrabold text-emerald-400">
+                        {onboardingAgent.fullName}
+                        {onboardingAgent.city ? ` • ${onboardingAgent.city}` : ""}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-lg bg-emerald-500/20 border border-emerald-400/30 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                        Joining {onboardingAgent.joiningPercent}% • Monthly {onboardingAgent.recurringPercent}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
+                    <div className="rounded-xl bg-slate-800/80 p-3">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Agent Code
+                      </span>
+                      <span className="mt-0.5 block font-mono text-sm font-black text-amber-300">
+                        {onboardingAgent.agentCode}
+                      </span>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-800/80 p-3">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Mobile / Alt Login
+                      </span>
+                      <span className="mt-0.5 block font-mono text-xs font-bold text-slate-100 truncate">
+                        {onboardingAgent.phone}
+                      </span>
+                      {onboardingAgent.email && (
+                        <span className="block text-[10px] text-slate-400 truncate">
+                          {onboardingAgent.email}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl bg-slate-800/80 p-3">
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Portal Password
+                      </span>
+                      <span className="mt-0.5 block font-mono text-sm font-bold text-white">
+                        {onboardingAgent.password ? (
+                          onboardingAgent.password
+                        ) : (
+                          <span className="text-xs font-medium text-slate-400">Existing Password</span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-800/80 px-3 py-2 text-xs">
+                      <span className="font-mono text-purple-300 truncate">{portalUrl}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyAgentShareText(portalUrl, "onb_portal")}
+                        className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-slate-700 px-2 py-1 text-[10px] font-bold text-white hover:bg-slate-600"
+                      >
+                        {copiedAgentKey === "onb_portal" ? <Check size={11} /> : <Copy size={11} />}
+                        {copiedAgentKey === "onb_portal" ? "Copied" : "Portal"}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-800/80 px-3 py-2 text-xs">
+                      <span className="font-mono text-emerald-300 truncate">{referralUrl}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyAgentShareText(referralUrl, "onb_ref")}
+                        className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-slate-700 px-2 py-1 text-[10px] font-bold text-white hover:bg-slate-600"
+                      >
+                        {copiedAgentKey === "onb_ref" ? <Check size={11} /> : <Copy size={11} />}
+                        {copiedAgentKey === "onb_ref" ? "Copied" : "Ref Link"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* WhatsApp Template Editor & Direct Send Box */}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-emerald-950 font-bold text-xs">
+                      <Smartphone size={16} className="text-emerald-700" />
+                      <span>Complete Professional WhatsApp Message (Editable Preview)</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOnboardingMsgLang("english");
+                          setOnboardingMsgText(buildAgentWhatsAppMessage(onboardingAgent, "english"));
+                        }}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${
+                          onboardingMsgLang === "english"
+                            ? "bg-emerald-700 text-white shadow-xs"
+                            : "bg-white text-emerald-900 border border-emerald-200 hover:bg-emerald-100"
+                        }`}
+                      >
+                        Formal English
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOnboardingMsgLang("hinglish");
+                          setOnboardingMsgText(buildAgentWhatsAppMessage(onboardingAgent, "hinglish"));
+                        }}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${
+                          onboardingMsgLang === "hinglish"
+                            ? "bg-emerald-700 text-white shadow-xs"
+                            : "bg-white text-emerald-900 border border-emerald-200 hover:bg-emerald-100"
+                        }`}
+                      >
+                        Hinglish (India)
+                      </button>
+                    </div>
+                  </div>
+
+                  <textarea
+                    rows={10}
+                    value={onboardingMsgText}
+                    onChange={(e) => setOnboardingMsgText(e.target.value)}
+                    className="w-full rounded-xl border border-emerald-200 bg-white p-3 text-xs leading-relaxed text-slate-800 outline-none focus:border-emerald-600 font-sans"
+                  />
+
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {waPhone.length >= 10 ? (
+                      <a
+                        href={`https://wa.me/${waPhone}?text=${encodeURIComponent(onboardingMsgText)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-5 py-2.5 text-xs font-extrabold text-white shadow-md hover:bg-[#1ebe5d] active:scale-95 transition"
+                      >
+                        <Send size={14} />
+                        Send Directly on WhatsApp ({onboardingAgent.phone})
+                      </a>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-800">
+                        <AlertTriangle size={14} /> Valid phone number needed for direct WhatsApp send
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleCopyOnboardingText}
+                      className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold transition shadow-xs ${
+                        onboardingCopied
+                          ? "bg-emerald-700 text-white"
+                          : "border border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-100"
+                      }`}
+                    >
+                      {onboardingCopied ? (
+                        <>
+                          <Check size={14} />
+                          Copied Complete Message!
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} />
+                          Copy Message Template
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Footer Controls */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {onboardingAgent.mode === "created" && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOnboardingAgent(null);
+                          openCreateAgentModal();
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                      >
+                        <UserPlus size={14} />
+                        Add Another Agent
+                      </button>
+                    )}
+                    {onboardingAgent.mode === "reshare" && matchedExistingAgent && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOnboardingAgent(null);
+                          openEditAgentModal(matchedExistingAgent);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3.5 py-2 text-xs font-bold text-purple-800 hover:bg-purple-100 transition"
+                      >
+                        <KeyRound size={14} />
+                        Edit / Reset Password
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setOnboardingAgent(null)}
+                    className="rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition"
+                  >
+                    Done &amp; Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ============================================================== */}
       {/* MODAL 9: RECORD AGENT PAYOUT SETTLEMENT                        */}
