@@ -85,6 +85,8 @@ export default function SubscriptionPage() {
   // Plan Selection & Calculation
   const [targetStudents, setTargetStudents] = useState<number>(100);
   const [selectedPlan, setSelectedPlan] = useState<"standard" | "pro">("pro");
+  const [paymentCategory, setPaymentCategory] = useState<"recurring" | "joining_fee" | "combined">("recurring");
+  const [joiningFeeAmount, setJoiningFeeAmount] = useState<number>(1000);
   const [qrMode, setQrMode] = useState<"dynamic" | "uploaded">("dynamic");
   const [utrNumber, setUtrNumber] = useState("");
   const [proofFile, setProofFile] = useState<File | null>(null);
@@ -119,12 +121,19 @@ export default function SubscriptionPage() {
     }
   }, [orgId]);
 
-  // Pricing calculation based on Standard (₹5/child) vs Pro (₹7/child)
-  const calculatedPrice = useMemo(() => {
+  // Pricing calculation based on Standard (₹5/child) vs Pro (₹7/child) + Optional Joining Fee
+  const monthlyPlanPrice = useMemo(() => {
     const count = Math.max(1, targetStudents);
     const rate = selectedPlan === "standard" ? 5 : 7;
     return count * rate;
   }, [targetStudents, selectedPlan]);
+
+  const calculatedPrice = useMemo(() => {
+    const cleanJoin = Math.max(0, Number(joiningFeeAmount) || 0);
+    if (paymentCategory === "joining_fee") return cleanJoin;
+    if (paymentCategory === "combined") return monthlyPlanPrice + cleanJoin;
+    return monthlyPlanPrice;
+  }, [paymentCategory, joiningFeeAmount, monthlyPlanPrice]);
 
   // Copy UPI ID helper
   const handleCopyUpi = () => {
@@ -141,6 +150,11 @@ export default function SubscriptionPage() {
 
     if (!utrNumber.trim()) {
       setError("Please enter the UTR or Transaction Reference Number from your payment app.");
+      return;
+    }
+
+    if (calculatedPrice <= 0) {
+      setError("Payable amount must be greater than ₹0.");
       return;
     }
 
@@ -170,14 +184,43 @@ export default function SubscriptionPage() {
         screenshotUrl = publicUrlData.publicUrl;
       }
 
-      // Invoke RPC
-      const { data, error: submitErr } = await supabase.rpc("submit_subscription_payment", {
+      const cleanJoiningPortion =
+        paymentCategory === "joining_fee"
+          ? calculatedPrice
+          : paymentCategory === "combined"
+          ? Math.max(0, Number(joiningFeeAmount) || 0)
+          : 0;
+
+      const categoryTag =
+        paymentCategory === "joining_fee"
+          ? "JOINING FEE"
+          : paymentCategory === "combined"
+          ? "JOINING + MONTHLY"
+          : "MONTHLY";
+
+      const formattedUtr = `${utrNumber.trim()} [Plan: ${selectedPlan.toUpperCase()} | ${categoryTag}]`;
+
+      // Invoke enhanced RPC (with fallback to legacy 5-param RPC if migration 0021 not yet run)
+      let { error: submitErr } = await supabase.rpc("submit_subscription_payment", {
         p_org_id: orgId,
         p_student_limit: targetStudents,
         p_amount: calculatedPrice,
-        p_utr_number: `${utrNumber.trim()} [Plan: ${selectedPlan.toUpperCase()}]`,
+        p_utr_number: formattedUtr,
         p_screenshot_url: screenshotUrl || null,
+        p_payment_category: paymentCategory,
+        p_joining_fee_portion: cleanJoiningPortion,
       });
+
+      if (submitErr && (submitErr.code === "PGRST202" || submitErr.message?.includes("p_payment_category"))) {
+        const legacyRes = await supabase.rpc("submit_subscription_payment", {
+          p_org_id: orgId,
+          p_student_limit: targetStudents,
+          p_amount: calculatedPrice,
+          p_utr_number: formattedUtr,
+          p_screenshot_url: screenshotUrl || null,
+        });
+        submitErr = legacyRes.error;
+      }
 
       if (submitErr) throw submitErr;
 
@@ -210,7 +253,12 @@ export default function SubscriptionPage() {
 
   const upiId = (subData?.pricing.upi_id || "edutechlab@upi").trim();
   const payeeName = (subData?.pricing.upi_name || "EduTechLab Platform").trim();
-  const planNote = `EduTechLab ${selectedPlan.toUpperCase()} Plan (${targetStudents} Students)`;
+  const planNote =
+    paymentCategory === "joining_fee"
+      ? "EduTechLab One-Time Joining Fee"
+      : paymentCategory === "combined"
+      ? `EduTechLab Joining + ${selectedPlan.toUpperCase()} (${targetStudents} Students)`
+      : `EduTechLab ${selectedPlan.toUpperCase()} Plan (${targetStudents} Students)`;
   const upiIntentUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(
     payeeName
   )}&am=${calculatedPrice}&cu=INR&tn=${encodeURIComponent(planNote)}`;
@@ -504,136 +552,253 @@ export default function SubscriptionPage() {
             </div>
           </div>
 
-          {/* 1. PLAN SELECTOR CARDS (Standard vs Pro) */}
+          {/* 0. PAYMENT PURPOSE SELECTOR (Recurring vs One-Time Joining Fee vs Combined) */}
           <div className="mt-6">
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Step 1: Choose Your Plan
+              Payment Purpose
             </label>
-            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Standard Card */}
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <button
                 type="button"
-                onClick={() => setSelectedPlan("standard")}
-                className={`p-4 rounded-2xl border-2 text-left transition ${
-                  selectedPlan === "standard"
-                    ? "border-teal-600 bg-teal-50/40 ring-2 ring-teal-600/20 shadow-xs"
-                    : "border-slate-200 bg-white hover:border-slate-300"
+                onClick={() => setPaymentCategory("recurring")}
+                className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                  paymentCategory === "recurring"
+                    ? "border-purple-600 bg-purple-50 text-purple-900 ring-1 ring-purple-600"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-sm text-slate-900">Standard Plan</span>
-                  <span className="text-xs font-black text-teal-800 bg-teal-100 px-2.5 py-0.5 rounded-full font-mono">
-                    ₹5 / child
-                  </span>
-                </div>
-                <p className="mt-1.5 text-[11px] text-slate-600 leading-tight">
-                  Directory, Attendance auto-save, Fees & receipts, Homework & WhatsApp alerts.
-                </p>
+                <div className="text-xs font-bold">Monthly Plan</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Regular renewal / recharge</div>
               </button>
 
-              {/* Pro Card */}
               <button
                 type="button"
-                onClick={() => setSelectedPlan("pro")}
-                className={`p-4 rounded-2xl border-2 text-left transition relative ${
-                  selectedPlan === "pro"
-                    ? "border-purple-600 bg-purple-50/40 ring-2 ring-purple-600/20 shadow-sm"
-                    : "border-slate-200 bg-white hover:border-slate-300"
+                onClick={() => setPaymentCategory("joining_fee")}
+                className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                  paymentCategory === "joining_fee"
+                    ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-600"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
               >
-                <span className="absolute -top-2.5 right-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
-                  RECOMMENDED
+                <div className="text-xs font-bold">One-Time Joining Fee</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Onboarding &amp; setup charge</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPaymentCategory("combined")}
+                className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                  paymentCategory === "combined"
+                    ? "border-indigo-600 bg-indigo-50 text-indigo-900 ring-1 ring-indigo-600"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <div className="text-xs font-bold">Joining + 1st Month</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Setup fee + plan together</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Joining Fee Input (shown when Joining Fee or Combined is active) */}
+          {(paymentCategory === "joining_fee" || paymentCategory === "combined") && (
+            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-emerald-900">
+                  One-Time Joining / Setup Fee Amount (₹)
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[500, 1000, 1500, 2000, 5000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setJoiningFeeAmount(amt)}
+                      className={`rounded-lg border px-2 py-1 text-[11px] font-bold transition ${
+                        joiningFeeAmount === amt
+                          ? "border-emerald-700 bg-emerald-700 text-white"
+                          : "border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"
+                      }`}
+                    >
+                      ₹{amt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-2.5 flex items-center gap-3">
+                <input
+                  type="number"
+                  min={100}
+                  max={100000}
+                  value={joiningFeeAmount}
+                  onChange={(e) => setJoiningFeeAmount(Math.max(0, Number(e.target.value) || 0))}
+                  className="w-48 rounded-xl border border-emerald-300 bg-white px-4 py-2.5 text-base font-bold text-slate-900 outline-none focus:border-emerald-600"
+                />
+                <span className="text-xs text-emerald-800">
+                  One-time onboarding, training &amp; portal setup fee
                 </span>
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-sm text-slate-900">Pro Plan 🔥</span>
-                  <span className="text-xs font-black text-purple-800 bg-purple-100 px-2.5 py-0.5 rounded-full font-mono">
-                    ₹7 / child
-                  </span>
+              </div>
+            </div>
+          )}
+
+          {paymentCategory !== "joining_fee" && (
+            <>
+              {/* 1. PLAN SELECTOR CARDS (Standard vs Pro) */}
+              <div className="mt-6">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Step 1: Choose Your Plan
+                </label>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Standard Card */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPlan("standard")}
+                    className={`p-4 rounded-2xl border-2 text-left transition ${
+                      selectedPlan === "standard"
+                        ? "border-teal-600 bg-teal-50/40 ring-2 ring-teal-600/20 shadow-xs"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-sm text-slate-900">Standard Plan</span>
+                      <span className="text-xs font-black text-teal-800 bg-teal-100 px-2.5 py-0.5 rounded-full font-mono">
+                        ₹5 / child
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-slate-600 leading-tight">
+                      Directory, Attendance auto-save, Fees &amp; receipts, Homework &amp; WhatsApp alerts.
+                    </p>
+                  </button>
+
+                  {/* Pro Card */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPlan("pro")}
+                    className={`p-4 rounded-2xl border-2 text-left transition relative ${
+                      selectedPlan === "pro"
+                        ? "border-purple-600 bg-purple-50/40 ring-2 ring-purple-600/20 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="absolute -top-2.5 right-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
+                      RECOMMENDED
+                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-sm text-slate-900">Pro Plan 🔥</span>
+                      <span className="text-xs font-black text-purple-800 bg-purple-100 px-2.5 py-0.5 rounded-full font-mono">
+                        ₹7 / child
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-slate-600 leading-tight">
+                      Everything + Gate QR Kiosk, PVC ID Cards, Luxury Marksheets, Session Wizard &amp; Staff RBAC.
+                    </p>
+                  </button>
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-600 leading-tight">
-                  Everything + Gate QR Kiosk, PVC ID Cards, Luxury Marksheets, Session Wizard & Staff RBAC.
-                </p>
-              </button>
-            </div>
-          </div>
+              </div>
 
-          {/* Quick preset buttons */}
-          <div className="mt-6">
-            <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Step 2: Quick Student Capacity Selection
-            </label>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {[50, 100, 200, 300, 500, 1000].map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => setTargetStudents(preset)}
-                  className={`rounded-xl border px-3.5 py-2 text-xs font-semibold transition ${
-                    targetStudents === preset
-                      ? "border-purple-600 bg-purple-600 text-white shadow-xs"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  {preset} Students
-                </button>
-              ))}
-            </div>
-          </div>
+              {/* Quick preset buttons */}
+              <div className="mt-6">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Step 2: Quick Student Capacity Selection
+                </label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[50, 100, 200, 300, 500, 1000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setTargetStudents(preset)}
+                      className={`rounded-xl border px-3.5 py-2 text-xs font-semibold transition ${
+                        targetStudents === preset
+                          ? "border-purple-600 bg-purple-600 text-white shadow-xs"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {preset} Students
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          {/* Custom Student Counter Input */}
-          <div className="mt-6">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
-              Or Enter Exact Student Enrollment
-            </label>
-            <div className="mt-2 flex items-center gap-3">
-              <input
-                type="number"
-                min={1}
-                max={10000}
-                value={targetStudents}
-                onChange={(e) => setTargetStudents(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-48 rounded-xl border border-slate-300 px-4 py-3 text-base font-bold text-slate-900 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
-              />
-              <span className="text-xs text-slate-500">active students</span>
-            </div>
-          </div>
+              {/* Custom Student Counter Input */}
+              <div className="mt-6">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
+                  Or Enter Exact Student Enrollment
+                </label>
+                <div className="mt-2 flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={targetStudents}
+                    onChange={(e) => setTargetStudents(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-48 rounded-xl border border-slate-300 px-4 py-3 text-base font-bold text-slate-900 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+                  />
+                  <span className="text-xs text-slate-500">active students</span>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Transparent Price Breakdown */}
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center justify-between">
-              <span>Monthly Subscription Breakdown</span>
+              <span>Payment Breakdown</span>
               <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full uppercase">
-                {selectedPlan} Plan
+                {paymentCategory === "joining_fee"
+                  ? "One-Time Joining Fee"
+                  : paymentCategory === "combined"
+                  ? `Joining + ${selectedPlan} Plan`
+                  : `${selectedPlan} Plan`}
               </span>
             </h3>
             <div className="mt-3 space-y-2 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>Selected Plan:</span>
-                <span className="font-semibold text-slate-900 capitalize">
-                  {selectedPlan} Plan (@ ₹{selectedPlan === "standard" ? 5 : 7} / student)
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Student Capacity Quota:</span>
-                <span className="font-semibold text-slate-900 font-mono">
-                  {targetStudents} Students
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Monthly Rate Calculation:</span>
-                <span className="font-semibold text-slate-900 font-mono">
-                  {targetStudents} × ₹{selectedPlan === "standard" ? 5 : 7}
-                </span>
-              </div>
+              {(paymentCategory === "joining_fee" || paymentCategory === "combined") && (
+                <div className="flex justify-between text-emerald-800">
+                  <span>One-Time Joining / Setup Fee:</span>
+                  <span className="font-bold font-mono">
+                    ₹{(Math.max(0, Number(joiningFeeAmount) || 0)).toLocaleString("en-IN")}
+                  </span>
+                </div>
+              )}
+
+              {paymentCategory !== "joining_fee" && (
+                <>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Selected Plan:</span>
+                    <span className="font-semibold text-slate-900 capitalize">
+                      {selectedPlan} Plan (@ ₹{selectedPlan === "standard" ? 5 : 7} / student)
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Student Capacity Quota:</span>
+                    <span className="font-semibold text-slate-900 font-mono">
+                      {targetStudents} Students
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Monthly Subscription Amount:</span>
+                    <span className="font-semibold text-slate-900 font-mono">
+                      ₹{monthlyPlanPrice.toLocaleString("en-IN")} ({targetStudents} × ₹{selectedPlan === "standard" ? 5 : 7})
+                    </span>
+                  </div>
+                </>
+              )}
+
               <div className="border-t border-slate-200 pt-3 flex justify-between items-center text-sm">
-                <span className="font-bold text-slate-900">Total Monthly Subscription:</span>
+                <span className="font-bold text-slate-900">
+                  {paymentCategory === "joining_fee"
+                    ? "Total Joining Fee Payable:"
+                    : paymentCategory === "combined"
+                    ? "Total First Payment Payable:"
+                    : "Total Monthly Subscription:"}
+                </span>
                 <span className="text-2xl font-black text-purple-700 font-mono">
-                  ₹{calculatedPrice}
+                  ₹{calculatedPrice.toLocaleString("en-IN")}
                 </span>
               </div>
-              <div className="text-[11px] text-slate-400 text-right">
-                (Equivalent to ₹{(calculatedPrice * 12).toLocaleString("en-IN")} / year)
-              </div>
+              {paymentCategory !== "joining_fee" && (
+                <div className="text-[11px] text-slate-400 text-right">
+                  Monthly renewal after setup: ₹{monthlyPlanPrice.toLocaleString("en-IN")} / month
+                </div>
+              )}
             </div>
           </div>
 
@@ -736,7 +901,12 @@ export default function SubscriptionPage() {
               Scan with PhonePe, Google Pay, Paytm, or any UPI App
             </p>
             <p className="text-[11px] text-slate-500 text-center">
-              Auto Locked Amount: <strong className="text-purple-700 font-bold">₹{calculatedPrice}</strong> • Plan: {selectedPlan.toUpperCase()} ({targetStudents} Students)
+              Auto Locked Amount: <strong className="text-purple-700 font-bold">₹{calculatedPrice}</strong> •{" "}
+              {paymentCategory === "joining_fee"
+                ? "One-Time Joining Fee"
+                : paymentCategory === "combined"
+                ? `Joining + ${selectedPlan.toUpperCase()} (${targetStudents} Students)`
+                : `Plan: ${selectedPlan.toUpperCase()} (${targetStudents} Students)`}
             </p>
 
             {/* Mobile 1-Tap UPI Intent Button */}

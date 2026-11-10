@@ -67,6 +67,13 @@ export default function Home() {
 
   // Auto-Redirect for Logged-In Users, Standalone PWA & Load Dynamic Platform Settings
   useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref") || params.get("agent") || params.get("code");
+      if (ref && ref.trim()) {
+        localStorage.setItem("edutechlab_referral_code", ref.trim().toUpperCase());
+      }
+    } catch {}
     (async () => {
       try {
         const supabase = createClient();
@@ -1311,6 +1318,9 @@ export default function Home() {
             )}
             <Link href="/parent-portal" className="hover:text-purple-600 transition">
               Parent Portal
+            </Link>
+            <Link href="/agent-portal" className="hover:text-purple-600 transition">
+              Partner / Agent Portal
             </Link>
             <Link href="/login" className="hover:text-purple-600 transition">
               Staff / Admin Login

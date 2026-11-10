@@ -1,46 +1,627 @@
-"use client"
+"use client";
 
-import { FormEvent, useState } from "react"
-import Link from "next/link"
-import { ArrowLeft, ArrowRight, Check, Copy, Eye, EyeOff, GraduationCap, ShieldCheck } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
+import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Copy,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+  Tag,
+} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
-type FormState={name:string;type:string;address:string;phone:string;email:string;adminName:string;adminEmail:string;password:string}
+type FormState = {
+  name: string;
+  type: string;
+  address: string;
+  phone: string;
+  email: string;
+  adminName: string;
+  adminEmail: string;
+  password: string;
+  referralCode: string;
+};
 
-export default function RegisterPage(){
- const supabase=createClient()
- const [step,setStep]=useState(1)
- const [loading,setLoading]=useState(false)
- const [error,setError]=useState("")
- const [showPassword,setShowPassword]=useState(false)
- const [loginId,setLoginId]=useState("")
- const [copied,setCopied]=useState(false)
- const [form,setForm]=useState<FormState>({name:"",type:"school",address:"",phone:"",email:"",adminName:"",adminEmail:"",password:""})
- const update=(key:keyof FormState,value:string)=>setForm(f=>({...f,[key]:value}))
- const next=()=>{setError("");setStep(s=>Math.min(3,s+1))}
- const back=()=>{setError("");setStep(s=>Math.max(1,s-1))}
- async function submit(e:FormEvent){
-  e.preventDefault(); setLoading(true); setError("")
-  const {data,error}=await supabase.functions.invoke("register-institute",{body:{
-   instituteName:form.name,instituteType:form.type,address:form.address,phone:form.phone,
-   instituteEmail:form.email,adminName:form.adminName,adminEmail:form.adminEmail,password:form.password
-  }})
-  if(error){
-   let message="Registration could not be completed. Please try again.";
-   const context=(error as any).context;
-   try{if(context?.json){const body=await context.json();if(body?.error) message=body.error;}}catch{}
-   if(message==="Registration could not be completed. Please try again." && error.message) message=error.message;
-   setError(message);setLoading(false);return
+export default function RegisterPage() {
+  const supabase = createClient();
+  const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginId, setLoginId] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [verifiedPartner, setVerifiedPartner] = useState<{
+    code: string;
+    name: string;
+  } | null>(null);
+  const [checkingRef, setCheckingRef] = useState(false);
+  const [refError, setRefError] = useState("");
+
+  const [form, setForm] = useState<FormState>({
+    name: "",
+    type: "school",
+    address: "",
+    phone: "",
+    email: "",
+    adminName: "",
+    adminEmail: "",
+    password: "",
+    referralCode: "",
+  });
+
+  // Read ?ref=CODE from URL or localStorage cleanly (static-build safe)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlRef = params.get("ref") || params.get("agent") || params.get("code");
+      const savedRef = localStorage.getItem("edutechlab_referral_code");
+      const initialCode = (urlRef || savedRef || "").trim().toUpperCase();
+      if (urlRef) {
+        localStorage.setItem("edutechlab_referral_code", urlRef.trim().toUpperCase());
+      }
+      if (initialCode) {
+        setForm((f) => ({ ...f, referralCode: initialCode }));
+        verifyCode(initialCode);
+      }
+    } catch {}
+  }, []);
+
+  const verifyCode = async (rawCode: string) => {
+    const clean = rawCode.trim().toUpperCase();
+    setRefError("");
+    if (!clean) {
+      setVerifiedPartner(null);
+      return;
+    }
+    setCheckingRef(true);
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("validate_referral_code", {
+        p_code: clean,
+      });
+      if (!rpcErr && data?.valid) {
+        setVerifiedPartner({ code: data.agent_code, name: data.agent_name });
+        setRefError("");
+      } else {
+        setVerifiedPartner(null);
+        setRefError("Code not found or inactive (leave blank if registering directly).");
+      }
+    } catch {
+      setVerifiedPartner(null);
+    } finally {
+      setCheckingRef(false);
+    }
+  };
+
+  const update = (key: keyof FormState, value: string) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    if (key === "referralCode") {
+      setVerifiedPartner(null);
+      setRefError("");
+    }
+  };
+
+  const next = () => {
+    setError("");
+    setStep((s) => Math.min(3, s + 1));
+  };
+  const back = () => {
+    setError("");
+    setStep((s) => Math.max(1, s - 1));
+  };
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    const { data, error: fnError } = await supabase.functions.invoke("register-institute", {
+      body: {
+        instituteName: form.name,
+        instituteType: form.type,
+        address: form.address,
+        phone: form.phone,
+        instituteEmail: form.email,
+        adminName: form.adminName,
+        adminEmail: form.adminEmail,
+        password: form.password,
+        referralCode: form.referralCode.trim().toUpperCase() || undefined,
+      },
+    });
+
+    if (fnError) {
+      let message = "Registration could not be completed. Please try again.";
+      const context = (fnError as any).context;
+      try {
+        if (context?.json) {
+          const body = await context.json();
+          if (body?.error) message = body.error;
+        }
+      } catch {}
+      if (message === "Registration could not be completed. Please try again." && fnError.message) {
+        message = fnError.message;
+      }
+      setError(message);
+      setLoading(false);
+      return;
+    }
+
+    if (!data?.loginId) {
+      setError(data?.error || "Registration could not be completed.");
+      setLoading(false);
+      return;
+    }
+
+    // Attach referral code via safe PostgreSQL RPC so attribution always succeeds
+    if (form.referralCode.trim()) {
+      try {
+        await supabase.rpc("attach_referral_to_institute", {
+          p_login_id: data.loginId,
+          p_referral_code: form.referralCode.trim().toUpperCase(),
+        });
+        localStorage.removeItem("edutechlab_referral_code");
+      } catch {}
+    }
+
+    setLoginId(data.loginId);
+    setStep(4);
+    setLoading(false);
   }
-  if(!data?.loginId){setError(data?.error||"Registration could not be completed.");setLoading(false);return}
-  setLoginId(data.loginId);setStep(4);setLoading(false)
- }
- async function copyId(){await navigator.clipboard.writeText(loginId);setCopied(true);setTimeout(()=>setCopied(false),1500)}
- if(step===4)return <main className="min-h-screen bg-[#f7f7f4] px-5 py-10 sm:px-8"><div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl items-center justify-center"><div className="grid w-full overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_30px_100px_rgba(30,24,75,.12)] md:grid-cols-[.85fr_1.15fr]"><div className="bg-[#171625] p-8 text-white sm:p-12"><div className="flex items-center gap-2.5"><div className="h-9 w-9 overflow-hidden rounded-xl bg-white p-0.5 shadow-md flex items-center justify-center"><img src="/icons/icon-192.png" alt="EduTechLab Logo" className="h-full w-full object-contain rounded-lg" /></div><span className="font-bold tracking-tight">EduTechLab</span></div><p className="mt-16 text-[10px] font-bold uppercase tracking-[.2em] text-[#58dfcc]">Workspace created</p><h1 className="mt-4 text-4xl font-semibold leading-tight tracking-[-.06em] sm:text-5xl">Your institute is ready.</h1><p className="mt-5 text-sm leading-7 text-white/55">Save your Institute ID. You’ll use it with your password every time you sign in to the admin panel.</p><div className="mt-8 flex items-center gap-2 text-xs text-white/60"><ShieldCheck size={16} className="text-[#58dfcc]"/> Secure admin access</div></div><div className="p-8 sm:p-12"><div className="mx-auto max-w-md"><div className="grid h-14 w-14 place-items-center rounded-2xl bg-[#eeeaff] text-[#6657e8]"><Check size={26}/></div><h2 className="mt-6 text-2xl font-bold tracking-tight text-slate-900">Your login details</h2><p className="mt-2 text-sm leading-6 text-slate-500">Keep these details somewhere safe. Your password is the one you created during registration.</p><div className="mt-7 rounded-2xl border border-[#dcd7ff] bg-[#f8f7ff] p-5"><p className="text-[9px] font-bold uppercase tracking-[.18em] text-[#6657e8]">Institute ID</p><div className="mt-2 flex items-center justify-between gap-3"><span className="font-mono text-2xl font-bold tracking-[.08em] text-slate-900">{loginId}</span><button onClick={copyId} className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-500 hover:text-slate-900" aria-label="Copy Institute ID">{copied?<Check size={16}/>:<Copy size={16}/>}</button></div></div><Link href="/login" className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171625] px-5 py-3.5 text-sm font-bold text-white transition hover:-translate-y-0.5">Go to admin sign in <ArrowRight size={16}/></Link><Link href="/" className="mt-4 block text-center text-sm font-medium text-slate-400 hover:text-slate-700">Back to EduTechLab</Link></div></div></div></div></main>
- return <main className="min-h-screen bg-[#f7f7f4] px-5 py-8 sm:px-8"><div className="mx-auto max-w-5xl"><header className="flex items-center justify-between"><Link href="/" className="flex items-center gap-2.5"><div className="h-9 w-9 overflow-hidden rounded-[11px] bg-white border border-slate-200 p-0.5 shadow-xs flex items-center justify-center"><img src="/icons/icon-192.png" alt="EduTechLab Logo" className="h-full w-full object-contain rounded-lg" /></div><span className="text-[18px] font-bold tracking-[-.05em] text-slate-900">EduTech<span className="text-[#6657e8]">Lab</span></span></Link><Link href="/login" className="text-sm font-semibold text-slate-500 hover:text-slate-900">Already have an account? Sign in</Link></header><div className="mx-auto mt-12 max-w-3xl"><div className="mb-8 text-center"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#6657e8]">Create your workspace</p><h1 className="mt-3 text-4xl font-semibold tracking-[-.06em] text-slate-900 sm:text-5xl">Register your institute</h1><p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">Set up your institute once. Your workspace, admin access and core education tools stay together.</p></div><div className="mb-7 flex items-center justify-center gap-2">{[["1","Institute"],["2","Admin access"],["3","Review"]].map(([n,label])=><div key={n} className="flex items-center gap-2"><div className={`grid h-8 w-8 place-items-center rounded-full text-xs font-bold ${step>=Number(n)?"bg-[#171625] text-white":"border border-slate-200 bg-white text-slate-400"}`}>{n}</div><span className={`hidden text-xs font-semibold sm:block ${step>=Number(n)?"text-slate-900":"text-slate-400"}`}>{label}</span>{n!=="3"&&<span className="mx-1 h-px w-10 bg-slate-200 sm:w-16"/>}</div>)}</div><form onSubmit={e=>{e.preventDefault();if(step<3)next();else submit(e)}} className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_25px_80px_rgba(30,24,75,.08)] sm:p-9">{step===1&&<div className="grid gap-5 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Institute name" placeholder="e.g. New Sunrise Public School" value={form.name} onChange={v=>update("name",v)} required/></div><Field label="Institute type" value={form.type} onChange={v=>update("type",v)} select/><Field label="Institute phone" placeholder="+91 98765 43210" value={form.phone} onChange={v=>update("phone",v)}/><div className="sm:col-span-2"><Field label="Institute email" placeholder="office@example.com" value={form.email} onChange={v=>update("email",v)} type="email"/></div><div className="sm:col-span-2"><Field label="Full address" placeholder="Town, district, state" value={form.address} onChange={v=>update("address",v)} textarea/></div></div>}{step===2&&<div className="mx-auto max-w-xl space-y-5"><div className="rounded-2xl bg-[#f8f7ff] p-4 text-sm text-slate-600"><b className="text-slate-900">This person will become the main institute admin.</b> They can later create staff accounts and control their permissions.</div><Field label="Admin full name" placeholder="Your name" value={form.adminName} onChange={v=>update("adminName",v)} required/><Field label="Admin email" placeholder="you@example.com" value={form.adminEmail} onChange={v=>update("adminEmail",v)} type="email" required/><label className="block text-sm font-semibold text-slate-700">Create password<div className="relative mt-2"><input className="w-full rounded-xl border border-slate-300 px-4 py-3.5 pr-12 outline-none transition focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10" type={showPassword?"text":"password"} minLength={8} required value={form.password} onChange={e=>update("password",e.target.value)} placeholder="At least 8 characters"/><button type="button" onClick={()=>setShowPassword(v=>!v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div><span className="mt-1.5 block text-[11px] font-normal text-slate-400">Use a password you can remember. You’ll sign in with the Institute ID we generate for you.</span></label></div>}{step===3&&<div className="grid gap-4 sm:grid-cols-2"><Review label="Institute" value={form.name}/><Review label="Type" value={form.type==="school"?"School":form.type==="coaching"?"Coaching Institute":form.type==="madrasa"?"Madrasa":"Other"}/><Review label="Admin" value={form.adminName}/><Review label="Admin email" value={form.adminEmail}/><div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-5"><p className="text-xs font-bold uppercase tracking-[.15em] text-slate-400">After registration</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><div><b className="text-sm">01</b><p className="mt-1 text-xs text-slate-500">Unique Institute ID</p></div><div><b className="text-sm">02</b><p className="mt-1 text-xs text-slate-500">Secure admin account</p></div><div><b className="text-sm">03</b><p className="mt-1 text-xs text-slate-500">Dedicated workspace</p></div></div></div></div>}{error&&<p className="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}<div className="mt-8 flex items-center justify-between border-t border-slate-100 pt-6">{step>1?<button type="button" onClick={back} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700"><ArrowLeft size={15}/> Back</button>:<span/>}{step<3?<button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-[#171625] px-6 py-3.5 text-sm font-bold text-white">Continue <ArrowRight size={15}/></button>:<button type="submit" disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-[#171625] px-6 py-3.5 text-sm font-bold text-white disabled:opacity-50">{loading?"Creating workspace...":"Create institute"}{!loading&&<Check size={15}/>}</button>}</div></form><p className="mt-6 text-center text-[11px] text-slate-400">By creating an institute, you agree to use EduTechLab responsibly and keep your login credentials secure.</p></div></div></main>
+
+  async function copyId() {
+    await navigator.clipboard.writeText(loginId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  if (step === 4) {
+    return (
+      <main className="min-h-screen bg-[#f7f7f4] px-5 py-10 sm:px-8">
+        <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl items-center justify-center">
+          <div className="grid w-full overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_30px_100px_rgba(30,24,75,.12)] md:grid-cols-[.85fr_1.15fr]">
+            <div className="bg-[#171625] p-8 text-white sm:p-12">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 overflow-hidden rounded-xl bg-white p-0.5 shadow-md flex items-center justify-center">
+                  <img
+                    src="/icons/icon-192.png"
+                    alt="EduTechLab Logo"
+                    className="h-full w-full object-contain rounded-lg"
+                  />
+                </div>
+                <span className="font-bold tracking-tight">EduTechLab</span>
+              </div>
+              <p className="mt-16 text-[10px] font-bold uppercase tracking-[.2em] text-[#58dfcc]">
+                Workspace created
+              </p>
+              <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-[-.06em] sm:text-5xl">
+                Your institute is ready.
+              </h1>
+              <p className="mt-5 text-sm leading-7 text-white/55">
+                Save your Institute ID. You&apos;ll use it with your password every time you sign in to
+                the admin panel.
+              </p>
+              <div className="mt-8 flex items-center gap-2 text-xs text-white/60">
+                <ShieldCheck size={16} className="text-[#58dfcc]" /> Secure admin access
+              </div>
+            </div>
+
+            <div className="p-8 sm:p-12">
+              <div className="mx-auto max-w-md">
+                <div className="grid h-14 w-14 place-items-center rounded-2xl bg-[#eeeaff] text-[#6657e8]">
+                  <Check size={26} />
+                </div>
+                <h2 className="mt-6 text-2xl font-bold tracking-tight text-slate-900">
+                  Your login details
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Keep these details somewhere safe. Your password is the one you created during
+                  registration.
+                </p>
+                <div className="mt-7 rounded-2xl border border-[#dcd7ff] bg-[#f8f7ff] p-5">
+                  <p className="text-[9px] font-bold uppercase tracking-[.18em] text-[#6657e8]">
+                    Institute ID
+                  </p>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <span className="font-mono text-2xl font-bold tracking-[.08em] text-slate-900">
+                      {loginId}
+                    </span>
+                    <button
+                      onClick={copyId}
+                      className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-500 hover:text-slate-900"
+                      aria-label="Copy Institute ID"
+                    >
+                      {copied ? <Check size={16} /> : <Copy size={16} />}
+                    </button>
+                  </div>
+                </div>
+                {verifiedPartner && (
+                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-800">
+                    Registered via Sales Partner: <strong>{verifiedPartner.name}</strong> (
+                    {verifiedPartner.code})
+                  </div>
+                )}
+                <Link
+                  href="/login"
+                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171625] px-5 py-3.5 text-sm font-bold text-white transition hover:-translate-y-0.5"
+                >
+                  Go to admin sign in <ArrowRight size={16} />
+                </Link>
+                <Link
+                  href="/"
+                  className="mt-4 block text-center text-sm font-medium text-slate-400 hover:text-slate-700"
+                >
+                  Back to EduTechLab
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f7f7f4] px-5 py-8 sm:px-8">
+      <div className="mx-auto max-w-5xl">
+        <header className="flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="h-9 w-9 overflow-hidden rounded-[11px] bg-white border border-slate-200 p-0.5 shadow-xs flex items-center justify-center">
+              <img
+                src="/icons/icon-192.png"
+                alt="EduTechLab Logo"
+                className="h-full w-full object-contain rounded-lg"
+              />
+            </div>
+            <span className="text-[18px] font-bold tracking-[-.05em] text-slate-900">
+              EduTech<span className="text-[#6657e8]">Lab</span>
+            </span>
+          </Link>
+          <Link href="/login" className="text-sm font-semibold text-slate-500 hover:text-slate-900">
+            Already have an account? Sign in
+          </Link>
+        </header>
+
+        <div className="mx-auto mt-12 max-w-3xl">
+          <div className="mb-8 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#6657e8]">
+              Create your workspace
+            </p>
+            <h1 className="mt-3 text-4xl font-semibold tracking-[-.06em] text-slate-900 sm:text-5xl">
+              Register your institute
+            </h1>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">
+              Set up your institute once. Your workspace, admin access and core education tools stay
+              together.
+            </p>
+          </div>
+
+          <div className="mb-7 flex items-center justify-center gap-2">
+            {[
+              ["1", "Institute"],
+              ["2", "Admin access"],
+              ["3", "Review"],
+            ].map(([n, label]) => (
+              <div key={n} className="flex items-center gap-2">
+                <div
+                  className={`grid h-8 w-8 place-items-center rounded-full text-xs font-bold ${
+                    step >= Number(n)
+                      ? "bg-[#171625] text-white"
+                      : "border border-slate-200 bg-white text-slate-400"
+                  }`}
+                >
+                  {n}
+                </div>
+                <span
+                  className={`hidden text-xs font-semibold sm:block ${
+                    step >= Number(n) ? "text-slate-900" : "text-slate-400"
+                  }`}
+                >
+                  {label}
+                </span>
+                {n !== "3" && <span className="mx-1 h-px w-10 bg-slate-200 sm:w-16" />}
+              </div>
+            ))}
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (step < 3) next();
+              else submit(e);
+            }}
+            className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_25px_80px_rgba(30,24,75,.08)] sm:p-9"
+          >
+            {step === 1 && (
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Institute name"
+                    placeholder="e.g. New Sunrise Public School"
+                    value={form.name}
+                    onChange={(v) => update("name", v)}
+                    required
+                  />
+                </div>
+                <Field
+                  label="Institute type"
+                  value={form.type}
+                  onChange={(v) => update("type", v)}
+                  select
+                />
+                <Field
+                  label="Institute phone"
+                  placeholder="+91 98765 43210"
+                  value={form.phone}
+                  onChange={(v) => update("phone", v)}
+                />
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Institute email"
+                    placeholder="office@example.com"
+                    value={form.email}
+                    onChange={(v) => update("email", v)}
+                    type="email"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Full address"
+                    placeholder="Town, district, state"
+                    value={form.address}
+                    onChange={(v) => update("address", v)}
+                    textarea
+                  />
+                </div>
+
+                {/* Partner / Sales Agent Referral Code */}
+                <div className="sm:col-span-2 rounded-2xl border border-purple-100 bg-purple-50/50 p-4">
+                  <label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-purple-900">
+                    <Tag size={13} /> Partner / Sales Agent Referral Code (Optional)
+                  </label>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      type="text"
+                      value={form.referralCode}
+                      onChange={(e) => update("referralCode", e.target.value.toUpperCase())}
+                      onBlur={() => {
+                        if (form.referralCode.trim()) verifyCode(form.referralCode);
+                      }}
+                      placeholder="e.g. RAHUL01 (Leave blank if direct)"
+                      className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-mono font-bold uppercase outline-none transition focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => verifyCode(form.referralCode)}
+                      disabled={checkingRef || !form.referralCode.trim()}
+                      className="rounded-xl border border-purple-200 bg-white px-4 py-2.5 text-xs font-bold text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+                    >
+                      {checkingRef ? "Checking..." : "Apply"}
+                    </button>
+                  </div>
+                  {verifiedPartner && (
+                    <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 size={14} /> Partner Verified: {verifiedPartner.name} (
+                      {verifiedPartner.code})
+                    </p>
+                  )}
+                  {refError && <p className="mt-2 text-xs text-amber-700">{refError}</p>}
+                </div>
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="mx-auto max-w-xl space-y-5">
+                <div className="rounded-2xl bg-[#f8f7ff] p-4 text-sm text-slate-600">
+                  <b className="text-slate-900">
+                    This person will become the main institute admin.
+                  </b>{" "}
+                  They can later create staff accounts and control their permissions.
+                </div>
+                <Field
+                  label="Admin full name"
+                  placeholder="Your name"
+                  value={form.adminName}
+                  onChange={(v) => update("adminName", v)}
+                  required
+                />
+                <Field
+                  label="Admin email"
+                  placeholder="you@example.com"
+                  value={form.adminEmail}
+                  onChange={(v) => update("adminEmail", v)}
+                  type="email"
+                  required
+                />
+                <label className="block text-sm font-semibold text-slate-700">
+                  Create password
+                  <div className="relative mt-2">
+                    <input
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3.5 pr-12 outline-none transition focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10"
+                      type={showPassword ? "text" : "password"}
+                      minLength={8}
+                      required
+                      value={form.password}
+                      onChange={(e) => update("password", e.target.value)}
+                      placeholder="At least 8 characters"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <span className="mt-1.5 block text-[11px] font-normal text-slate-400">
+                    Use a password you can remember. You&apos;ll sign in with the Institute ID we
+                    generate for you.
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Review label="Institute" value={form.name} />
+                <Review
+                  label="Type"
+                  value={
+                    form.type === "school"
+                      ? "School"
+                      : form.type === "coaching"
+                      ? "Coaching Institute"
+                      : form.type === "madrasa"
+                      ? "Madrasa"
+                      : "Other"
+                  }
+                />
+                <Review label="Admin" value={form.adminName} />
+                <Review label="Admin email" value={form.adminEmail} />
+                {form.referralCode.trim() && (
+                  <div className="sm:col-span-2">
+                    <Review
+                      label="Partner Referral Code"
+                      value={
+                        verifiedPartner
+                          ? `${verifiedPartner.code} (${verifiedPartner.name})`
+                          : form.referralCode.trim().toUpperCase()
+                      }
+                    />
+                  </div>
+                )}
+                <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-xs font-bold uppercase tracking-[.15em] text-slate-400">
+                    After registration
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <b className="text-sm">01</b>
+                      <p className="mt-1 text-xs text-slate-500">Unique Institute ID</p>
+                    </div>
+                    <div>
+                      <b className="text-sm">02</b>
+                      <p className="mt-1 text-xs text-slate-500">Secure admin account</p>
+                    </div>
+                    <div>
+                      <b className="text-sm">03</b>
+                      <p className="mt-1 text-xs text-slate-500">Dedicated workspace</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <p className="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-8 flex items-center justify-between border-t border-slate-100 pt-6">
+              {step > 1 ? (
+                <button
+                  type="button"
+                  onClick={back}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700"
+                >
+                  <ArrowLeft size={15} /> Back
+                </button>
+              ) : (
+                <span />
+              )}
+              {step < 3 ? (
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#171625] px-6 py-3.5 text-sm font-bold text-white"
+                >
+                  Continue <ArrowRight size={15} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#171625] px-6 py-3.5 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  {loading ? "Creating workspace..." : "Create institute"}
+                  {!loading && <Check size={15} />}
+                </button>
+              )}
+            </div>
+          </form>
+
+          <p className="mt-6 text-center text-[11px] text-slate-400">
+            By creating an institute, you agree to use EduTechLab responsibly and keep your login
+            credentials secure.
+          </p>
+        </div>
+      </div>
+    </main>
+  );
 }
 
-function Field({label,value,onChange,type="text",required=false,placeholder="",select=false,textarea=false}:{label:string;value:string;onChange:(v:string)=>void;type?:string;required?:boolean;placeholder?:string;select?:boolean;textarea?:boolean}){
- return <label className="block text-sm font-semibold text-slate-700">{label}{select?<select className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3.5 outline-none focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10" value={value} onChange={e=>onChange(e.target.value)}><option value="school">School</option><option value="coaching">Coaching Institute</option><option value="madrasa">Madrasa</option><option value="other">Other</option></select>:textarea?<textarea className="mt-2 min-h-24 w-full resize-none rounded-xl border border-slate-300 px-4 py-3.5 outline-none focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>:<input className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3.5 outline-none transition focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10" type={type} required={required} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>}</label>
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  required = false,
+  placeholder = "",
+  select = false,
+  textarea = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  required?: boolean;
+  placeholder?: string;
+  select?: boolean;
+  textarea?: boolean;
+}) {
+  return (
+    <label className="block text-sm font-semibold text-slate-700">
+      {label}
+      {select ? (
+        <select
+          className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3.5 outline-none focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="school">School</option>
+          <option value="coaching">Coaching Institute</option>
+          <option value="madrasa">Madrasa</option>
+          <option value="other">Other</option>
+        </select>
+      ) : textarea ? (
+        <textarea
+          className="mt-2 min-h-24 w-full resize-none rounded-xl border border-slate-300 px-4 py-3.5 outline-none focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      ) : (
+        <input
+          className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3.5 outline-none transition focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10"
+          type={type}
+          required={required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      )}
+    </label>
+  );
 }
-function Review({label,value}:{label:string;value:string}){return <div className="rounded-2xl border border-slate-200 p-4"><p className="text-[10px] font-bold uppercase tracking-[.15em] text-slate-400">{label}</p><p className="mt-1 font-semibold text-slate-900">{value||"—"}</p></div>}
+
+function Review({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 p-4">
+      <p className="text-[10px] font-bold uppercase tracking-[.15em] text-slate-400">{label}</p>
+      <p className="mt-1 font-semibold text-slate-900">{value || "—"}</p>
+    </div>
+  );
+}

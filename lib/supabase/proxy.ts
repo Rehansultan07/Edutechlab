@@ -38,6 +38,7 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/icons/") ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/parent-portal") ||
+    pathname.startsWith("/agent-portal") ||
     pathname.startsWith("/platform-gateway") ||
     pathname.startsWith("/super-admin");
 

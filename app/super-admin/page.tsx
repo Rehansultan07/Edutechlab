@@ -58,6 +58,11 @@ import {
   IndianRupee,
   BarChart3,
   HelpCircle,
+  BadgePercent,
+  UserPlus,
+  UserCheck,
+  Banknote,
+  Link2,
 } from "lucide-react";
 import {
   PLATFORM_FEATURES,
@@ -97,6 +102,8 @@ type InstitutionItem = {
   is_paused?: boolean;
   pause_reason?: string | null;
   paused_at?: string | null;
+  referred_by_agent_id?: string | null;
+  referral_code_used?: string | null;
   subscription?: {
     student_limit: number;
     status: string;
@@ -119,7 +126,65 @@ type PaymentRequest = {
   screenshot_url: string | null;
   status: "pending" | "approved" | "rejected";
   rejection_reason: string | null;
+  payment_category?: "joining_fee" | "recurring" | "combined";
+  joining_fee_portion?: number;
+  notes?: string | null;
   created_at: string;
+};
+
+type SalesAgentItem = {
+  id: string;
+  full_name: string;
+  phone: string;
+  email: string | null;
+  agent_code: string;
+  joining_commission_percent: number;
+  recurring_commission_percent: number;
+  upi_id: string | null;
+  bank_details: string | null;
+  city: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  total_schools: number;
+  active_paid_schools: number;
+  trial_schools: number;
+  total_revenue_generated: number;
+  joining_earned: number;
+  recurring_earned: number;
+  bonus_earned: number;
+  total_earned: number;
+  total_paid_out: number;
+  pending_balance: number;
+};
+
+type AgentCommissionItem = {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  agent_code: string;
+  organization_id: string | null;
+  organization_name: string;
+  commission_type: "joining_fee" | "recurring" | "bonus_adjustment";
+  gross_payment_amount: number;
+  commission_percent: number;
+  commission_amount: number;
+  reference_utr: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+type AgentPayoutItem = {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  agent_code: string;
+  amount: number;
+  payment_method: string;
+  reference_no: string | null;
+  paid_for_month: string | null;
+  notes: string | null;
+  paid_at: string;
 };
 
 type PlatformSettings = {
@@ -174,8 +239,84 @@ export default function SuperAdminPage() {
   });
 
   const [activeTab, setActiveTab] = useState<
-    "institutions" | "requests" | "revenue" | "pricing" | "features"
+    "institutions" | "requests" | "revenue" | "agents" | "pricing" | "features"
   >("institutions");
+  // Sales Agents & Commission System States
+  const [salesAgents, setSalesAgents] = useState<SalesAgentItem[]>([]);
+  const [agentCommissions, setAgentCommissions] = useState<AgentCommissionItem[]>([]);
+  const [agentPayouts, setAgentPayouts] = useState<AgentPayoutItem[]>([]);
+  const [agentsSqlReady, setAgentsSqlReady] = useState(true);
+  const [agentSearch, setAgentSearch] = useState("");
+  const [agentSubView, setAgentSubView] = useState<"agents" | "commissions" | "payouts">("agents");
+  const [copiedAgentKey, setCopiedAgentKey] = useState("");
+
+  // Create / Edit Sales Agent Modal
+  const [showAgentModal, setShowAgentModal] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<SalesAgentItem | null>(null);
+  const [agentForm, setAgentForm] = useState({
+    fullName: "",
+    phone: "",
+    email: "",
+    agentCode: "",
+    password: "",
+    joiningPercent: 50,
+    recurringPercent: 20,
+    upiId: "",
+    bankDetails: "",
+    city: "",
+    notes: "",
+    isActive: true,
+  });
+  const [savingAgent, setSavingAgent] = useState(false);
+  const [agentModalError, setAgentModalError] = useState("");
+
+  // Record Payout to Agent Modal
+  const [payingAgent, setPayingAgent] = useState<SalesAgentItem | null>(null);
+  const [payoutForm, setPayoutForm] = useState({
+    amount: 0,
+    paymentMethod: "upi",
+    referenceNo: "",
+    paidForMonth: new Date().toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
+    notes: "",
+  });
+  const [savingPayout, setSavingPayout] = useState(false);
+
+  // Manual Commission / Bonus Modal
+  const [showBonusModal, setShowBonusModal] = useState(false);
+  const [bonusForm, setBonusForm] = useState({
+    agentId: "",
+    orgId: "",
+    commissionType: "bonus_adjustment" as "joining_fee" | "recurring" | "bonus_adjustment",
+    grossAmount: 0,
+    commissionPercent: 50,
+    commissionAmount: 0,
+    notes: "",
+  });
+  const [savingBonus, setSavingBonus] = useState(false);
+
+  // Assign Agent to Institution Modal
+  const [assigningAgentInst, setAssigningAgentInst] = useState<InstitutionItem | null>(null);
+  const [selectedAssignAgentId, setSelectedAssignAgentId] = useState<string>("");
+  const [savingAssignAgent, setSavingAssignAgent] = useState(false);
+
+  // Direct Offline/Joining Fee Payment Recorder Modal (on Institution)
+  const [recordingDirectPayInst, setRecordingDirectPayInst] = useState<InstitutionItem | null>(null);
+  const [directPayForm, setDirectPayForm] = useState({
+    paymentCategory: "joining_fee" as "joining_fee" | "recurring" | "combined",
+    amount: 1000,
+    joiningPortion: 1000,
+    durationDays: 0,
+    studentLimit: 100,
+    utrNumber: "",
+    notes: "",
+  });
+  const [savingDirectPay, setSavingDirectPay] = useState(false);
+
+  // Payment Approval Modal (with Commission Split Preview)
+  const [approvingPay, setApprovingPay] = useState<PaymentRequest | null>(null);
+  const [approveCategory, setApproveCategory] = useState<"recurring" | "joining_fee" | "combined">("recurring");
+  const [approveJoiningPortion, setApproveJoiningPortion] = useState<number>(0);
+  const [approveDurationDays, setApproveDurationDays] = useState<number>(30);
   // Feature Controller State
   const [managingFeaturesInst, setManagingFeaturesInst] = useState<InstitutionItem | null>(null);
   const [currentFeatures, setCurrentFeatures] = useState<EnabledFeaturesMap>(getDefaultFeaturesMap());
@@ -235,6 +376,7 @@ export default function SuperAdminPage() {
     password: "",
     trialDays: 15,
     studentLimit: 100,
+    agentId: "",
   });
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoError, setDemoError] = useState("");
@@ -325,20 +467,50 @@ export default function SuperAdminPage() {
       try {
         const { data: oData, error: oErr } = await supabase
           .from("organizations")
-          .select("id, enabled_features, is_paused, pause_reason, paused_at");
+          .select(
+            "id, enabled_features, is_paused, pause_reason, paused_at, referred_by_agent_id, referral_code_used"
+          );
         if (!oErr && oData) {
           orgsList = oData;
         } else {
-          const { data: fallbackOData } = await supabase
+          const { data: midOData, error: midErr } = await supabase
             .from("organizations")
-            .select("id, enabled_features");
-          if (fallbackOData) orgsList = fallbackOData;
+            .select("id, enabled_features, is_paused, pause_reason, paused_at");
+          if (!midErr && midOData) {
+            orgsList = midOData;
+          } else {
+            const { data: fallbackOData } = await supabase
+              .from("organizations")
+              .select("id, enabled_features");
+            if (fallbackOData) orgsList = fallbackOData;
+          }
         }
       } catch {
         const { data: fallbackOData } = await supabase
           .from("organizations")
           .select("id, enabled_features");
         if (fallbackOData) orgsList = fallbackOData;
+      }
+
+      // Safely fetch Sales Agents Dashboard (if migration 0021 is applied)
+      try {
+        const { data: agentDash, error: agentErr } = await supabase.rpc(
+          "admin_list_sales_agents_dashboard",
+          { p_master_code: MASTER_ACCESS_CODE }
+        );
+        if (agentErr) {
+          const msg = agentErr.message || "";
+          if (agentErr.code === "PGRST202" || msg.includes("admin_list_sales_agents_dashboard") || msg.includes("sales_agents")) {
+            setAgentsSqlReady(false);
+          }
+        } else if (agentDash) {
+          setAgentsSqlReady(true);
+          setSalesAgents((agentDash.agents || []) as SalesAgentItem[]);
+          setAgentCommissions((agentDash.commissions || []) as AgentCommissionItem[]);
+          setAgentPayouts((agentDash.payouts || []) as AgentPayoutItem[]);
+        }
+      } catch {
+        // Silently ignore if migration 0021 hasn't been executed yet
       }
 
       if (statsRes.data) {
@@ -386,6 +558,8 @@ export default function SuperAdminPage() {
             is_paused: isPaused,
             pause_reason: pauseReason,
             paused_at: pausedAt,
+            referred_by_agent_id: org?.referred_by_agent_id || null,
+            referral_code_used: org?.referral_code_used || null,
             enabled_features: parsedFeat,
             subscription: sub
               ? {
@@ -932,22 +1106,64 @@ export default function SuperAdminPage() {
     }
   };
 
-  // Approve Payment Request
-  const handleApprovePayment = async (pay: PaymentRequest) => {
-    if (!confirm(`Approve payment of ₹${pay.amount} for ${pay.organization_name} (UTR: ${pay.utr_number})?`)) {
-      return;
-    }
+  // Open Payment Approval Modal with live Agent Commission Preview
+  const openApprovePaymentModal = (pay: PaymentRequest) => {
+    const initialCat: "recurring" | "joining_fee" | "combined" =
+      pay.payment_category === "joining_fee" || pay.payment_category === "combined"
+        ? pay.payment_category
+        : pay.utr_number?.includes("JOINING + MONTHLY")
+        ? "combined"
+        : pay.utr_number?.includes("JOINING FEE")
+        ? "joining_fee"
+        : "recurring";
+
+    setApprovingPay(pay);
+    setApproveCategory(initialCat);
+    setApproveJoiningPortion(
+      initialCat === "joining_fee"
+        ? Number(pay.amount) || 0
+        : initialCat === "combined"
+        ? Number(pay.joining_fee_portion || 1000)
+        : 0
+    );
+    setApproveDurationDays(initialCat === "joining_fee" ? 0 : 30);
+  };
+
+  // Confirm Approve Payment Request
+  const handleConfirmApprovePayment = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!approvingPay) return;
+    const pay = approvingPay;
 
     setBusyId(pay.id);
     setError("");
     setSuccess("");
 
     try {
-      const { data, error: err } = await supabase.rpc("approve_subscription_payment", {
+      const cleanJoin =
+        approveCategory === "joining_fee"
+          ? Number(pay.amount)
+          : approveCategory === "combined"
+          ? Math.max(0, Math.min(Number(pay.amount), Number(approveJoiningPortion) || 0))
+          : 0;
+
+      let { data, error: err } = await supabase.rpc("approve_subscription_payment", {
         p_payment_id: pay.id,
-        p_duration_days: 30,
+        p_duration_days: Math.max(0, Number(approveDurationDays) || 0),
         p_master_code: MASTER_ACCESS_CODE,
+        p_payment_category: approveCategory,
+        p_joining_fee_portion: cleanJoin,
       });
+
+      if (err && (err.code === "PGRST202" || err.message?.includes("p_payment_category"))) {
+        const legacyRes = await supabase.rpc("approve_subscription_payment", {
+          p_payment_id: pay.id,
+          p_duration_days: Math.max(1, Number(approveDurationDays) || 30),
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        data = legacyRes.data;
+        err = legacyRes.error;
+      }
 
       if (err) throw err;
 
@@ -973,12 +1189,366 @@ export default function SuperAdminPage() {
         ]);
       } catch {}
 
-      setSuccess(`Payment for ${pay.organization_name} approved! Subscription activated for 30 days & services active.`);
+      const comm = data?.commission;
+      const commNote =
+        comm?.credited && Number(comm.total_commission) > 0
+          ? ` Partner ${comm.agent_name} (${comm.agent_code}) credited +₹${comm.total_commission} commission!`
+          : "";
+
+      setSuccess(
+        `Payment for ${pay.organization_name} approved!${
+          approveDurationDays > 0 ? ` Subscription extended for ${approveDurationDays} days.` : ""
+        }${commNote}`
+      );
+      setApprovingPay(null);
       await checkAndLoad();
     } catch (err: any) {
       setError(err.message || "Failed to approve payment.");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // =========================================================================
+  // SALES AGENTS, VARIABLE COMMISSIONS, REFERRAL ATTRIBUTION & PAYOUT HANDLERS
+  // =========================================================================
+  const openCreateAgentModal = () => {
+    const suffix = Math.floor(10 + Math.random() * 89);
+    setEditingAgent(null);
+    setAgentForm({
+      fullName: "",
+      phone: "",
+      email: "",
+      agentCode: `AGT-${suffix}`,
+      password: "",
+      joiningPercent: 50,
+      recurringPercent: 20,
+      upiId: "",
+      bankDetails: "",
+      city: "",
+      notes: "",
+      isActive: true,
+    });
+    setAgentModalError("");
+    setShowAgentModal(true);
+  };
+
+  const openEditAgentModal = (agent: SalesAgentItem) => {
+    setEditingAgent(agent);
+    setAgentForm({
+      fullName: agent.full_name,
+      phone: agent.phone,
+      email: agent.email || "",
+      agentCode: agent.agent_code,
+      password: "",
+      joiningPercent: Number(agent.joining_commission_percent ?? 50),
+      recurringPercent: Number(agent.recurring_commission_percent ?? 20),
+      upiId: agent.upi_id || "",
+      bankDetails: agent.bank_details || "",
+      city: agent.city || "",
+      notes: agent.notes || "",
+      isActive: agent.is_active,
+    });
+    setAgentModalError("");
+    setShowAgentModal(true);
+  };
+
+  const handleSaveAgent = async (e: FormEvent) => {
+    e.preventDefault();
+    setAgentModalError("");
+    if (!agentForm.fullName.trim() || !agentForm.phone.trim()) {
+      setAgentModalError("Agent full name and phone number are required.");
+      return;
+    }
+    if (!editingAgent && agentForm.password.trim().length < 6) {
+      setAgentModalError("Please set an initial login password (at least 6 characters) for the agent.");
+      return;
+    }
+
+    setSavingAgent(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      if (editingAgent) {
+        const { data, error: rpcErr } = await supabase.rpc("admin_update_sales_agent", {
+          p_agent_id: editingAgent.id,
+          p_full_name: agentForm.fullName.trim(),
+          p_phone: agentForm.phone.trim(),
+          p_email: agentForm.email.trim() || null,
+          p_joining_percent: Number(agentForm.joiningPercent) || 0,
+          p_recurring_percent: Number(agentForm.recurringPercent) || 0,
+          p_upi_id: agentForm.upiId.trim() || null,
+          p_bank_details: agentForm.bankDetails.trim() || null,
+          p_city: agentForm.city.trim() || null,
+          p_notes: agentForm.notes.trim() || null,
+          p_is_active: agentForm.isActive,
+          p_new_password: agentForm.password.trim() || null,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (rpcErr) throw rpcErr;
+        setSuccess(data?.message || `Agent "${agentForm.fullName.trim()}" updated.`);
+      } else {
+        const cleanCode = agentForm.agentCode
+          .toUpperCase()
+          .replace(/[^A-Z0-9_-]/g, "");
+        const { data, error: rpcErr } = await supabase.rpc("admin_create_sales_agent", {
+          p_full_name: agentForm.fullName.trim(),
+          p_phone: agentForm.phone.trim(),
+          p_email: agentForm.email.trim() || null,
+          p_agent_code: cleanCode,
+          p_password: agentForm.password.trim(),
+          p_joining_percent: Number(agentForm.joiningPercent) || 0,
+          p_recurring_percent: Number(agentForm.recurringPercent) || 0,
+          p_upi_id: agentForm.upiId.trim() || null,
+          p_bank_details: agentForm.bankDetails.trim() || null,
+          p_city: agentForm.city.trim() || null,
+          p_notes: agentForm.notes.trim() || null,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (rpcErr) throw rpcErr;
+        setSuccess(
+          data?.message ||
+            `Sales Agent "${agentForm.fullName.trim()}" created! Agent Portal Login ready.`
+        );
+      }
+
+      setShowAgentModal(false);
+      await checkAndLoad();
+    } catch (err: any) {
+      setAgentModalError(err.message || "Failed to save sales agent.");
+    } finally {
+      setSavingAgent(false);
+    }
+  };
+
+  const handleDeleteAgent = async (agent: SalesAgentItem) => {
+    if (
+      !confirm(
+        `Delete sales agent "${agent.full_name}" (${agent.agent_code})? Their referral links will stop working and historical commission/payout records for this agent will be removed.`
+      )
+    ) {
+      return;
+    }
+    setBusyId(agent.id);
+    setError("");
+    setSuccess("");
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("admin_delete_sales_agent", {
+        p_agent_id: agent.id,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+      if (rpcErr) throw rpcErr;
+      setSuccess(data?.message || `Agent "${agent.full_name}" removed.`);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to delete sales agent.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openPayAgentModal = (agent: SalesAgentItem) => {
+    setPayingAgent(agent);
+    setPayoutForm({
+      amount: Math.max(0, Number(agent.pending_balance) || 0),
+      paymentMethod: agent.upi_id ? "upi" : "bank_transfer",
+      referenceNo: "",
+      paidForMonth: new Date().toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
+      notes: "",
+    });
+  };
+
+  const handleRecordAgentPayout = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!payingAgent) return;
+    if (Number(payoutForm.amount) <= 0) {
+      setError("Payout amount must be greater than ₹0.");
+      return;
+    }
+
+    setSavingPayout(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("admin_record_agent_payout", {
+        p_agent_id: payingAgent.id,
+        p_amount: Number(payoutForm.amount),
+        p_payment_method: payoutForm.paymentMethod,
+        p_reference_no: payoutForm.referenceNo.trim() || null,
+        p_paid_for_month: payoutForm.paidForMonth.trim() || null,
+        p_notes: payoutForm.notes.trim() || null,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+      if (rpcErr) throw rpcErr;
+
+      setSuccess(
+        data?.message ||
+          `Payout of ₹${payoutForm.amount} recorded for ${payingAgent.full_name}!`
+      );
+      setPayingAgent(null);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to record payout.");
+    } finally {
+      setSavingPayout(false);
+    }
+  };
+
+  const openManualBonusModal = (agent?: SalesAgentItem) => {
+    const targetAgent = agent || salesAgents[0] || null;
+    setBonusForm({
+      agentId: targetAgent?.id || "",
+      orgId: "",
+      commissionType: "bonus_adjustment",
+      grossAmount: 0,
+      commissionPercent: Number(targetAgent?.joining_commission_percent ?? 50),
+      commissionAmount: 500,
+      notes: "",
+    });
+    setShowBonusModal(true);
+  };
+
+  const handleSaveManualBonus = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!bonusForm.agentId) {
+      setError("Please select a sales agent.");
+      return;
+    }
+    if (!bonusForm.commissionAmount || Number(bonusForm.commissionAmount) === 0) {
+      setError("Commission amount cannot be zero.");
+      return;
+    }
+
+    setSavingBonus(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("admin_add_manual_commission", {
+        p_agent_id: bonusForm.agentId,
+        p_org_id: bonusForm.orgId || null,
+        p_commission_type: bonusForm.commissionType,
+        p_gross_amount: Number(bonusForm.grossAmount) || 0,
+        p_commission_percent: Number(bonusForm.commissionPercent) || 0,
+        p_commission_amount: Number(bonusForm.commissionAmount),
+        p_notes: bonusForm.notes.trim() || null,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+      if (rpcErr) throw rpcErr;
+      setSuccess(data?.message || "Commission entry added successfully.");
+      setShowBonusModal(false);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to add manual commission.");
+    } finally {
+      setSavingBonus(false);
+    }
+  };
+
+  const openAssignAgentModal = (inst: InstitutionItem) => {
+    setAssigningAgentInst(inst);
+    setSelectedAssignAgentId(inst.referred_by_agent_id || "");
+  };
+
+  const handleSaveAssignAgent = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!assigningAgentInst) return;
+    setSavingAssignAgent(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("admin_assign_agent_to_institution", {
+        p_org_id: assigningAgentInst.id,
+        p_agent_id: selectedAssignAgentId || null,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+      if (rpcErr) throw rpcErr;
+      setSuccess(
+        data?.message || `Updated partner attribution for "${assigningAgentInst.name}".`
+      );
+      setAssigningAgentInst(null);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to assign partner.");
+    } finally {
+      setSavingAssignAgent(false);
+    }
+  };
+
+  const openDirectPaymentModal = (inst: InstitutionItem) => {
+    const quota = inst.subscription?.student_limit || Math.max(inst.student_count, 100);
+    setRecordingDirectPayInst(inst);
+    setDirectPayForm({
+      paymentCategory: "joining_fee",
+      amount: 1000,
+      joiningPortion: 1000,
+      durationDays: 0,
+      studentLimit: quota,
+      utrNumber: "",
+      notes: "",
+    });
+  };
+
+  const handleSaveDirectPayment = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!recordingDirectPayInst) return;
+    if (Number(directPayForm.amount) <= 0) {
+      setError("Amount must be greater than ₹0.");
+      return;
+    }
+
+    setSavingDirectPay(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const joiningPortion =
+        directPayForm.paymentCategory === "joining_fee"
+          ? Number(directPayForm.amount)
+          : directPayForm.paymentCategory === "combined"
+          ? Math.max(0, Math.min(Number(directPayForm.amount), Number(directPayForm.joiningPortion) || 0))
+          : 0;
+
+      const { data, error: rpcErr } = await supabase.rpc("admin_record_direct_school_payment", {
+        p_org_id: recordingDirectPayInst.id,
+        p_amount: Number(directPayForm.amount),
+        p_payment_category: directPayForm.paymentCategory,
+        p_duration_days: Number(directPayForm.durationDays) || 0,
+        p_student_limit: Number(directPayForm.studentLimit) || 100,
+        p_utr_number: directPayForm.utrNumber.trim() || "DIRECT-CASH-UPI",
+        p_joining_fee_portion: joiningPortion,
+        p_notes: directPayForm.notes.trim() || null,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+
+      if (rpcErr) throw rpcErr;
+
+      const comm = data?.approval?.commission;
+      const commText =
+        comm?.credited && Number(comm.total_commission) > 0
+          ? ` Auto-credited +₹${comm.total_commission} to ${comm.agent_name} (${comm.agent_code})!`
+          : "";
+
+      setSuccess(
+        `Recorded ₹${directPayForm.amount} payment for "${recordingDirectPayInst.name}".${commText}`
+      );
+      setRecordingDirectPayInst(null);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to record school payment.");
+    } finally {
+      setSavingDirectPay(false);
+    }
+  };
+
+  const copyAgentShareText = (text: string, key: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedAgentKey(key);
+      setTimeout(() => setCopiedAgentKey(""), 2500);
     }
   };
 
@@ -1173,6 +1743,7 @@ export default function SuperAdminPage() {
       password: `Demo@${randomSuffix}`,
       trialDays: 15,
       studentLimit: 100,
+      agentId: "",
     });
     setDemoError("");
     setDemoSuccess(null);
@@ -1225,7 +1796,7 @@ export default function SuperAdminPage() {
         throw new Error("Institute registered but no login ID was returned.");
       }
 
-      // Automatically assign the free trial days & student capacity in subscription
+      // Automatically assign the free trial days, student capacity & optional Sales Agent
       try {
         const { data: profile } = await supabase
           .from("profiles")
@@ -1240,6 +1811,14 @@ export default function SuperAdminPage() {
             p_student_limit: Number(demoForm.studentLimit) || 100,
             p_master_code: MASTER_ACCESS_CODE,
           });
+
+          if (demoForm.agentId) {
+            await supabase.rpc("admin_assign_agent_to_institution", {
+              p_org_id: profile.organization_id,
+              p_agent_id: demoForm.agentId,
+              p_master_code: MASTER_ACCESS_CODE,
+            });
+          }
         }
       } catch (trialErr) {
         console.warn("Could not adjust trial quota:", trialErr);
@@ -1310,6 +1889,64 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
   });
 
   const pendingRequestsCount = paymentRequests.filter((p) => p.status === "pending").length;
+
+  const agentByIdMap = useMemo(
+    () => new Map(salesAgents.map((a) => [a.id, a])),
+    [salesAgents]
+  );
+
+  const instByIdMap = useMemo(
+    () => new Map(institutions.map((i) => [i.id, i])),
+    [institutions]
+  );
+
+  const agentSummaryMetrics = useMemo(() => {
+    let activeAgentsCount = 0;
+    let totalReferredSchools = 0;
+    let totalCommissionsEarned = 0;
+    let totalJoiningEarned = 0;
+    let totalRecurringEarned = 0;
+    let totalPaidOut = 0;
+    let totalPendingPayout = 0;
+
+    salesAgents.forEach((a) => {
+      if (a.is_active) activeAgentsCount++;
+      totalReferredSchools += Number(a.total_schools || 0);
+      totalCommissionsEarned += Number(a.total_earned || 0);
+      totalJoiningEarned += Number(a.joining_earned || 0);
+      totalRecurringEarned += Number(a.recurring_earned || 0);
+      totalPaidOut += Number(a.total_paid_out || 0);
+      totalPendingPayout += Number(a.pending_balance || 0);
+    });
+
+    return {
+      activeAgentsCount,
+      totalReferredSchools,
+      totalCommissionsEarned,
+      totalJoiningEarned,
+      totalRecurringEarned,
+      totalPaidOut,
+      totalPendingPayout,
+    };
+  }, [salesAgents]);
+
+  const filteredSalesAgents = useMemo(() => {
+    const q = agentSearch.trim().toLowerCase();
+    if (!q) return salesAgents;
+    return salesAgents.filter(
+      (a) =>
+        a.full_name.toLowerCase().includes(q) ||
+        a.agent_code.toLowerCase().includes(q) ||
+        a.phone.toLowerCase().includes(q) ||
+        (a.email && a.email.toLowerCase().includes(q)) ||
+        (a.city && a.city.toLowerCase().includes(q))
+    );
+  }, [salesAgents, agentSearch]);
+
+  const siteOrigin =
+    typeof window !== "undefined" && window.location.origin
+      ? window.location.origin
+      : "https://edutechlab-9fz4.vercel.app";
 
   // Revenue Metrics Calculations
   const revenueMetrics = useMemo(() => {
@@ -1596,6 +2233,23 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
         </button>
 
         <button
+          onClick={() => setActiveTab("agents")}
+          className={`relative flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
+            activeTab === "agents"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <BadgePercent size={16} />
+          Sales Agents &amp; Payouts ({salesAgents.length})
+          {agentSummaryMetrics.totalPendingPayout > 0 && (
+            <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">
+              ₹{Math.round(agentSummaryMetrics.totalPendingPayout).toLocaleString("en-IN")}
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab("pricing")}
           className={`flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
             activeTab === "pricing"
@@ -1668,11 +2322,29 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                   filteredInstitutions.map((inst) => {
                     const sub = inst.subscription;
                     const isExpired = sub?.current_period_ends_at && new Date(sub.current_period_ends_at) < new Date();
+                    const linkedAgent = inst.referred_by_agent_id ? agentByIdMap.get(inst.referred_by_agent_id) : undefined;
                     return (
                       <tr key={inst.id} className="hover:bg-slate-50/50">
                         <td className="px-5 py-4">
                           <div className="font-semibold text-slate-900">{inst.name}</div>
                           <div className="text-xs text-slate-400 font-mono">/{inst.slug}</div>
+                          <button
+                            type="button"
+                            onClick={() => openAssignAgentModal(inst)}
+                            className={`mt-1 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold transition ${
+                              linkedAgent || inst.referral_code_used
+                                ? "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                            }`}
+                            title="Link or change Sales Partner for commission tracking"
+                          >
+                            <Link2 size={10} />
+                            {linkedAgent
+                              ? `Agent: ${linkedAgent.full_name} (${linkedAgent.agent_code})`
+                              : inst.referral_code_used
+                              ? `Agent Code: ${inst.referral_code_used}`
+                              : "Direct (Link Agent)"}
+                          </button>
                         </td>
                         <td className="px-5 py-4">
                           <div className="text-xs font-medium text-slate-800">
@@ -1770,6 +2442,26 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                             >
                               <Sparkles size={12} />
                               Grant Trial
+                            </button>
+
+                            {/* Record Direct Joining Fee / Cash Payment */}
+                            <button
+                              onClick={() => openDirectPaymentModal(inst)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                              title="Record direct Joining Fee or Monthly Payment & auto-credit partner commission"
+                            >
+                              <IndianRupee size={12} />
+                              Payment
+                            </button>
+
+                            {/* Assign / Link Sales Partner Button */}
+                            <button
+                              onClick={() => openAssignAgentModal(inst)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                              title="Assign or change sales partner for this school"
+                            >
+                              <UserCheck size={12} />
+                              Agent
                             </button>
 
                             {/* Edit Quota / Plan Button */}
@@ -1920,17 +2612,50 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                     </td>
                   </tr>
                 ) : (
-                  paymentRequests.map((pay) => (
+                  paymentRequests.map((pay) => {
+                    const inst = instByIdMap.get(pay.organization_id);
+                    const linkedAgent = inst?.referred_by_agent_id
+                      ? agentByIdMap.get(inst.referred_by_agent_id)
+                      : undefined;
+                    const cat =
+                      pay.payment_category ||
+                      (pay.utr_number?.includes("JOINING + MONTHLY")
+                        ? "combined"
+                        : pay.utr_number?.includes("JOINING FEE")
+                        ? "joining_fee"
+                        : "recurring");
+
+                    return (
                     <tr key={pay.id} className="hover:bg-slate-50/50">
-                      <td className="px-5 py-4 font-semibold text-slate-900">
-                        {pay.organization_name}
+                      <td className="px-5 py-4">
+                        <div className="font-semibold text-slate-900">{pay.organization_name}</div>
+                        {linkedAgent && (
+                          <div className="mt-1 inline-flex items-center gap-1 rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                            Partner: {linkedAgent.full_name} ({linkedAgent.agent_code})
+                          </div>
+                        )}
                       </td>
                       <td className="px-5 py-4">
                         <span className="font-bold text-slate-900">{pay.student_limit}</span>{" "}
                         <span className="text-xs text-slate-400">students</span>
                       </td>
-                      <td className="px-5 py-4 font-extrabold text-purple-700">
-                        ₹{pay.amount}
+                      <td className="px-5 py-4">
+                        <div className="font-extrabold text-purple-700">₹{pay.amount}</div>
+                        <span
+                          className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            cat === "joining_fee"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : cat === "combined"
+                              ? "bg-indigo-100 text-indigo-800"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {cat === "joining_fee"
+                            ? "Joining Fee"
+                            : cat === "combined"
+                            ? "Joining + Monthly"
+                            : "Monthly Recurring"}
+                        </span>
                       </td>
                       <td className="px-5 py-4 font-mono text-xs font-bold text-slate-800">
                         {pay.utr_number}
@@ -1977,7 +2702,7 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                         {pay.status === "pending" ? (
                           <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => handleApprovePayment(pay)}
+                              onClick={() => openApprovePaymentModal(pay)}
                               disabled={busyId === pay.id}
                               className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-50"
                             >
@@ -1999,13 +2724,502 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                         )}
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
         </div>
       </section>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 2.5: SALES AGENTS, VARIABLE COMMISSIONS & PAYOUT LEDGER    */}
+      {/* ============================================================== */}
+      {activeTab === "agents" && (
+        <section className="mt-6 space-y-6">
+          {/* Header Banner */}
+          <div className="rounded-3xl border border-indigo-200 bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 p-6 text-white shadow-xl">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-emerald-300">
+                  <BadgePercent size={13} /> Partner Network &amp; Commission Engine
+                </div>
+                <h2 className="text-2xl font-black tracking-tight sm:text-3xl">
+                  Sales Agents, Variable Rates &amp; Payout Ledger
+                </h2>
+                <p className="text-xs text-indigo-200 max-w-2xl leading-relaxed">
+                  Har agent ke liye alag Joining Fee Commission % (e.g. 50% One-Time) aur Monthly Recurring % set karein. Agents apne dedicated{" "}
+                  <Link href="/agent-portal" target="_blank" className="underline font-bold text-white hover:text-emerald-300">
+                    /agent-portal
+                  </Link>{" "}
+                  par login karke apni earnings aur referred schools live dekh sakte hain.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => copyAgentShareText(`${siteOrigin}/agent-portal`, "portal_url")}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-white/20 transition"
+                >
+                  {copiedAgentKey === "portal_url" ? <Check size={14} className="text-emerald-300" /> : <Copy size={14} />}
+                  {copiedAgentKey === "portal_url" ? "Portal URL Copied!" : "Copy Agent Portal URL"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openManualBonusModal()}
+                  disabled={salesAgents.length === 0}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300/40 bg-amber-500/20 px-3.5 py-2.5 text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition disabled:opacity-40"
+                >
+                  <Plus size={14} /> Manual Bonus / Entry
+                </button>
+                <button
+                  type="button"
+                  onClick={openCreateAgentModal}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-md hover:bg-emerald-400 transition"
+                >
+                  <UserPlus size={15} />
+                  Add New Sales Agent
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {!agentsSqlReady && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 text-xs text-amber-950 space-y-1.5">
+              <div className="flex items-center gap-2 font-extrabold text-sm text-amber-900">
+                <AlertTriangle size={18} className="text-amber-600" />
+                Database SQL Migration Required (One-Time Setup)
+              </div>
+              <p>
+                Sales Agent tables &amp; Commission RPCs abhi Supabase database me install nahi hue hain. Kripya Supabase SQL Editor me{" "}
+                <code className="rounded bg-amber-100 px-1.5 py-0.5 font-mono font-bold">
+                  supabase/migrations/0021_sales_agents_commission_system.sql
+                </code>{" "}
+                ya{" "}
+                <code className="rounded bg-amber-100 px-1.5 py-0.5 font-mono font-bold">
+                  supabase/migrations/APPLY_TO_LIVE_SUPABASE.sql
+                </code>{" "}
+                paste karke Run karein aur Refresh Data dabayein.
+              </p>
+            </div>
+          )}
+
+          {/* 4 Network KPI Cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs font-bold uppercase tracking-wider">Sales Partners</span>
+                <Users size={18} className="text-indigo-600" />
+              </div>
+              <p className="mt-2.5 text-3xl font-black text-slate-900">{salesAgents.length}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                <strong className="text-emerald-600">{agentSummaryMetrics.activeAgentsCount} Active</strong> • {agentSummaryMetrics.totalReferredSchools} Schools Linked
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-purple-200 bg-purple-50/40 p-5 shadow-sm">
+              <div className="flex items-center justify-between text-purple-800">
+                <span className="text-xs font-bold uppercase tracking-wider">Total Commissions Credited</span>
+                <TrendingUp size={18} className="text-purple-600" />
+              </div>
+              <p className="mt-2.5 text-3xl font-black text-purple-950 font-mono">
+                ₹{agentSummaryMetrics.totalCommissionsEarned.toLocaleString("en-IN")}
+              </p>
+              <p className="mt-1 text-[11px] text-purple-800">
+                Joining: <strong>₹{agentSummaryMetrics.totalJoiningEarned.toLocaleString("en-IN")}</strong> • Monthly:{" "}
+                <strong>₹{agentSummaryMetrics.totalRecurringEarned.toLocaleString("en-IN")}</strong>
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 shadow-sm">
+              <div className="flex items-center justify-between text-blue-800">
+                <span className="text-xs font-bold uppercase tracking-wider">Already Paid Out</span>
+                <Banknote size={18} className="text-blue-600" />
+              </div>
+              <p className="mt-2.5 text-3xl font-black text-blue-950 font-mono">
+                ₹{agentSummaryMetrics.totalPaidOut.toLocaleString("en-IN")}
+              </p>
+              <p className="mt-1 text-xs text-blue-700">
+                Across {agentPayouts.length} recorded settlements
+              </p>
+            </div>
+
+            <div className="rounded-2xl border-2 border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-5 shadow-sm">
+              <div className="flex items-center justify-between text-emerald-800">
+                <span className="text-xs font-bold uppercase tracking-wider">Pending Payouts Due</span>
+                <Wallet size={18} className="text-emerald-600" />
+              </div>
+              <p className="mt-2.5 text-3xl font-black text-emerald-950 font-mono">
+                ₹{agentSummaryMetrics.totalPendingPayout.toLocaleString("en-IN")}
+              </p>
+              <p className="mt-1 text-xs text-emerald-700">Net balance payable to agents</p>
+            </div>
+          </div>
+
+          {/* Sub-view Bar */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["agents", `Agents & Wallets (${salesAgents.length})`],
+                  ["commissions", `Commission Ledger (${agentCommissions.length})`],
+                  ["payouts", `Payout History (${agentPayouts.length})`],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setAgentSubView(key)}
+                  className={`rounded-xl px-4 py-2 text-xs font-bold transition ${
+                    agentSubView === key
+                      ? "bg-slate-900 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search agent name, code or phone..."
+                value={agentSearch}
+                onChange={(e) => setAgentSearch(e.target.value)}
+                className="w-full sm:w-64 rounded-xl border border-slate-200 pl-8 pr-3 py-2 text-xs outline-none focus:border-purple-600"
+              />
+            </div>
+          </div>
+
+          {/* SUB-VIEW 1: AGENTS CARDS / WALLETS */}
+          {agentSubView === "agents" && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {filteredSalesAgents.length === 0 ? (
+                <div className="md:col-span-2 rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center space-y-3">
+                  <BadgePercent size={36} className="mx-auto text-slate-300" />
+                  <h3 className="text-base font-bold text-slate-800">No Sales Agents Found</h3>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Click &quot;Add New Sales Agent&quot; to onboard your sales team member with custom Joining Fee % (e.g. 50%) and Monthly Recurring % commission slabs.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openCreateAgentModal}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-xs font-bold text-white hover:bg-purple-500"
+                  >
+                    <UserPlus size={14} /> Add First Sales Agent
+                  </button>
+                </div>
+              ) : (
+                filteredSalesAgents.map((agent) => {
+                  const refLink = `${siteOrigin}/register?ref=${encodeURIComponent(agent.agent_code)}`;
+                  const pending = Number(agent.pending_balance || 0);
+                  return (
+                    <div
+                      key={agent.id}
+                      className={`rounded-3xl border bg-white p-5 shadow-sm flex flex-col justify-between gap-4 ${
+                        agent.is_active ? "border-slate-200" : "border-amber-300 bg-amber-50/30"
+                      }`}
+                    >
+                      <div>
+                        {/* Header */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-base font-extrabold text-slate-900">{agent.full_name}</h3>
+                              <span className="rounded-lg bg-purple-100 px-2 py-0.5 font-mono text-[11px] font-black text-purple-800">
+                                {agent.agent_code}
+                              </span>
+                              {!agent.is_active && (
+                                <span className="rounded-md bg-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                                  PAUSED
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                              <span className="inline-flex items-center gap-1">
+                                <Phone size={11} /> {agent.phone}
+                              </span>
+                              {agent.email && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Mail size={11} /> {agent.email}
+                                </span>
+                              )}
+                              {agent.city && (
+                                <span className="inline-flex items-center gap-1">
+                                  <MapPin size={11} /> {agent.city}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Pending Balance Pill */}
+                          <div className="text-right shrink-0">
+                            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Pending Due
+                            </span>
+                            <span
+                              className={`font-mono text-xl font-black ${
+                                pending > 0 ? "text-emerald-700" : "text-slate-600"
+                              }`}
+                            >
+                              ₹{pending.toLocaleString("en-IN")}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Commission Slab Pills */}
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className="inline-flex items-center gap-1 rounded-xl bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[11px] font-extrabold text-emerald-800">
+                            Joining Fee: {Number(agent.joining_commission_percent)}% One-Time
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-xl bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[11px] font-extrabold text-indigo-800">
+                            Monthly Plan: {Number(agent.recurring_commission_percent)}% Recurring
+                          </span>
+                          {agent.upi_id && (
+                            <span className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-2.5 py-1 text-[11px] font-mono text-slate-700">
+                              UPI: {agent.upi_id}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Metrics Grid */}
+                        <div className="mt-4 grid grid-cols-4 gap-2 rounded-2xl bg-slate-50 p-3 text-center">
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase">Schools</div>
+                            <div className="text-sm font-black text-slate-900">
+                              {agent.total_schools}
+                              <span className="text-[10px] font-normal text-emerald-600 block">
+                                {agent.active_paid_schools} paid
+                              </span>
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase">Joining Comm</div>
+                            <div className="text-sm font-bold text-emerald-700 font-mono">
+                              ₹{Number(agent.joining_earned || 0).toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase">Monthly Comm</div>
+                            <div className="text-sm font-bold text-indigo-700 font-mono">
+                              ₹{Number(agent.recurring_earned || 0).toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase">Paid Out</div>
+                            <div className="text-sm font-bold text-blue-700 font-mono">
+                              ₹{Number(agent.total_paid_out || 0).toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Actions Footer */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openPayAgentModal(agent)}
+                            className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 transition"
+                          >
+                            <Banknote size={13} /> Pay / Settle
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditAgentModal(agent)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            <Edit size={12} /> Edit Rates
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copyAgentShareText(refLink, `ref_${agent.id}`)}
+                            className="inline-flex items-center gap-1 rounded-xl border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-100"
+                          >
+                            {copiedAgentKey === `ref_${agent.id}` ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedAgentKey === `ref_${agent.id}` ? "Copied Link!" : "Referral Link"}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openManualBonusModal(agent)}
+                            className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-bold text-amber-800 hover:bg-amber-100"
+                            title="Add manual bonus or adjustment"
+                          >
+                            + Bonus
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAgent(agent)}
+                            disabled={busyId === agent.id}
+                            className="rounded-lg border border-red-200 bg-red-50 p-1.5 text-red-600 hover:bg-red-100 disabled:opacity-50"
+                            title="Delete agent"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* SUB-VIEW 2: ALL COMMISSION LEDGER */}
+          {agentSubView === "commissions" && (
+            <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 font-bold uppercase tracking-wider text-[11px] text-slate-500 border-b border-slate-100">
+                    <tr>
+                      <th className="px-5 py-3.5">Date</th>
+                      <th className="px-5 py-3.5">Sales Agent</th>
+                      <th className="px-5 py-3.5">School</th>
+                      <th className="px-5 py-3.5">Type</th>
+                      <th className="px-5 py-3.5 text-right">School Paid</th>
+                      <th className="px-5 py-3.5 text-center">Rate %</th>
+                      <th className="px-5 py-3.5 text-right">Commission</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {agentCommissions.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="p-8 text-center text-sm text-slate-500">
+                          No commission entries yet. Commissions credit automatically when linked school payments are approved.
+                        </td>
+                      </tr>
+                    ) : (
+                      agentCommissions
+                        .filter((c) => {
+                          const q = agentSearch.trim().toLowerCase();
+                          if (!q) return true;
+                          return (
+                            c.agent_name.toLowerCase().includes(q) ||
+                            c.agent_code.toLowerCase().includes(q) ||
+                            c.organization_name.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((c) => (
+                          <tr key={c.id} className="hover:bg-slate-50/50">
+                            <td className="px-5 py-3.5 text-slate-500 whitespace-nowrap">
+                              {new Date(c.created_at).toLocaleDateString("en-IN")}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <div className="font-bold text-slate-900">{c.agent_name}</div>
+                              <div className="font-mono text-[10px] text-purple-700">{c.agent_code}</div>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <div className="font-semibold text-slate-800">{c.organization_name}</div>
+                              {c.reference_utr && (
+                                <div className="font-mono text-[10px] text-slate-400">{c.reference_utr}</div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <span
+                                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                                  c.commission_type === "joining_fee"
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : c.commission_type === "recurring"
+                                    ? "bg-indigo-100 text-indigo-800"
+                                    : "bg-amber-100 text-amber-800"
+                                }`}
+                              >
+                                {c.commission_type === "joining_fee"
+                                  ? "Joining Fee"
+                                  : c.commission_type === "recurring"
+                                  ? "Monthly Recurring"
+                                  : "Manual Bonus"}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3.5 text-right font-mono text-slate-700">
+                              ₹{Number(c.gross_payment_amount || 0).toLocaleString("en-IN")}
+                            </td>
+                            <td className="px-5 py-3.5 text-center font-mono font-bold text-purple-700">
+                              {Number(c.commission_percent || 0)}%
+                            </td>
+                            <td className="px-5 py-3.5 text-right font-mono font-extrabold text-emerald-700">
+                              +₹{Number(c.commission_amount || 0).toLocaleString("en-IN")}
+                            </td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* SUB-VIEW 3: ALL PAYOUT SETTLEMENTS */}
+          {agentSubView === "payouts" && (
+            <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 font-bold uppercase tracking-wider text-[11px] text-slate-500 border-b border-slate-100">
+                    <tr>
+                      <th className="px-5 py-3.5">Paid On</th>
+                      <th className="px-5 py-3.5">Sales Agent</th>
+                      <th className="px-5 py-3.5">Method &amp; Month</th>
+                      <th className="px-5 py-3.5">UTR / Ref</th>
+                      <th className="px-5 py-3.5">Notes</th>
+                      <th className="px-5 py-3.5 text-right">Amount Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {agentPayouts.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-sm text-slate-500">
+                          No agent payouts recorded yet. Click &quot;Pay / Settle&quot; on any agent card to settle their balance.
+                        </td>
+                      </tr>
+                    ) : (
+                      agentPayouts
+                        .filter((p) => {
+                          const q = agentSearch.trim().toLowerCase();
+                          if (!q) return true;
+                          return (
+                            p.agent_name.toLowerCase().includes(q) ||
+                            p.agent_code.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((p) => (
+                          <tr key={p.id} className="hover:bg-slate-50/50">
+                            <td className="px-5 py-3.5 text-slate-600 whitespace-nowrap">
+                              {new Date(p.paid_at).toLocaleDateString("en-IN")}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <div className="font-bold text-slate-900">{p.agent_name}</div>
+                              <div className="font-mono text-[10px] text-purple-700">{p.agent_code}</div>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-800">
+                                {p.payment_method}
+                              </span>
+                              {p.paid_for_month && (
+                                <span className="ml-2 text-slate-600 font-medium">{p.paid_for_month}</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3.5 font-mono text-slate-700">{p.reference_no || "—"}</td>
+                            <td className="px-5 py-3.5 text-slate-500">{p.notes || "—"}</td>
+                            <td className="px-5 py-3.5 text-right font-mono font-extrabold text-blue-700">
+                              ₹{Number(p.amount).toLocaleString("en-IN")}
+                            </td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </section>
       )}
 
       {/* ============================================================== */}
@@ -3719,6 +4933,27 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                     </div>
                   </div>
 
+                  {/* Row 5: Optional Sales Agent Attribution */}
+                  {salesAgents.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Referred By Sales Partner (Optional)
+                      </label>
+                      <select
+                        value={demoForm.agentId}
+                        onChange={(e) => setDemoForm({ ...demoForm, agentId: e.target.value })}
+                        className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-purple-600"
+                      >
+                        <option value="">-- Direct (No Sales Agent) --</option>
+                        {salesAgents.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.full_name} ({a.agent_code}) — {Number(a.joining_commission_percent)}% Join / {Number(a.recurring_commission_percent)}% Monthly
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   {/* Info notice */}
                   <div className="rounded-xl bg-purple-50 p-3 text-[11px] leading-relaxed text-purple-800">
                     💡 <strong>Instant Setup:</strong> A unique Institute Login ID (e.g. <code>EDU-MPS2026</code>) and database workspace will be generated immediately. The client can log in from mobile or laptop directly using either the Institute ID or their Email.
@@ -3884,6 +5119,887 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
           </div>
         </div>
       )}
+
+      {/* ============================================================== */}
+      {/* MODAL 7: APPROVE PAYMENT & PREVIEW PARTNER COMMISSION          */}
+      {/* ============================================================== */}
+      {approvingPay && (() => {
+        const payInst = instByIdMap.get(approvingPay.organization_id);
+        const linkedAgent = payInst?.referred_by_agent_id
+          ? agentByIdMap.get(payInst.referred_by_agent_id)
+          : undefined;
+        const amt = Number(approvingPay.amount) || 0;
+        const joinGross =
+          approveCategory === "joining_fee"
+            ? amt
+            : approveCategory === "combined"
+            ? Math.max(0, Math.min(amt, Number(approveJoiningPortion) || 0))
+            : 0;
+        const recGross = Math.max(0, amt - joinGross);
+        const joinComm = linkedAgent
+          ? Math.round((joinGross * Number(linkedAgent.joining_commission_percent)) / 100)
+          : 0;
+        const recComm = linkedAgent
+          ? Math.round((recGross * Number(linkedAgent.recurring_commission_percent)) / 100)
+          : 0;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-lg rounded-3xl border border-emerald-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-center justify-between border-b pb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Approve School Payment</h3>
+                  <p className="text-xs text-slate-500">
+                    {approvingPay.organization_name} • Amount: <strong>₹{amt}</strong> • UTR:{" "}
+                    <span className="font-mono">{approvingPay.utr_number}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setApprovingPay(null)}
+                  className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmApprovePayment} className="mt-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Payment Classification
+                  </label>
+                  <select
+                    value={approveCategory}
+                    onChange={(e) => {
+                      const nextCat = e.target.value as "recurring" | "joining_fee" | "combined";
+                      setApproveCategory(nextCat);
+                      if (nextCat === "joining_fee") {
+                        setApproveJoiningPortion(amt);
+                        setApproveDurationDays(0);
+                      } else if (nextCat === "recurring") {
+                        setApproveJoiningPortion(0);
+                        setApproveDurationDays(30);
+                      } else {
+                        setApproveJoiningPortion(Math.min(amt, 1000));
+                        setApproveDurationDays(30);
+                      }
+                    }}
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-semibold outline-none focus:border-emerald-600"
+                  >
+                    <option value="recurring">Monthly Recurring Subscription</option>
+                    <option value="joining_fee">One-Time Joining / Setup Fee</option>
+                    <option value="combined">Combined (Joining Fee + 1st Month Plan)</option>
+                  </select>
+                </div>
+
+                {approveCategory === "combined" && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Joining Fee Portion out of ₹{amt} (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={amt}
+                      value={approveJoiningPortion}
+                      onChange={(e) => setApproveJoiningPortion(Math.max(0, Number(e.target.value) || 0))}
+                      className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-bold outline-none focus:border-emerald-600"
+                    />
+                    <span className="text-[11px] text-slate-500">
+                      Remaining ₹{recGross} is treated as Monthly Subscription.
+                    </span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Subscription Validity Days to Add
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={approveDurationDays}
+                    onChange={(e) => setApproveDurationDays(Math.max(0, Number(e.target.value) || 0))}
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-bold outline-none focus:border-emerald-600"
+                  />
+                  <span className="text-[11px] text-slate-400">
+                    Set 30 days for monthly recharge, or 0 if approving only a One-Time Joining Fee.
+                  </span>
+                </div>
+
+                {linkedAgent ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-950 space-y-1">
+                    <div className="font-extrabold flex items-center justify-between">
+                      <span>Auto Commission Preview ({linkedAgent.full_name} • {linkedAgent.agent_code})</span>
+                      <span className="font-mono text-sm text-emerald-700">
+                        +₹{(joinComm + recComm).toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                    {joinGross > 0 && (
+                      <div className="text-emerald-800">
+                        • Joining Fee: ₹{joinGross} × {Number(linkedAgent.joining_commission_percent)}% = <strong>₹{joinComm}</strong>
+                      </div>
+                    )}
+                    {recGross > 0 && (
+                      <div className="text-emerald-800">
+                        • Monthly Recurring: ₹{recGross} × {Number(linkedAgent.recurring_commission_percent)}% = <strong>₹{recComm}</strong>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+                    No Sales Agent linked to this school (Direct Platform Revenue 100%).
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-3 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setApprovingPay(null)}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={busyId === approvingPay.id}
+                    className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+                  >
+                    {busyId === approvingPay.id ? "Approving..." : "Confirm & Approve Payment"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ============================================================== */}
+      {/* MODAL 8: CREATE / EDIT SALES AGENT MODAL                       */}
+      {/* ============================================================== */}
+      {showAgentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-xl rounded-3xl border border-purple-200 bg-white p-6 shadow-2xl my-8">
+            <div className="flex items-center justify-between border-b pb-4">
+              <div className="flex items-center gap-2.5">
+                <span className="rounded-xl bg-purple-100 p-2 text-purple-700">
+                  <UserPlus size={18} />
+                </span>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">
+                    {editingAgent ? `Edit Sales Agent (${editingAgent.agent_code})` : "Add New Sales Agent"}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Configure agent login credentials and custom commission percentages.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAgentModal(false)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {agentModalError && (
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700">
+                <AlertTriangle size={15} className="shrink-0" />
+                <span>{agentModalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveAgent} className="mt-4 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={agentForm.fullName}
+                    onChange={(e) => setAgentForm({ ...agentForm, fullName: e.target.value })}
+                    placeholder="e.g. Rahul Verma"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold outline-none focus:border-purple-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Phone Number *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={agentForm.phone}
+                    onChange={(e) => setAgentForm({ ...agentForm, phone: e.target.value })}
+                    placeholder="e.g. 9876543210"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Agent Referral Code *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={!!editingAgent}
+                    value={agentForm.agentCode}
+                    onChange={(e) =>
+                      setAgentForm({
+                        ...agentForm,
+                        agentCode: e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""),
+                      })
+                    }
+                    placeholder="e.g. AGT-RAHUL"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-mono font-bold uppercase outline-none focus:border-purple-600 disabled:bg-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    {editingAgent ? "Reset Portal Password (Optional)" : "Portal Password * (min 6 chars)"}
+                  </label>
+                  <input
+                    type="text"
+                    required={!editingAgent}
+                    minLength={editingAgent ? undefined : 6}
+                    value={agentForm.password}
+                    onChange={(e) => setAgentForm({ ...agentForm, password: e.target.value })}
+                    placeholder={editingAgent ? "Leave blank to keep existing" : "e.g. Rahul@123"}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-mono outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              {/* Variable Commission Rates */}
+              <div className="grid gap-3 sm:grid-cols-2 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-3.5">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-emerald-900">
+                    Joining Fee Commission (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min={0}
+                    max={100}
+                    required
+                    value={agentForm.joiningPercent}
+                    onChange={(e) => setAgentForm({ ...agentForm, joiningPercent: Number(e.target.value) || 0 })}
+                    className="mt-1 w-full rounded-xl border border-emerald-300 bg-white px-3.5 py-2 text-sm font-black text-emerald-900 outline-none focus:border-emerald-600"
+                  />
+                  <span className="text-[10px] text-emerald-700">One-time joining fee commission (default 50%)</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-indigo-900">
+                    Monthly Recurring Commission (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min={0}
+                    max={100}
+                    required
+                    value={agentForm.recurringPercent}
+                    onChange={(e) => setAgentForm({ ...agentForm, recurringPercent: Number(e.target.value) || 0 })}
+                    className="mt-1 w-full rounded-xl border border-indigo-300 bg-white px-3.5 py-2 text-sm font-black text-indigo-900 outline-none focus:border-indigo-600"
+                  />
+                  <span className="text-[10px] text-indigo-700">Har mahine school recharge par (custom per agent)</span>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Email (Optional)
+                  </label>
+                  <input
+                    type="email"
+                    value={agentForm.email}
+                    onChange={(e) => setAgentForm({ ...agentForm, email: e.target.value })}
+                    placeholder="rahul@example.com"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-purple-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    City / Territory
+                  </label>
+                  <input
+                    type="text"
+                    value={agentForm.city}
+                    onChange={(e) => setAgentForm({ ...agentForm, city: e.target.value })}
+                    placeholder="e.g. Patna / Gaya"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Agent UPI ID (For Payouts)
+                  </label>
+                  <input
+                    type="text"
+                    value={agentForm.upiId}
+                    onChange={(e) => setAgentForm({ ...agentForm, upiId: e.target.value })}
+                    placeholder="rahul@ybl"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-mono outline-none focus:border-purple-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Bank Details / Account Notes
+                  </label>
+                  <input
+                    type="text"
+                    value={agentForm.bankDetails}
+                    onChange={(e) => setAgentForm({ ...agentForm, bankDetails: e.target.value })}
+                    placeholder="A/C No, IFSC, Bank Name"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              {editingAgent && (
+                <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={agentForm.isActive}
+                    onChange={(e) => setAgentForm({ ...agentForm, isActive: e.target.checked })}
+                    className="rounded accent-emerald-600"
+                  />
+                  <span>Agent Active (can log in &amp; earn commissions)</span>
+                </label>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowAgentModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingAgent}
+                  className="rounded-xl bg-purple-600 px-5 py-2 text-xs font-bold text-white hover:bg-purple-500 disabled:opacity-50"
+                >
+                  {savingAgent ? "Saving..." : editingAgent ? "Update Agent & Rates" : "Create Sales Agent"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 9: RECORD AGENT PAYOUT SETTLEMENT                        */}
+      {/* ============================================================== */}
+      {payingAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-emerald-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Pay Out Commission</h3>
+                <p className="text-xs text-slate-500">
+                  {payingAgent.full_name} ({payingAgent.agent_code}) • Pending: ₹{Number(payingAgent.pending_balance || 0).toLocaleString("en-IN")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPayingAgent(null)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {(payingAgent.upi_id || payingAgent.bank_details) && (
+              <div className="mt-4 rounded-xl bg-blue-50 border border-blue-200 p-3 text-xs text-blue-900 space-y-1">
+                {payingAgent.upi_id && (
+                  <div>
+                    <strong>Agent UPI:</strong> <span className="font-mono">{payingAgent.upi_id}</span>
+                  </div>
+                )}
+                {payingAgent.bank_details && (
+                  <div>
+                    <strong>Bank:</strong> {payingAgent.bank_details}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <form onSubmit={handleRecordAgentPayout} className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Payout Amount (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    step="0.01"
+                    required
+                    value={payoutForm.amount}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, amount: Number(e.target.value) || 0 })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-black text-emerald-700 outline-none focus:border-emerald-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Payment Method
+                  </label>
+                  <select
+                    value={payoutForm.paymentMethod}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, paymentMethod: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold outline-none focus:border-emerald-600"
+                  >
+                    <option value="upi">UPI (PhonePe/GPay)</option>
+                    <option value="bank_transfer">Bank Transfer (IMPS/NEFT)</option>
+                    <option value="cash">Cash</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    UTR / Transaction Ref
+                  </label>
+                  <input
+                    type="text"
+                    value={payoutForm.referenceNo}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, referenceNo: e.target.value })}
+                    placeholder="e.g. 4231987654"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs font-mono outline-none focus:border-emerald-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Settlement Period / Month
+                  </label>
+                  <input
+                    type="text"
+                    value={payoutForm.paidForMonth}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, paidForMonth: e.target.value })}
+                    placeholder="e.g. Nov 2026"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs outline-none focus:border-emerald-600"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Remarks (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={payoutForm.notes}
+                  onChange={(e) => setPayoutForm({ ...payoutForm, notes: e.target.value })}
+                  placeholder="Monthly commission settlement"
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs outline-none focus:border-emerald-600"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setPayingAgent(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPayout}
+                  className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  {savingPayout ? "Recording..." : "Record Payout Settlement"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 10: MANUAL COMMISSION / BONUS ENTRY                      */}
+      {/* ============================================================== */}
+      {showBonusModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-amber-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Add Manual Commission / Bonus</h3>
+                <p className="text-xs text-slate-500">Credit bonus or special adjustment directly to an agent wallet.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBonusModal(false)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveManualBonus} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Select Sales Agent *
+                </label>
+                <select
+                  required
+                  value={bonusForm.agentId}
+                  onChange={(e) => setBonusForm({ ...bonusForm, agentId: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold outline-none focus:border-purple-600"
+                >
+                  {salesAgents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.full_name} ({a.agent_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Entry Type
+                  </label>
+                  <select
+                    value={bonusForm.commissionType}
+                    onChange={(e) =>
+                      setBonusForm({
+                        ...bonusForm,
+                        commissionType: e.target.value as "joining_fee" | "recurring" | "bonus_adjustment",
+                      })
+                    }
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold outline-none"
+                  >
+                    <option value="bonus_adjustment">Bonus / Adjustment</option>
+                    <option value="joining_fee">Joining Fee Comm</option>
+                    <option value="recurring">Monthly Comm</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    School (Optional)
+                  </label>
+                  <select
+                    value={bonusForm.orgId}
+                    onChange={(e) => setBonusForm({ ...bonusForm, orgId: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none"
+                  >
+                    <option value="">Platform Bonus</option>
+                    {institutions.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Commission Amount to Credit (₹) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={bonusForm.commissionAmount}
+                  onChange={(e) => setBonusForm({ ...bonusForm, commissionAmount: Number(e.target.value) || 0 })}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-black text-emerald-700 outline-none focus:border-purple-600"
+                />
+                <span className="text-[10px] text-slate-400">
+                  Use positive amount for bonus/credit (or negative to reverse an entry).
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Reason / Note
+                </label>
+                <input
+                  type="text"
+                  value={bonusForm.notes}
+                  onChange={(e) => setBonusForm({ ...bonusForm, notes: e.target.value })}
+                  placeholder="e.g. Monthly target achieved bonus"
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowBonusModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingBonus}
+                  className="rounded-xl bg-amber-600 px-5 py-2 text-xs font-bold text-white hover:bg-amber-500 disabled:opacity-50"
+                >
+                  {savingBonus ? "Adding..." : "Credit Commission"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 11: ASSIGN / CHANGE SALES AGENT FOR INSTITUTION          */}
+      {/* ============================================================== */}
+      {assigningAgentInst && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-blue-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Link School to Sales Agent</h3>
+                <p className="text-xs text-slate-500">{assigningAgentInst.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAssigningAgentInst(null)}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAssignAgent} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Assigned Sales Partner
+                </label>
+                <select
+                  value={selectedAssignAgentId}
+                  onChange={(e) => setSelectedAssignAgentId(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-semibold outline-none focus:border-blue-600"
+                >
+                  <option value="">-- Direct Platform (No Sales Agent) --</option>
+                  {salesAgents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.full_name} ({a.agent_code}) — {Number(a.joining_commission_percent)}% Join / {Number(a.recurring_commission_percent)}% Monthly
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Future approved Joining Fees &amp; Monthly Subscriptions from this school will credit commission to the selected agent automatically.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setAssigningAgentInst(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingAssignAgent}
+                  className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+                >
+                  {savingAssignAgent ? "Saving..." : "Save Attribution"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 12: DIRECT OFFLINE / CASH PAYMENT & JOINING FEE RECORDER */}
+      {/* ============================================================== */}
+      {recordingDirectPayInst && (() => {
+        const linkedAgent = recordingDirectPayInst.referred_by_agent_id
+          ? agentByIdMap.get(recordingDirectPayInst.referred_by_agent_id)
+          : undefined;
+        const amt = Number(directPayForm.amount) || 0;
+        const joinAmt =
+          directPayForm.paymentCategory === "joining_fee"
+            ? amt
+            : directPayForm.paymentCategory === "combined"
+            ? Math.max(0, Math.min(amt, Number(directPayForm.joiningPortion) || 0))
+            : 0;
+        const recAmt = Math.max(0, amt - joinAmt);
+        const estJoinComm = linkedAgent
+          ? Math.round((joinAmt * Number(linkedAgent.joining_commission_percent)) / 100)
+          : 0;
+        const estRecComm = linkedAgent
+          ? Math.round((recAmt * Number(linkedAgent.recurring_commission_percent)) / 100)
+          : 0;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-lg rounded-3xl border border-emerald-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-center justify-between border-b pb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Record Direct School Payment</h3>
+                  <p className="text-xs text-slate-500">{recordingDirectPayInst.name}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRecordingDirectPayInst(null)}
+                  className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveDirectPayment} className="mt-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Payment Purpose
+                  </label>
+                  <select
+                    value={directPayForm.paymentCategory}
+                    onChange={(e) => {
+                      const nextCat = e.target.value as "joining_fee" | "recurring" | "combined";
+                      setDirectPayForm({
+                        ...directPayForm,
+                        paymentCategory: nextCat,
+                        durationDays: nextCat === "joining_fee" ? 0 : 30,
+                      });
+                    }}
+                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold outline-none focus:border-emerald-600"
+                  >
+                    <option value="joining_fee">One-Time Joining / Setup Fee</option>
+                    <option value="recurring">Monthly Recurring Subscription</option>
+                    <option value="combined">Combined (Joining Fee + 1st Month)</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Total Amount Received (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      required
+                      value={directPayForm.amount}
+                      onChange={(e) => setDirectPayForm({ ...directPayForm, amount: Number(e.target.value) || 0 })}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-black text-emerald-700 outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Extend Validity (Days)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={365}
+                      value={directPayForm.durationDays}
+                      onChange={(e) => setDirectPayForm({ ...directPayForm, durationDays: Number(e.target.value) || 0 })}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-bold outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                </div>
+
+                {directPayForm.paymentCategory === "combined" && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Joining Fee Portion (₹)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={amt}
+                      value={directPayForm.joiningPortion}
+                      onChange={(e) =>
+                        setDirectPayForm({ ...directPayForm, joiningPortion: Number(e.target.value) || 0 })
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-bold outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Student Quota
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={directPayForm.studentLimit}
+                      onChange={(e) =>
+                        setDirectPayForm({ ...directPayForm, studentLimit: Number(e.target.value) || 100 })
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-bold outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      UTR / Receipt Ref
+                    </label>
+                    <input
+                      type="text"
+                      value={directPayForm.utrNumber}
+                      onChange={(e) => setDirectPayForm({ ...directPayForm, utrNumber: e.target.value })}
+                      placeholder="Cash / UPI UTR"
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs font-mono outline-none"
+                    />
+                  </div>
+                </div>
+
+                {linkedAgent ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5 text-xs text-emerald-950">
+                    <div className="flex items-center justify-between font-bold">
+                      <span>Partner Commission ({linkedAgent.full_name}):</span>
+                      <span className="font-mono text-sm text-emerald-700">
+                        +₹{(estJoinComm + estRecComm).toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-emerald-800">
+                      {joinAmt > 0 && `Joining ₹${joinAmt} × ${Number(linkedAgent.joining_commission_percent)}% = ₹${estJoinComm}  `}
+                      {recAmt > 0 && `Monthly ₹${recAmt} × ${Number(linkedAgent.recurring_commission_percent)}% = ₹${estRecComm}`}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+                    No Sales Partner assigned to this school yet.
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-3 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setRecordingDirectPayInst(null)}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingDirectPay}
+                    className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+                  >
+                    {savingDirectPay ? "Recording..." : "Approve & Record Payment"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
     </main>
   );
 }

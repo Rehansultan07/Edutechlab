@@ -13,6 +13,7 @@ const EXEMPT_PREFIXES = [
   "/register",
   "/preview",
   "/parent-portal",
+  "/agent-portal",
   "/api",
 ];
 

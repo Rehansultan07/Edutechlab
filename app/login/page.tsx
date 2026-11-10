@@ -446,14 +446,25 @@ export default function LoginPage() {
                 </Link>
               </div>
 
-              <div className="mt-3 text-center text-xs text-slate-500">
-                Are you a parent or guardian?{" "}
-                <Link
-                  href="/parent-portal"
-                  className="font-bold text-slate-900 hover:underline"
-                >
-                  Access Parent Portal
-                </Link>
+              <div className="mt-3 text-center text-xs text-slate-500 space-y-1.5">
+                <div>
+                  Are you a parent or guardian?{" "}
+                  <Link
+                    href="/parent-portal"
+                    className="font-bold text-slate-900 hover:underline"
+                  >
+                    Access Parent Portal
+                  </Link>
+                </div>
+                <div>
+                  Sales Partner / Agent?{" "}
+                  <Link
+                    href="/agent-portal"
+                    className="font-bold text-[#6657e8] hover:underline"
+                  >
+                    Partner Login Portal
+                  </Link>
+                </div>
               </div>
 
               <p className="mt-5 text-center text-[11px] text-slate-400">
