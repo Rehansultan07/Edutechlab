@@ -1521,6 +1521,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.agent_logout(text) TO authenticated, anon;
 
 -- 21. Ensure delete_institution_permanently safely preserves settled agent commission accounting without FK errors
+DROP FUNCTION IF EXISTS public.delete_institution_permanently(uuid);
 CREATE OR REPLACE FUNCTION public.delete_institution_permanently(
   p_org_id uuid,
   p_master_code text DEFAULT null
