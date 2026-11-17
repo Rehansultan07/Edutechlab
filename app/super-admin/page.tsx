@@ -63,6 +63,10 @@ import {
   UserCheck,
   Banknote,
   Link2,
+  Ticket,
+  Tag,
+  Percent,
+  Gift,
 } from "lucide-react";
 import {
   PLATFORM_FEATURES,
@@ -129,7 +133,30 @@ type PaymentRequest = {
   payment_category?: "joining_fee" | "recurring" | "combined";
   joining_fee_portion?: number;
   notes?: string | null;
+  coupon_code?: string | null;
+  original_amount?: number | null;
+  discount_amount?: number | null;
   created_at: string;
+};
+
+type PlatformCouponItem = {
+  id: string;
+  code: string;
+  description: string | null;
+  discount_type: "percent" | "fixed_amount";
+  discount_value: number;
+  max_discount_amount: number | null;
+  min_order_amount: number;
+  applicable_to: "all" | "recurring" | "joining_fee" | "combined";
+  max_uses: number | null;
+  times_used: number;
+  valid_from: string;
+  valid_until: string | null;
+  is_active: boolean;
+  is_expired: boolean;
+  created_at: string;
+  total_discount_given: number;
+  redemptions_count: number;
 };
 
 type SalesAgentItem = {
@@ -261,8 +288,29 @@ export default function SuperAdminPage() {
   });
 
   const [activeTab, setActiveTab] = useState<
-    "institutions" | "requests" | "revenue" | "agents" | "pricing" | "features"
+    "institutions" | "requests" | "revenue" | "agents" | "coupons" | "pricing" | "features"
   >("institutions");
+
+  // Coupons & Promo Codes Engine States
+  const [coupons, setCoupons] = useState<PlatformCouponItem[]>([]);
+  const [couponSearch, setCouponSearch] = useState("");
+  const [couponFilter, setCouponFilter] = useState<"all" | "active" | "expired">("all");
+  const [showCouponModal, setShowCouponModal] = useState(false);
+  const [editingCoupon, setEditingCoupon] = useState<PlatformCouponItem | null>(null);
+  const [couponForm, setCouponForm] = useState({
+    code: "",
+    description: "",
+    discountType: "percent" as "percent" | "fixed_amount",
+    discountValue: 20,
+    maxDiscountAmount: 0,
+    minOrderAmount: 0,
+    applicableTo: "all" as "all" | "recurring" | "joining_fee" | "combined",
+    maxUses: 0,
+    validUntil: "",
+  });
+  const [savingCoupon, setSavingCoupon] = useState(false);
+  const [couponModalError, setCouponModalError] = useState("");
+  const [copiedCouponKey, setCopiedCouponKey] = useState("");
   // Sales Agents & Commission System States
   const [salesAgents, setSalesAgents] = useState<SalesAgentItem[]>([]);
   const [agentCommissions, setAgentCommissions] = useState<AgentCommissionItem[]>([]);
@@ -539,6 +587,18 @@ export default function SuperAdminPage() {
         }
       } catch {
         // Silently ignore if migration 0021 hasn't been executed yet
+      }
+
+      // Safely fetch Coupons (if migration 0022 is applied)
+      try {
+        const { data: couponDash } = await supabase.rpc("admin_list_coupons", {
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (couponDash?.coupons) {
+          setCoupons(couponDash.coupons as PlatformCouponItem[]);
+        }
+      } catch {
+        // Silently ignore if migration 0022 hasn't been executed yet
       }
 
       if (statsRes.data) {
@@ -895,6 +955,241 @@ export default function SuperAdminPage() {
       setError(err.message || "Failed to update free trial.");
     } finally {
       setIsGrantingTrial(false);
+    }
+  };
+
+  // Dedicated Immediate Trial Termination Handler
+  const handleEndTrial = async (inst: InstitutionItem) => {
+    if (
+      !confirm(
+        `End free trial for "${inst.name}" immediately?\n\nThe trial will be marked as expired and the school will be prompted to purchase a subscription to continue.`
+      )
+    ) {
+      return;
+    }
+
+    setBusyId(inst.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      let rpcDone = false;
+      try {
+        const { data, error: err } = await supabase.rpc("admin_end_institution_trial", {
+          p_org_id: inst.id,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (!err) {
+          rpcDone = true;
+          setSuccess(data?.message || `Free trial ended for "${inst.name}".`);
+        }
+      } catch {}
+
+      if (!rpcDone) {
+        const { data, error: fallbackErr } = await supabase.rpc("admin_grant_free_trial", {
+          p_org_id: inst.id,
+          p_trial_days: 0,
+          p_student_limit: inst.subscription?.student_limit || 20,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (fallbackErr) throw fallbackErr;
+        setSuccess(data?.message || `Free trial ended for "${inst.name}".`);
+      }
+
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to end free trial.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // =========================================================================
+  // COUPON CODES & PROMO DISCOUNTS MANAGEMENT HANDLERS
+  // =========================================================================
+  const openCreateCouponModal = () => {
+    setEditingCoupon(null);
+    const randomSuffix = Math.floor(10 + Math.random() * 89);
+    const defaultExpiry = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    setCouponForm({
+      code: `SAVE${randomSuffix}`,
+      description: "Special promotional discount",
+      discountType: "percent",
+      discountValue: 20,
+      maxDiscountAmount: 500,
+      minOrderAmount: 0,
+      applicableTo: "all",
+      maxUses: 50,
+      validUntil: defaultExpiry,
+    });
+    setCouponModalError("");
+    setShowCouponModal(true);
+  };
+
+  const openEditCouponModal = (coupon: PlatformCouponItem) => {
+    setEditingCoupon(coupon);
+    setCouponForm({
+      code: coupon.code,
+      description: coupon.description || "",
+      discountType: coupon.discount_type,
+      discountValue: Number(coupon.discount_value),
+      maxDiscountAmount: Number(coupon.max_discount_amount || 0),
+      minOrderAmount: Number(coupon.min_order_amount || 0),
+      applicableTo: coupon.applicable_to,
+      maxUses: Number(coupon.max_uses || 0),
+      validUntil: coupon.valid_until ? coupon.valid_until.slice(0, 10) : "",
+    });
+    setCouponModalError("");
+    setShowCouponModal(true);
+  };
+
+  const handleSaveCoupon = async (e: FormEvent) => {
+    e.preventDefault();
+    setCouponModalError("");
+
+    const cleanCode = couponForm.code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "");
+    if (!cleanCode) {
+      setCouponModalError("Please enter a valid coupon code.");
+      return;
+    }
+    if (Number(couponForm.discountValue) <= 0) {
+      setCouponModalError("Discount value must be greater than zero.");
+      return;
+    }
+    if (couponForm.discountType === "percent" && Number(couponForm.discountValue) > 100) {
+      setCouponModalError("Percentage discount cannot exceed 100%.");
+      return;
+    }
+
+    setSavingCoupon(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const validUntilISO = couponForm.validUntil
+        ? new Date(`${couponForm.validUntil}T23:59:59`).toISOString()
+        : null;
+
+      if (editingCoupon) {
+        const { data, error: rpcErr } = await supabase.rpc("admin_update_coupon", {
+          p_coupon_id: editingCoupon.id,
+          p_is_active: editingCoupon.is_active,
+          p_valid_until: validUntilISO,
+          p_max_uses: Number(couponForm.maxUses) || null,
+          p_description: couponForm.description.trim() || null,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (rpcErr) throw rpcErr;
+        setSuccess(data?.message || `Coupon "${cleanCode}" updated successfully.`);
+      } else {
+        const { data, error: rpcErr } = await supabase.rpc("admin_create_coupon", {
+          p_code: cleanCode,
+          p_discount_type: couponForm.discountType,
+          p_discount_value: Number(couponForm.discountValue),
+          p_valid_until: validUntilISO,
+          p_max_uses: Number(couponForm.maxUses) || null,
+          p_applicable_to: couponForm.applicableTo,
+          p_description: couponForm.description.trim() || null,
+          p_min_order_amount: Number(couponForm.minOrderAmount) || 0,
+          p_max_discount_amount: Number(couponForm.maxDiscountAmount) || null,
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (rpcErr) throw rpcErr;
+        setSuccess(data?.message || `Coupon "${cleanCode}" created successfully.`);
+      }
+
+      setShowCouponModal(false);
+      await checkAndLoad();
+    } catch (err: any) {
+      setCouponModalError(err.message || "Failed to save coupon.");
+    } finally {
+      setSavingCoupon(false);
+    }
+  };
+
+  const handleToggleCouponStatus = async (coupon: PlatformCouponItem) => {
+    setBusyId(coupon.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const nextStatus = !coupon.is_active;
+      const { data, error: rpcErr } = await supabase.rpc("admin_update_coupon", {
+        p_coupon_id: coupon.id,
+        p_is_active: nextStatus,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+      if (rpcErr) throw rpcErr;
+      setSuccess(`Coupon "${coupon.code}" ${nextStatus ? "activated" : "deactivated"}.`);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to update coupon status.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDeleteCoupon = async (coupon: PlatformCouponItem) => {
+    if (!confirm(`Delete coupon code "${coupon.code}"? This will permanently remove it.`)) {
+      return;
+    }
+    setBusyId(coupon.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("admin_delete_coupon", {
+        p_coupon_id: coupon.id,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+      if (rpcErr) throw rpcErr;
+      setSuccess(data?.message || `Coupon "${coupon.code}" deleted.`);
+      await checkAndLoad();
+    } catch (err: any) {
+      setError(err.message || "Failed to delete coupon.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const copyCouponCodeOnly = (code: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(code);
+      setCopiedCouponKey(`code_${code}`);
+      setTimeout(() => setCopiedCouponKey(""), 2500);
+    }
+  };
+
+  const copyCouponPromoText = (coupon: PlatformCouponItem) => {
+    const origin =
+      typeof window !== "undefined" && window.location.origin
+        ? window.location.origin
+        : "https://edutechlab-9fz4.vercel.app";
+    const brandName = (pricing.brand_name || "EduTechLab").trim();
+    const subUrl = `${origin}/subscription`;
+    const discountText =
+      coupon.discount_type === "percent"
+        ? `${coupon.discount_value}% OFF`
+        : `Flat ₹${coupon.discount_value} OFF`;
+    const validityText = coupon.valid_until
+      ? `Valid until: ${new Date(coupon.valid_until).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
+      : "Limited time offer";
+
+    const promoText = `🎉 *Special Promo Offer from ${brandName}!* 🚀
+
+Use exclusive Coupon Code: *${coupon.code}*
+💰 *Discount:* *${discountText}*
+⏳ *Validity:* ${validityText}
+${coupon.description ? `📝 *Offer:* ${coupon.description}\n` : ""}
+👉 *Apply your coupon directly at checkout:*
+${subUrl}
+
+Login to your school dashboard, go to Subscription & Billing, enter *${coupon.code}*, and enjoy instant discount! 🌟`;
+
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(promoText);
+      setCopiedCouponKey(`promo_${coupon.id}`);
+      setTimeout(() => setCopiedCouponKey(""), 2500);
     }
   };
 
@@ -2465,6 +2760,18 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
         </button>
 
         <button
+          onClick={() => setActiveTab("coupons")}
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
+            activeTab === "coupons"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <Ticket size={16} />
+          Coupons &amp; Discounts ({coupons.length})
+        </button>
+
+        <button
           onClick={() => setActiveTab("pricing")}
           className={`flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
             activeTab === "pricing"
@@ -2656,8 +2963,21 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                               title="Grant custom free trial days to this school"
                             >
                               <Sparkles size={12} />
-                              Grant Trial
+                              {sub?.is_trial ? "Manage Trial" : "Grant Trial"}
                             </button>
+
+                            {/* Direct Immediate End Trial Button (if on active trial) */}
+                            {sub?.is_trial && (
+                              <button
+                                onClick={() => handleEndTrial(inst)}
+                                disabled={busyId === inst.id}
+                                className="inline-flex items-center gap-1 rounded-lg border border-rose-300 bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 shadow-xs transition disabled:opacity-50"
+                                title="End / Expire this school's free trial immediately"
+                              >
+                                <Clock size={12} className="text-rose-600" />
+                                End Trial
+                              </button>
+                            )}
 
                             {/* Record Direct Joining Fee / Cash Payment */}
                             <button
@@ -2856,6 +3176,11 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                       </td>
                       <td className="px-5 py-4">
                         <div className="font-extrabold text-purple-700">₹{pay.amount}</div>
+                        {pay.coupon_code && (
+                          <div className="mt-1 inline-flex items-center gap-1 rounded bg-purple-100 border border-purple-200 px-1.5 py-0.5 text-[10px] font-bold text-purple-800 uppercase">
+                            <Ticket size={10} /> {pay.coupon_code} (-₹{pay.discount_amount || 0})
+                          </div>
+                        )}
                         <span
                           className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
                             cat === "joining_fee"
@@ -3442,6 +3767,360 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 2.7: COUPON CODES & CLIENT PROMOTIONAL DISCOUNTS           */}
+      {/* ============================================================== */}
+      {activeTab === "coupons" && (
+        <section className="mt-6 space-y-6">
+          {/* Header Banner */}
+          <div className="rounded-3xl border border-purple-200 bg-gradient-to-r from-slate-900 via-purple-950 to-indigo-950 p-6 text-white shadow-xl">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-500/20 border border-purple-400/30 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-purple-300">
+                  <Ticket size={13} /> Promo &amp; Discount Engine
+                </div>
+                <h2 className="text-2xl font-black tracking-tight sm:text-3xl">
+                  Coupon Codes, Validity &amp; Client Discounts
+                </h2>
+                <p className="text-xs text-purple-200 max-w-2xl leading-relaxed">
+                  Generate promotional discount codes (% percentage or flat ₹ discount) with custom expiration validity dates, usage caps, and share 1-click WhatsApp promo invitations with client schools.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={openCreateCouponModal}
+                  className="inline-flex items-center gap-2 rounded-xl bg-purple-500 px-4 py-2.5 text-xs font-extrabold text-white shadow-md hover:bg-purple-400 transition active:scale-95"
+                >
+                  <Plus size={15} />
+                  Create New Coupon
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 4 KPI Metric Cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs font-bold uppercase tracking-wider">Total Coupons</span>
+                <Ticket size={18} className="text-purple-600" />
+              </div>
+              <p className="mt-2.5 text-3xl font-black text-slate-900">{coupons.length}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                <strong className="text-emerald-600">{coupons.filter(c => c.is_active && !c.is_expired).length} Active</strong> • {coupons.filter(c => c.is_expired).length} Expired
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 shadow-sm">
+              <div className="flex items-center justify-between text-emerald-800">
+                <span className="text-xs font-bold uppercase tracking-wider">Times Redeemed</span>
+                <CheckCircle2 size={18} className="text-emerald-600" />
+              </div>
+              <p className="mt-2.5 text-3xl font-black text-emerald-950 font-mono">
+                {coupons.reduce((sum, c) => sum + Number(c.times_used || 0), 0)}
+              </p>
+              <p className="mt-1 text-[11px] text-emerald-800">
+                Total client checkout redemptions
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 shadow-sm">
+              <div className="flex items-center justify-between text-blue-800">
+                <span className="text-xs font-bold uppercase tracking-wider">Total Discount Granted</span>
+                <IndianRupee size={18} className="text-blue-600" />
+              </div>
+              <p className="mt-2.5 text-3xl font-black text-blue-950 font-mono">
+                ₹{coupons.reduce((sum, c) => sum + Number(c.total_discount_given || 0), 0).toLocaleString("en-IN")}
+              </p>
+              <p className="mt-1 text-xs text-blue-700">
+                Total savings passed to schools
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-purple-200 bg-purple-50/40 p-5 shadow-sm">
+              <div className="flex items-center justify-between text-purple-800">
+                <span className="text-xs font-bold uppercase tracking-wider">Discount Types</span>
+                <Tag size={18} className="text-purple-600" />
+              </div>
+              <p className="mt-2.5 text-3xl font-black text-purple-950 font-mono">
+                {coupons.filter(c => c.discount_type === "percent").length}% / {coupons.filter(c => c.discount_type === "fixed_amount").length}₹
+              </p>
+              <p className="mt-1 text-xs text-purple-700">Percentage vs Flat Rate Coupons</p>
+            </div>
+          </div>
+
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["all", `All Coupons (${coupons.length})`],
+                  ["active", `Active (${coupons.filter(c => c.is_active && !c.is_expired).length})`],
+                  ["expired", `Expired / Inactive (${coupons.filter(c => !c.is_active || c.is_expired).length})`],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setCouponFilter(key)}
+                  className={`rounded-xl px-4 py-2 text-xs font-bold transition ${
+                    couponFilter === key
+                      ? "bg-purple-900 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search coupon code or description..."
+                value={couponSearch}
+                onChange={(e) => setCouponSearch(e.target.value)}
+                className="w-full sm:w-64 rounded-xl border border-slate-200 pl-8 pr-3 py-2 text-xs outline-none focus:border-purple-600"
+              />
+            </div>
+          </div>
+
+          {/* Coupons Table */}
+          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 font-bold uppercase tracking-wider text-[11px] text-slate-500 border-b border-slate-100">
+                  <tr>
+                    <th className="px-5 py-3.5">Coupon Code</th>
+                    <th className="px-5 py-3.5">Discount Offer</th>
+                    <th className="px-5 py-3.5">Applicability</th>
+                    <th className="px-5 py-3.5">Validity / Expiry</th>
+                    <th className="px-5 py-3.5 text-center">Usage Stats</th>
+                    <th className="px-5 py-3.5 text-right">Total Savings</th>
+                    <th className="px-5 py-3.5 text-center">Status</th>
+                    <th className="px-5 py-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {coupons.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-10 text-center space-y-3">
+                        <Ticket size={36} className="mx-auto text-slate-300" />
+                        <h3 className="text-base font-bold text-slate-800">No Coupons Created Yet</h3>
+                        <p className="text-xs text-slate-500 max-w-md mx-auto">
+                          Create promotional discount codes for festivals, marketing campaigns, or VIP schools.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={openCreateCouponModal}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-xs font-bold text-white hover:bg-purple-500"
+                        >
+                          <Plus size={14} /> Create First Coupon
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    coupons
+                      .filter((c) => {
+                        if (couponFilter === "active") return c.is_active && !c.is_expired;
+                        if (couponFilter === "expired") return !c.is_active || c.is_expired;
+                        return true;
+                      })
+                      .filter((c) => {
+                        const q = couponSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          c.code.toLowerCase().includes(q) ||
+                          (c.description && c.description.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((coupon) => {
+                        const isExpired = Boolean(coupon.is_expired || (coupon.valid_until && new Date(coupon.valid_until) < new Date()));
+                        return (
+                          <tr key={coupon.id} className="hover:bg-slate-50/50">
+                            {/* Code Column */}
+                            <td className="px-5 py-3.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-sm font-black text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-xl uppercase">
+                                  {coupon.code}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => copyCouponCodeOnly(coupon.code)}
+                                  className="text-slate-400 hover:text-purple-600 transition"
+                                  title="Copy coupon code"
+                                >
+                                  {copiedCouponKey === `code_${coupon.code}` ? (
+                                    <Check size={13} className="text-emerald-600" />
+                                  ) : (
+                                    <Copy size={13} />
+                                  )}
+                                </button>
+                              </div>
+                              {coupon.description && (
+                                <p className="mt-1 text-[11px] text-slate-500 max-w-xs truncate">
+                                  {coupon.description}
+                                </p>
+                              )}
+                            </td>
+
+                            {/* Discount Offer */}
+                            <td className="px-5 py-3.5">
+                              <div className="font-extrabold text-slate-900">
+                                {coupon.discount_type === "percent"
+                                  ? `${Number(coupon.discount_value)}% OFF`
+                                  : `₹${Number(coupon.discount_value).toLocaleString("en-IN")} Flat OFF`}
+                              </div>
+                              {coupon.max_discount_amount && Number(coupon.max_discount_amount) > 0 && (
+                                <div className="text-[10px] text-slate-400">
+                                  Max discount cap: ₹{Number(coupon.max_discount_amount).toLocaleString("en-IN")}
+                                </div>
+                              )}
+                              {coupon.min_order_amount && Number(coupon.min_order_amount) > 0 && (
+                                <div className="text-[10px] text-slate-400">
+                                  Min order: ₹{Number(coupon.min_order_amount).toLocaleString("en-IN")}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Applicable Category */}
+                            <td className="px-5 py-3.5">
+                              <span
+                                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${
+                                  coupon.applicable_to === "all"
+                                    ? "bg-slate-100 text-slate-700"
+                                    : coupon.applicable_to === "recurring"
+                                    ? "bg-indigo-100 text-indigo-800"
+                                    : coupon.applicable_to === "joining_fee"
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : "bg-purple-100 text-purple-800"
+                                }`}
+                              >
+                                {coupon.applicable_to === "all"
+                                  ? "All Payments"
+                                  : coupon.applicable_to === "recurring"
+                                  ? "Monthly Plan"
+                                  : coupon.applicable_to === "joining_fee"
+                                  ? "Joining Fee"
+                                  : "Combined"}
+                              </span>
+                            </td>
+
+                            {/* Validity Status */}
+                            <td className="px-5 py-3.5">
+                              {coupon.valid_until ? (
+                                <div>
+                                  <div className={`font-semibold ${isExpired ? "text-rose-600 font-bold" : "text-slate-800"}`}>
+                                    {new Date(coupon.valid_until).toLocaleDateString("en-IN", {
+                                      day: "numeric",
+                                      month: "short",
+                                      year: "numeric",
+                                    })}
+                                  </div>
+                                  <span
+                                    className={`inline-block mt-0.5 rounded px-1.5 py-0.2 text-[10px] font-bold uppercase ${
+                                      isExpired
+                                        ? "bg-rose-100 text-rose-800"
+                                        : "bg-emerald-100 text-emerald-800"
+                                    }`}
+                                  >
+                                    {isExpired ? "Expired" : "Active"}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="inline-block rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                                  No Expiry (Lifetime)
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Usage Stats */}
+                            <td className="px-5 py-3.5 text-center">
+                              <div className="font-mono font-bold text-slate-900">
+                                {coupon.times_used} / {coupon.max_uses ? coupon.max_uses : "∞"}
+                              </div>
+                              {coupon.max_uses && (
+                                <div className="mt-1 w-20 mx-auto bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                  <div
+                                    className="bg-purple-600 h-full rounded-full"
+                                    style={{
+                                      width: `${Math.min(100, Math.round((coupon.times_used / coupon.max_uses) * 100))}%`,
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Total Savings */}
+                            <td className="px-5 py-3.5 text-right font-mono font-bold text-emerald-700">
+                              ₹{Number(coupon.total_discount_given || 0).toLocaleString("en-IN")}
+                            </td>
+
+                            {/* Status Toggle */}
+                            <td className="px-5 py-3.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCouponStatus(coupon)}
+                                disabled={busyId === coupon.id}
+                                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold transition ${
+                                  coupon.is_active && !isExpired
+                                    ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                                    : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                                }`}
+                              >
+                                {coupon.is_active && !isExpired ? "Active" : "Paused"}
+                              </button>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="px-5 py-3.5 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => copyCouponPromoText(coupon)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100 transition shadow-2xs"
+                                  title="Copy promotional WhatsApp text for this coupon"
+                                >
+                                  {copiedCouponKey === `promo_${coupon.id}` ? (
+                                    <Check size={11} className="text-emerald-600" />
+                                  ) : (
+                                    <MessageCircle size={11} />
+                                  )}
+                                  {copiedCouponKey === `promo_${coupon.id}` ? "Copied Promo!" : "WhatsApp"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditCouponModal(coupon)}
+                                  className="rounded-lg border border-slate-200 bg-white p-1 text-slate-600 hover:bg-slate-50"
+                                  title="Edit validity or limits"
+                                >
+                                  <Edit size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCoupon(coupon)}
+                                  disabled={busyId === coupon.id}
+                                  className="rounded-lg border border-red-200 bg-red-50 p-1 text-red-600 hover:bg-red-100 disabled:opacity-50"
+                                  title="Delete coupon"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </section>
       )}
 
@@ -4641,10 +5320,19 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                   <button
                     type="button"
                     disabled={isGrantingTrial}
-                    onClick={() => handleGrantFreeTrial(0)}
-                    className="rounded-xl border border-red-200 px-3.5 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          `End free trial for "${grantingTrialInst.name}" immediately?\n\nThe trial will be marked as expired and the school will be required to purchase a subscription to continue.`
+                        )
+                      ) {
+                        handleGrantFreeTrial(0);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 px-3.5 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition"
                   >
-                    Revoke / End Trial
+                    <Clock size={14} className="text-rose-600" />
+                    End Trial Immediately
                   </button>
                 ) : (
                   <span />
@@ -5376,6 +6064,13 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                     {approvingPay.organization_name} • Amount: <strong>₹{amt}</strong> • UTR:{" "}
                     <span className="font-mono">{approvingPay.utr_number}</span>
                   </p>
+                  {approvingPay.coupon_code && (
+                    <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs text-purple-900 font-semibold">
+                      <Ticket size={13} className="text-purple-600" />
+                      <span>Coupon: <strong className="font-mono uppercase text-purple-700">{approvingPay.coupon_code}</strong></span>
+                      <span>(Saved ₹{Number(approvingPay.discount_amount || 0).toLocaleString("en-IN")})</span>
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -6486,6 +7181,312 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                     className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
                   >
                     {savingDirectPay ? "Recording..." : "Approve & Record Payment"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ============================================================== */}
+      {/* MODAL 13: CREATE / EDIT COUPON MODAL                           */}
+      {/* ============================================================== */}
+      {showCouponModal && (() => {
+        const estSampleOrder = 1000;
+        let sampleDiscount = 0;
+        if (couponForm.discountType === "percent") {
+          sampleDiscount = Math.round((estSampleOrder * Number(couponForm.discountValue)) / 100);
+          if (couponForm.maxDiscountAmount > 0) {
+            sampleDiscount = Math.min(sampleDiscount, Number(couponForm.maxDiscountAmount));
+          }
+        } else {
+          sampleDiscount = Math.min(estSampleOrder, Number(couponForm.discountValue));
+        }
+        const samplePayable = Math.max(0, estSampleOrder - sampleDiscount);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
+            <div className="w-full max-w-lg rounded-3xl border border-purple-200 bg-white p-6 shadow-2xl my-8">
+              <div className="flex items-center justify-between border-b pb-4">
+                <div className="flex items-center gap-2.5">
+                  <span className="rounded-xl bg-purple-100 p-2 text-purple-700">
+                    <Ticket size={18} />
+                  </span>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">
+                      {editingCoupon ? `Edit Coupon (${editingCoupon.code})` : "Create Promotional Coupon"}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Set discount value, validity expiry date, and usage limitations.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCouponModal(false)}
+                  className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {couponModalError && (
+                <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700">
+                  <AlertTriangle size={15} className="shrink-0" />
+                  <span>{couponModalError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveCoupon} className="mt-4 space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Coupon Code *
+                      </label>
+                      {!editingCoupon && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const suffix = Math.floor(100 + Math.random() * 899);
+                            setCouponForm({ ...couponForm, code: `PROMO${suffix}` });
+                          }}
+                          className="text-[10px] font-bold text-purple-600 hover:underline"
+                        >
+                          Generate Random
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      disabled={Boolean(editingCoupon)}
+                      value={couponForm.code}
+                      onChange={(e) =>
+                        setCouponForm({
+                          ...couponForm,
+                          code: e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""),
+                        })
+                      }
+                      placeholder="e.g. WELCOME50"
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-mono font-black uppercase outline-none focus:border-purple-600 disabled:bg-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Discount Type *
+                    </label>
+                    <select
+                      value={couponForm.discountType}
+                      disabled={Boolean(editingCoupon)}
+                      onChange={(e) =>
+                        setCouponForm({
+                          ...couponForm,
+                          discountType: e.target.value as "percent" | "fixed_amount",
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold outline-none focus:border-purple-600 disabled:bg-slate-100"
+                    >
+                      <option value="percent">Percentage Discount (%)</option>
+                      <option value="fixed_amount">Flat ₹ Amount Discount</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      {couponForm.discountType === "percent" ? "Discount Percentage (%) *" : "Discount Amount (₹) *"}
+                    </label>
+                    <input
+                      type="number"
+                      step={couponForm.discountType === "percent" ? "1" : "50"}
+                      min={1}
+                      max={couponForm.discountType === "percent" ? 100 : 50000}
+                      required
+                      disabled={Boolean(editingCoupon)}
+                      value={couponForm.discountValue}
+                      onChange={(e) =>
+                        setCouponForm({
+                          ...couponForm,
+                          discountValue: Number(e.target.value) || 0,
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-purple-300 bg-purple-50/30 px-3.5 py-2 text-sm font-black text-purple-900 outline-none focus:border-purple-600 disabled:bg-slate-100"
+                    />
+                  </div>
+
+                  {couponForm.discountType === "percent" ? (
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Max Discount Cap (₹) (Optional)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        disabled={Boolean(editingCoupon)}
+                        value={couponForm.maxDiscountAmount || ""}
+                        onChange={(e) =>
+                          setCouponForm({
+                            ...couponForm,
+                            maxDiscountAmount: Number(e.target.value) || 0,
+                          })
+                        }
+                        placeholder="e.g. 500 (blank = no cap)"
+                        className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-mono outline-none focus:border-purple-600 disabled:bg-slate-100"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Min Order Amount (₹) (Optional)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        disabled={Boolean(editingCoupon)}
+                        value={couponForm.minOrderAmount || ""}
+                        onChange={(e) =>
+                          setCouponForm({
+                            ...couponForm,
+                            minOrderAmount: Number(e.target.value) || 0,
+                          })
+                        }
+                        placeholder="e.g. 1000 (0 = no min)"
+                        className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-mono outline-none focus:border-purple-600 disabled:bg-slate-100"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Validity / Expiration Date Field with Quick Presets */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Coupon Expiration Validity Date
+                    </label>
+                    <div className="flex items-center gap-1">
+                      {[7, 15, 30, 90].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => {
+                            const date = new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+                            setCouponForm({ ...couponForm, validUntil: date });
+                          }}
+                          className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
+                        >
+                          +{d}d
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setCouponForm({ ...couponForm, validUntil: "" })}
+                        className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 text-slate-500 hover:bg-slate-100"
+                      >
+                        No Expiry
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="date"
+                    value={couponForm.validUntil}
+                    onChange={(e) => setCouponForm({ ...couponForm, validUntil: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold outline-none focus:border-purple-600"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    {couponForm.validUntil
+                      ? `Valid until end of ${new Date(couponForm.validUntil).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}.`
+                      : "Leave empty for permanent coupon with no expiration date."}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Max Usage Limit (Optional)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={couponForm.maxUses || ""}
+                      onChange={(e) =>
+                        setCouponForm({
+                          ...couponForm,
+                          maxUses: Number(e.target.value) || 0,
+                        })
+                      }
+                      placeholder="e.g. 50 (blank = unlimited)"
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-purple-600"
+                    />
+                    <span className="text-[10px] text-slate-400">Total times schools can redeem (0 for unlimited)</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Applicable Payment Category
+                    </label>
+                    <select
+                      value={couponForm.applicableTo}
+                      disabled={Boolean(editingCoupon)}
+                      onChange={(e) =>
+                        setCouponForm({
+                          ...couponForm,
+                          applicableTo: e.target.value as "all" | "recurring" | "joining_fee" | "combined",
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold outline-none focus:border-purple-600 disabled:bg-slate-100"
+                    >
+                      <option value="all">All Payments</option>
+                      <option value="recurring">Monthly Subscription Only</option>
+                      <option value="joining_fee">One-Time Joining Fee Only</option>
+                      <option value="combined">Combined Setup Only</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Offer Description / Internal Note
+                  </label>
+                  <input
+                    type="text"
+                    value={couponForm.description}
+                    onChange={(e) => setCouponForm({ ...couponForm, description: e.target.value })}
+                    placeholder="e.g. 20% discount for annual Diwali school campaign"
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-purple-600"
+                  />
+                </div>
+
+                {/* Sample Calculation Preview */}
+                <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-3 text-xs text-purple-900">
+                  <div className="flex items-center justify-between font-bold">
+                    <span>Sample Calculation (₹1,000 Order):</span>
+                    <span className="font-mono text-purple-800">
+                      Client Pays: ₹{samplePayable.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-purple-700">
+                    Discount granted: -₹{sampleDiscount.toLocaleString("en-IN")} ({couponForm.discountType === "percent" ? `${couponForm.discountValue}%` : "flat rate"})
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setShowCouponModal(false)}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingCoupon}
+                    className="rounded-xl bg-purple-600 px-5 py-2 text-xs font-bold text-white hover:bg-purple-500 disabled:opacity-50"
+                  >
+                    {savingCoupon ? "Saving..." : editingCoupon ? "Update Coupon" : "Create Coupon"}
                   </button>
                 </div>
               </form>

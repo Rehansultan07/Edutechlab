@@ -21,6 +21,11 @@ import {
   Phone,
   Mail,
   MessageCircle,
+  Ticket,
+  Tag,
+  Percent,
+  Gift,
+  X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
@@ -93,6 +98,20 @@ export default function SubscriptionPage() {
   const [uploading, setUploading] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
 
+  // Coupon Code States
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    discount_amount: number;
+    discount_type: "percent" | "fixed_amount";
+    discount_value: number;
+    final_amount: number;
+    description?: string | null;
+  } | null>(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
+  const [couponError, setCouponError] = useState("");
+  const [couponSuccess, setCouponSuccess] = useState("");
+
   const loadSubscription = async () => {
     if (!orgId) return;
     try {
@@ -135,6 +154,65 @@ export default function SubscriptionPage() {
     return monthlyPlanPrice;
   }, [paymentCategory, joiningFeeAmount, monthlyPlanPrice]);
 
+  const effectivePrice = appliedCoupon ? appliedCoupon.final_amount : calculatedPrice;
+
+  // Validate & Apply Coupon Code Handler
+  const handleApplyCoupon = async (codeToValidate?: string) => {
+    const code = (codeToValidate || couponInput).trim();
+    if (!code) {
+      setCouponError("Please enter a coupon code.");
+      return;
+    }
+    setValidatingCoupon(true);
+    setCouponError("");
+    setCouponSuccess("");
+
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("validate_and_apply_coupon", {
+        p_code: code,
+        p_amount: calculatedPrice,
+        p_category: paymentCategory,
+        p_org_id: orgId || null,
+      });
+
+      if (rpcErr) throw rpcErr;
+
+      if (!data?.valid) {
+        setCouponError(data?.error || "Invalid coupon code.");
+        setAppliedCoupon(null);
+      } else {
+        setAppliedCoupon({
+          code: data.code,
+          discount_amount: Number(data.discount_amount || 0),
+          discount_type: data.discount_type,
+          discount_value: Number(data.discount_value || 0),
+          final_amount: Number(data.final_amount ?? calculatedPrice),
+          description: data.description,
+        });
+        setCouponSuccess(data.message || `Coupon ${data.code} applied successfully!`);
+      }
+    } catch (err: any) {
+      setCouponError(err.message || "Failed to validate coupon.");
+      setAppliedCoupon(null);
+    } finally {
+      setValidatingCoupon(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponInput("");
+    setCouponSuccess("");
+    setCouponError("");
+  };
+
+  // Auto re-validate coupon if order parameters change
+  useEffect(() => {
+    if (appliedCoupon) {
+      handleApplyCoupon(appliedCoupon.code);
+    }
+  }, [calculatedPrice, paymentCategory]);
+
   // Copy UPI ID helper
   const handleCopyUpi = () => {
     if (!subData?.pricing.upi_id) return;
@@ -153,7 +231,7 @@ export default function SubscriptionPage() {
       return;
     }
 
-    if (calculatedPrice <= 0) {
+    if (effectivePrice <= 0 && calculatedPrice > 0 && !appliedCoupon) {
       setError("Payable amount must be greater than ₹0.");
       return;
     }
@@ -186,7 +264,7 @@ export default function SubscriptionPage() {
 
       const cleanJoiningPortion =
         paymentCategory === "joining_fee"
-          ? calculatedPrice
+          ? effectivePrice
           : paymentCategory === "combined"
           ? Math.max(0, Number(joiningFeeAmount) || 0)
           : 0;
@@ -198,26 +276,33 @@ export default function SubscriptionPage() {
           ? "JOINING + MONTHLY"
           : "MONTHLY";
 
-      const formattedUtr = `${utrNumber.trim()} [Plan: ${selectedPlan.toUpperCase()} | ${categoryTag}]`;
+      const couponTag = appliedCoupon ? ` | Coupon: ${appliedCoupon.code} (-₹${appliedCoupon.discount_amount})` : "";
+      const formattedUtr = `${utrNumber.trim()} [Plan: ${selectedPlan.toUpperCase()} | ${categoryTag}${couponTag}]`;
 
-      // Invoke enhanced RPC (with fallback to legacy 5-param RPC if migration 0021 not yet run)
+      // Invoke enhanced RPC (with coupon support and fallback)
       let { error: submitErr } = await supabase.rpc("submit_subscription_payment", {
         p_org_id: orgId,
         p_student_limit: targetStudents,
-        p_amount: calculatedPrice,
+        p_amount: effectivePrice,
         p_utr_number: formattedUtr,
         p_screenshot_url: screenshotUrl || null,
         p_payment_category: paymentCategory,
         p_joining_fee_portion: cleanJoiningPortion,
+        p_notes: appliedCoupon ? `Coupon ${appliedCoupon.code} applied (saved ₹${appliedCoupon.discount_amount})` : null,
+        p_coupon_code: appliedCoupon?.code || null,
+        p_discount_amount: appliedCoupon?.discount_amount || 0,
+        p_original_amount: calculatedPrice,
       });
 
-      if (submitErr && (submitErr.code === "PGRST202" || submitErr.message?.includes("p_payment_category"))) {
+      if (submitErr && (submitErr.code === "PGRST202" || submitErr.message?.includes("p_coupon_code"))) {
         const legacyRes = await supabase.rpc("submit_subscription_payment", {
           p_org_id: orgId,
           p_student_limit: targetStudents,
-          p_amount: calculatedPrice,
+          p_amount: effectivePrice,
           p_utr_number: formattedUtr,
           p_screenshot_url: screenshotUrl || null,
+          p_payment_category: paymentCategory,
+          p_joining_fee_portion: cleanJoiningPortion,
         });
         submitErr = legacyRes.error;
       }
@@ -261,7 +346,7 @@ export default function SubscriptionPage() {
       : `EduTechLab ${selectedPlan.toUpperCase()} Plan (${targetStudents} Students)`;
   const upiIntentUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(
     payeeName
-  )}&am=${calculatedPrice}&cu=INR&tn=${encodeURIComponent(planNote)}`;
+  )}&am=${effectivePrice}&cu=INR&tn=${encodeURIComponent(planNote)}`;
 
   // Real-time Dynamic UPI QR with exact amount and plan note pre-configured
   const dynamicQrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=${encodeURIComponent(
@@ -782,6 +867,91 @@ export default function SubscriptionPage() {
                 </>
               )}
 
+              {/* COUPON CODE INPUT & APPLIED STATUS */}
+              <div className="border-t border-slate-200 pt-3">
+                {appliedCoupon ? (
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-bold text-emerald-900 text-xs">
+                        <Ticket size={14} className="text-emerald-600" />
+                        <span>Coupon Applied:</span>
+                        <span className="font-mono uppercase bg-emerald-200/80 px-2 py-0.5 rounded text-emerald-950 font-black">
+                          {appliedCoupon.code}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveCoupon}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 hover:text-rose-800 hover:underline"
+                      >
+                        <X size={12} /> Remove
+                      </button>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-xs text-emerald-800">
+                      <span>{appliedCoupon.description || `Special Promo Discount (${appliedCoupon.discount_type === "percent" ? `${appliedCoupon.discount_value}% OFF` : `Flat ₹${appliedCoupon.discount_value} OFF`})`}</span>
+                      <span className="font-bold font-mono text-emerald-900">
+                        -₹{appliedCoupon.discount_amount.toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                      Have a Promo or Coupon Code?
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={couponInput}
+                          onChange={(e) => {
+                            setCouponInput(e.target.value.toUpperCase());
+                            setCouponError("");
+                          }}
+                          placeholder="e.g. WELCOME50, PROMO20"
+                          className="w-full rounded-xl border border-slate-300 bg-white pl-8 pr-3 py-2 text-xs font-mono font-bold uppercase text-slate-800 outline-none focus:border-purple-600"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={validatingCoupon || !couponInput.trim()}
+                        onClick={() => handleApplyCoupon()}
+                        className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-purple-500 disabled:opacity-50 transition"
+                      >
+                        {validatingCoupon ? "Checking..." : "Apply"}
+                      </button>
+                    </div>
+                    {couponError && (
+                      <p className="mt-1.5 text-[11px] text-rose-600 font-medium flex items-center gap-1">
+                        <AlertTriangle size={12} className="shrink-0" />
+                        {couponError}
+                      </p>
+                    )}
+                    {couponSuccess && (
+                      <p className="mt-1.5 text-[11px] text-emerald-600 font-medium flex items-center gap-1">
+                        <Check size={12} className="shrink-0" />
+                        {couponSuccess}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {appliedCoupon && (
+                <div className="flex justify-between text-slate-500 text-xs">
+                  <span>Gross Order Amount:</span>
+                  <span className="font-mono line-through">₹{calculatedPrice.toLocaleString("en-IN")}</span>
+                </div>
+              )}
+
+              {appliedCoupon && (
+                <div className="flex justify-between text-emerald-700 text-xs font-bold">
+                  <span>Coupon Discount ({appliedCoupon.code}):</span>
+                  <span className="font-mono">-₹{appliedCoupon.discount_amount.toLocaleString("en-IN")}</span>
+                </div>
+              )}
+
               <div className="border-t border-slate-200 pt-3 flex justify-between items-center text-sm">
                 <span className="font-bold text-slate-900">
                   {paymentCategory === "joining_fee"
@@ -790,9 +960,16 @@ export default function SubscriptionPage() {
                     ? "Total First Payment Payable:"
                     : "Total Monthly Subscription:"}
                 </span>
-                <span className="text-2xl font-black text-purple-700 font-mono">
-                  ₹{calculatedPrice.toLocaleString("en-IN")}
-                </span>
+                <div className="text-right">
+                  <span className="text-2xl font-black text-purple-700 font-mono">
+                    ₹{effectivePrice.toLocaleString("en-IN")}
+                  </span>
+                  {appliedCoupon && (
+                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
+                      Promo Price Applied
+                    </div>
+                  )}
+                </div>
               </div>
               {paymentCategory !== "joining_fee" && (
                 <div className="text-[11px] text-slate-400 text-right">
@@ -865,7 +1042,7 @@ export default function SubscriptionPage() {
                       : "text-slate-600 hover:text-slate-900"
                   }`}
                 >
-                  ⚡ Dynamic QR (Auto ₹{calculatedPrice})
+                  ⚡ Dynamic QR (Auto ₹{effectivePrice})
                 </button>
                 <button
                   type="button"
@@ -891,7 +1068,7 @@ export default function SubscriptionPage() {
                 <div className="mt-2 text-center">
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-700 ring-1 ring-emerald-200">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Exact Amount ₹{calculatedPrice} Pre-Filled
+                    Exact Amount ₹{effectivePrice} Pre-Filled
                   </span>
                 </div>
               )}
@@ -901,7 +1078,7 @@ export default function SubscriptionPage() {
               Scan with PhonePe, Google Pay, Paytm, or any UPI App
             </p>
             <p className="text-[11px] text-slate-500 text-center">
-              Auto Locked Amount: <strong className="text-purple-700 font-bold">₹{calculatedPrice}</strong> •{" "}
+              Auto Locked Amount: <strong className="text-purple-700 font-bold">₹{effectivePrice}</strong> •{" "}
               {paymentCategory === "joining_fee"
                 ? "One-Time Joining Fee"
                 : paymentCategory === "combined"
@@ -915,10 +1092,10 @@ export default function SubscriptionPage() {
               className="mt-3.5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-purple-600/20 hover:bg-purple-700 active:scale-[0.98] transition"
             >
               <CreditCard size={15} />
-              Open UPI App to Pay ₹{calculatedPrice}
+              Open UPI App to Pay ₹{effectivePrice}
             </a>
             <p className="mt-1 text-center text-[10px] text-slate-400">
-              (Phone me tap karne par direct UPI app me ₹{calculatedPrice} pre-filled open hoga)
+              (Phone me tap karne par direct UPI app me ₹{effectivePrice} pre-filled open hoga)
             </p>
 
             {/* UPI ID with 1-click copy */}
