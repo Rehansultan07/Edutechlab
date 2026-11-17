@@ -44,15 +44,20 @@ import { fetchInstitutionFeatures } from "@/lib/features";
 type Student = {
   id: string;
   admission_no: string;
+  roll_no?: string | null;
   first_name: string;
   last_name: string | null;
   phone: string | null;
   class_id?: string | null;
   section_id?: string | null;
   father_name: string | null;
+  mother_name?: string | null;
+  guardian_name?: string | null;
+  guardian_phone?: string | null;
   photo_url: string | null;
   address: string | null;
   date_of_birth: string | null;
+  admission_date?: string | null;
   blood_group?: string | null;
   gender: string | null;
 };
@@ -72,6 +77,40 @@ type StudentFeeStatus = {
   dueAmount: number;
   dueMonthsCount: number;
 };
+
+type CardTemplateId = "modern_wave" | "royal_cbse" | "cyber_metro";
+
+interface CardTemplateDef {
+  id: CardTemplateId;
+  name: string;
+  tagline: string;
+  badge: string;
+  description: string;
+}
+
+const CARD_TEMPLATES: CardTemplateDef[] = [
+  {
+    id: "modern_wave",
+    name: "Modern Wave & Curve",
+    tagline: "Dynamic Curved Gradient & Glass Photo Frame",
+    badge: "🌟 Most Popular",
+    description: "Fluid wave header, glowing photo border, 2-column bio & quick attendance scan.",
+  },
+  {
+    id: "royal_cbse",
+    name: "Royal Heritage / CBSE",
+    tagline: "Gold Ribbon, School Crest & Formal CBSE Table",
+    badge: "👑 CBSE Classic",
+    description: "Classic formal header, watermark crest, gold borders & traditional school bio table.",
+  },
+  {
+    id: "cyber_metro",
+    name: "Cyber Metro / Tech Minimal",
+    tagline: "Holographic Stripe, Micro Grid & Barcode",
+    badge: "⚡ Futuristic",
+    description: "Sleek executive look with smart chip badge, micro barcode & high-contrast gate scan.",
+  },
+];
 
 export type SheetPresetId = "8_standard" | "10_horizontal" | "9_vertical" | "dragon_fold";
 
@@ -213,6 +252,7 @@ export default function IdCardGenerator() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Card Appearance Options
+  const [cardTemplate, setCardTemplate] = useState<CardTemplateId>("modern_wave");
   const [themeColor, setThemeColor] = useState<string>("#0a192f");
   const [sessionYear, setSessionYear] = useState<string>("2026-2027");
   const [orientation, setOrientation] = useState<"vertical" | "horizontal">("vertical");
@@ -256,14 +296,14 @@ export default function IdCardGenerator() {
         const stRes = await supabase
           .from("students")
           .select(
-            "id,admission_no,first_name,last_name,class_id,section_id,phone,father_name,photo_url,address,date_of_birth,blood_group,gender"
+            "id,admission_no,roll_no,first_name,last_name,class_id,section_id,phone,father_name,mother_name,guardian_name,guardian_phone,photo_url,address,date_of_birth,admission_date,blood_group,gender"
           )
           .eq("organization_id", orgId)
           .eq("status", "active")
           .order("admission_no");
 
         if (stRes.error) {
-          console.warn("Retrying students query without blood_group:", stRes.error.message);
+          console.warn("Retrying students query without newer columns:", stRes.error.message);
           const fallbackRes = await supabase
             .from("students")
             .select(
@@ -509,17 +549,36 @@ export default function IdCardGenerator() {
         </div>
 
         {/* Customization Toolbar */}
-        <div className="mx-auto max-w-7xl mt-4 pt-4 border-t border-slate-100 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-center text-xs">
-          {/* A4 Sheet Layout Selector (The Requested Feature) */}
+        <div className="mx-auto max-w-7xl mt-4 pt-4 border-t border-slate-100 grid gap-3 sm:grid-cols-2 lg:grid-cols-7 items-center text-xs">
+          {/* Card Design Template Selector (NEW) */}
           <div className="lg:col-span-2">
             <label className="block text-[10px] font-bold uppercase tracking-wider text-purple-700 mb-1 flex items-center gap-1">
+              <Sparkles size={12} className="text-purple-600" />
+              <span>Card Design Template</span>
+            </label>
+            <select
+              value={cardTemplate}
+              onChange={(e) => setCardTemplate(e.target.value as CardTemplateId)}
+              className="w-full rounded-xl border-2 border-purple-400 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-950 outline-none focus:border-purple-600 shadow-xs"
+            >
+              {CARD_TEMPLATES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.badge} • {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* A4 Sheet Layout Selector */}
+          <div className="lg:col-span-2">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1 flex items-center gap-1">
               <Printer size={12} />
               <span>A4 Sheet Print Layout</span>
             </label>
             <select
               value={sheetPreset}
               onChange={(e) => handleSelectPreset(e.target.value as SheetPresetId)}
-              className="w-full rounded-xl border-2 border-purple-300 bg-purple-50/50 px-3 py-2 text-xs font-bold text-purple-950 outline-none focus:border-purple-600"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-purple-600"
             >
               {SHEET_PRESETS.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -559,8 +618,8 @@ export default function IdCardGenerator() {
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-purple-600"
             >
               <option value="all">All Students</option>
-              <option value="due">⚠️ Students With Due Fees</option>
-              <option value="cleared">✅ Fee Cleared Students</option>
+              <option value="due">⚠️ Due Fees</option>
+              <option value="cleared">✅ Fee Cleared</option>
             </select>
           </div>
 
@@ -584,25 +643,32 @@ export default function IdCardGenerator() {
               ))}
             </div>
           </div>
-
-          {/* Academic Session */}
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Academic Session
-            </label>
-            <input
-              type="text"
-              value={sessionYear}
-              onChange={(e) => setSessionYear(e.target.value)}
-              placeholder="e.g. 2026-2027"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-purple-600"
-            />
-          </div>
         </div>
 
-        {/* Search, Layout Presets, & Cutting Guides Sub-Bar */}
+        {/* Template Quick Pills & Search Sub-Bar */}
         <div className="mx-auto max-w-7xl mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="relative flex-1 min-w-[220px] max-w-md">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+              Template:
+            </span>
+            {CARD_TEMPLATES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setCardTemplate(t.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  cardTemplate === t.id
+                    ? "bg-slate-900 text-white shadow-sm ring-2 ring-purple-600 ring-offset-1"
+                    : "bg-white text-slate-600 hover:text-slate-900 border border-slate-200"
+                }`}
+              >
+                <span>{t.badge.split(" ")[0]}</span>
+                <span>{t.name}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
@@ -724,11 +790,14 @@ export default function IdCardGenerator() {
 
               const sFee = feeMap[s.id];
               const hasFeeDues = sFee && sFee.hasDues;
+              const rollNo = s.roll_no || s.admission_no.replace(/\D/g, "").slice(-3) || "01";
 
-              // Card Front Element
-              const CardFront = (
+              // ================================================================
+              // TEMPLATE 1: MODERN WAVE & GRADIENT (Dynamic Curves & Glass Look)
+              // ================================================================
+              const CardModernWave = (
                 <div
-                  className="id-card relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300/80 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[500px]"
+                  className="id-card id-card-modern-wave relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300/80 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[500px]"
                   style={{ minHeight: "500px" }}
                 >
                   {/* Top Lanyard Slot Guide Mark */}
@@ -736,7 +805,7 @@ export default function IdCardGenerator() {
 
                   {/* Header with Deep Modern Gradient */}
                   <div
-                    className="pt-5 pb-3 px-3.5 text-center text-white relative shadow-sm"
+                    className="pt-5 pb-5 px-3.5 text-center text-white relative shadow-sm"
                     style={{
                       backgroundColor: themeColor,
                       backgroundImage: `linear-gradient(135deg, ${themeColor} 0%, #030712 100%)`,
@@ -744,7 +813,7 @@ export default function IdCardGenerator() {
                       printColorAdjust: "exact",
                     }}
                   >
-                    <div className="flex items-center justify-center gap-2.5">
+                    <div className="flex items-center justify-center gap-2">
                       {orgSettings?.logo_url ? (
                         <img
                           src={orgSettings.logo_url}
@@ -756,30 +825,37 @@ export default function IdCardGenerator() {
                           <GraduationCap size={20} />
                         </div>
                       )}
-                      <div className="text-left">
-                        <h4 className="font-black text-xs sm:text-sm uppercase tracking-wide leading-tight line-clamp-1">
+                      <div className="text-left flex-1 min-w-0">
+                        <h4 className="font-black text-xs sm:text-sm uppercase tracking-wide leading-tight truncate">
                           {orgName}
                         </h4>
-                        <p className="text-[9px] text-white/80 font-medium line-clamp-1">
+                        <p className="text-[8.5px] text-white/80 font-medium truncate">
                           {orgSettings?.address || "Recognized Educational Institution"}
                         </p>
                       </div>
                     </div>
 
-                    {/* Metallic / Ribbon Sub-Bar */}
-                    <div className="mt-2 flex items-center justify-between px-2 text-[8px] font-black uppercase tracking-widest text-white/90 border-t border-white/15 pt-1">
+                    {/* Ribbon Sub-Bar */}
+                    <div className="mt-2 flex items-center justify-between px-1 text-[8px] font-black uppercase tracking-widest text-white/90 border-t border-white/15 pt-1">
                       <span className="flex items-center gap-1">
-                        <ShieldCheck size={10} className="text-amber-300" />
+                        <Sparkles size={10} className="text-amber-300" />
                         <span>STUDENT SMART PASS</span>
                       </span>
-                      <span className="rounded bg-white/15 px-1.5 py-0.2">SESSION {sessionYear}</span>
+                      <span className="rounded bg-white/20 px-1.5 py-0.2">SESSION {sessionYear}</span>
                     </div>
                   </div>
 
+                  {/* Wave SVG Divider */}
+                  <div className="-mt-3 relative z-10">
+                    <svg viewBox="0 0 500 50" preserveAspectRatio="none" className="w-full h-4 text-white fill-current block">
+                      <path d="M0,0 C150,45 350,-10 500,25 L500,50 L0,50 Z" />
+                    </svg>
+                  </div>
+
                   {/* Student Photo & Identity Section */}
-                  <div className="px-4 pt-3 text-center relative">
+                  <div className="px-4 pt-1 text-center relative -mt-3">
                     {/* Photo Frame with Dual Ring */}
-                    <div className="relative mx-auto h-22 w-22 rounded-2xl border-3 border-white shadow-md overflow-hidden bg-slate-100 grid place-items-center ring-2 ring-slate-200">
+                    <div className="relative mx-auto h-22 w-22 rounded-2xl border-3 border-white shadow-md overflow-hidden bg-slate-100 grid place-items-center ring-3 ring-purple-600/30">
                       {s.photo_url ? (
                         <img
                           src={s.photo_url}
@@ -801,71 +877,76 @@ export default function IdCardGenerator() {
                       />
                     </div>
 
-                    <h3 className="mt-2 text-base font-black text-slate-900 leading-tight uppercase tracking-tight">
+                    <h3 className="mt-1.5 text-base font-black text-slate-900 leading-tight uppercase tracking-tight truncate">
                       {fullName}
                     </h3>
 
+                    {/* Badges: Class, Roll No, Adm No */}
                     <div className="mt-1 flex items-center justify-center gap-1.5 flex-wrap">
-                      <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-900 border border-purple-200">
+                      <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[9.5px] font-extrabold text-purple-900 border border-purple-200">
                         Class: {className} {sectionName ? `(${sectionName})` : ""}
                       </span>
-                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-800 font-mono border border-slate-200">
+                      <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[9.5px] font-extrabold text-amber-900 font-mono border border-amber-300">
+                        Roll: {rollNo}
+                      </span>
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[9.5px] font-bold text-slate-800 font-mono border border-slate-200">
                         ID: {s.admission_no}
                       </span>
                     </div>
                   </div>
 
-                  {/* Bio Details Grid */}
-                  <div className="px-4 py-2 text-[10.5px] text-slate-700 space-y-1">
-                    {s.father_name && (
-                      <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                        <span className="font-semibold text-slate-400">Father&apos;s Name:</span>
-                        <span className="font-bold text-slate-800 truncate max-w-[170px]">
-                          {s.father_name}
+                  {/* Bio Details 2-Column Grid */}
+                  <div className="px-4 py-1.5 text-[10px] text-slate-700">
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 border-y border-slate-100 py-1.5">
+                      <div>
+                        <span className="text-[8.5px] text-slate-400 font-semibold block uppercase">Father / Guardian</span>
+                        <span className="font-bold text-slate-900 truncate block">
+                          {s.father_name || s.guardian_name || "—"}
                         </span>
                       </div>
-                    )}
-                    {s.date_of_birth && (
-                      <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                        <span className="font-semibold text-slate-400">Date of Birth:</span>
-                        <span className="font-bold text-slate-800">{s.date_of_birth}</span>
-                      </div>
-                    )}
-                    {s.phone && (
-                      <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                        <span className="font-semibold text-slate-400">Emergency Contact:</span>
-                        <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
-                      </div>
-                    )}
-                    {s.blood_group && (
-                      <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                        <span className="font-semibold text-slate-400">Blood Group:</span>
-                        <span className="font-bold text-red-600 bg-red-50 px-1.5 rounded">
-                          {s.blood_group}
+                      <div>
+                        <span className="text-[8.5px] text-slate-400 font-semibold block uppercase">Emergency Phone</span>
+                        <span className="font-bold text-slate-900 font-mono block">
+                          {s.phone || s.guardian_phone || "—"}
                         </span>
                       </div>
-                    )}
+                      <div>
+                        <span className="text-[8.5px] text-slate-400 font-semibold block uppercase">Date of Birth</span>
+                        <span className="font-bold text-slate-900 block">{s.date_of_birth || "—"}</span>
+                      </div>
+                      <div>
+                        <span className="text-[8.5px] text-slate-400 font-semibold block uppercase">Adm Date &bull; Blood</span>
+                        <span className="font-bold text-slate-900 block">
+                          {s.admission_date ? s.admission_date.slice(0, 10) : "—"}{" "}
+                          <span className="ml-1 text-red-600 bg-red-50 px-1 rounded font-black">{s.blood_group || "O+"}</span>
+                        </span>
+                      </div>
+                    </div>
+                    {/* Address with MapPin */}
+                    <div className="pt-1 flex items-start gap-1 text-[9px] text-slate-600">
+                      <MapPin size={11} className="shrink-0 text-slate-400 mt-0.5" />
+                      <span className="truncate line-clamp-1 font-medium">
+                        {s.address || "Address recorded in school register"}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Optional Fee Status Watermark Stamp */}
                   {printFeeStamp && hasFeeDues && (
-                    <div className="mx-4 my-1 rounded-md bg-amber-50 border border-amber-300 p-1 text-center text-[9px] font-bold text-amber-800">
+                    <div className="mx-4 my-0.5 rounded-md bg-amber-50 border border-amber-300 p-0.5 text-center text-[8.5px] font-bold text-amber-800">
                       ⚠️ Pending Fee Dues: ₹{sFee.dueAmount}
                     </div>
                   )}
 
-                  {/* ==================================================== */}
-                  {/* PROMINENT HIGH-VISIBILITY QR SCAN HUB (THE KEY FIX)  */}
-                  {/* ==================================================== */}
-                  <div className="px-3.5 pb-3 pt-2 border-t border-slate-200 bg-slate-50/90">
+                  {/* Bottom QR Scan & Authority Sign Hub */}
+                  <div className="px-3.5 pb-2.5 pt-1.5 border-t border-slate-200 bg-slate-50/90">
                     <div className="flex items-center justify-between gap-3">
                       {/* Dedicated Large High-Contrast QR Code */}
                       <div
                         onClick={() => setInspectStudent(s)}
-                        className="group relative cursor-pointer flex flex-col items-center bg-white p-1.5 rounded-2xl border-2 border-slate-200 shadow-sm hover:border-purple-500 hover:shadow-md transition"
+                        className="group relative cursor-pointer flex flex-col items-center bg-white p-1 rounded-2xl border-2 border-slate-200 shadow-sm hover:border-purple-500 hover:shadow-md transition"
                         title="Click to test QR Code & Attendance scan"
                       >
-                        {/* Scanning reticle visual brackets */}
                         <div className="absolute top-0.5 left-0.5 w-2 h-2 border-t-2 border-l-2 border-slate-800 pointer-events-none rounded-tl-sm" />
                         <div className="absolute top-0.5 right-0.5 w-2 h-2 border-t-2 border-r-2 border-slate-800 pointer-events-none rounded-tr-sm" />
                         <div className="absolute bottom-0.5 left-0.5 w-2 h-2 border-b-2 border-l-2 border-slate-800 pointer-events-none rounded-bl-sm" />
@@ -873,34 +954,33 @@ export default function IdCardGenerator() {
 
                         <QRCodeImage
                           value={qrData}
-                          className="h-24 w-24 object-contain rounded-lg"
-                          size={360}
+                          className="h-20 w-20 object-contain rounded-lg"
+                          size={320}
                         />
-                        <span className="mt-1 text-[7.5px] font-black uppercase tracking-tight text-slate-800 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
-                          📷 GATE ATTENDANCE
+                        <span className="mt-0.5 text-[7px] font-black uppercase text-slate-800 bg-purple-50 px-1 py-0.2 rounded border border-purple-200">
+                          📷 GATE SCAN
                         </span>
                       </div>
 
                       {/* Right Side: Authority Seal & Sign */}
-                      <div className="flex-1 flex flex-col justify-between h-24 text-right py-0.5">
+                      <div className="flex-1 flex flex-col justify-between h-20 text-right py-0.5">
                         <div className="flex items-center justify-end gap-1 text-[8px] text-slate-500 font-bold uppercase tracking-wider">
-                          <ShieldCheck size={12} className="text-purple-600" />
+                          <ShieldCheck size={11} className="text-purple-600" />
                           <span>Verified Card</span>
                         </div>
 
-                        {/* Principal Signature Container */}
                         <div>
-                          <div className="h-9 border-b border-dashed border-slate-400 flex items-end justify-center pb-0.5">
-                            <span className="text-[12px] text-purple-800 font-serif italic font-bold">
+                          <div className="h-8 border-b border-dashed border-slate-400 flex items-end justify-center pb-0.5">
+                            <span className="text-[12px] text-purple-900 font-serif italic font-bold">
                               Authorized Sign
                             </span>
                           </div>
-                          <span className="text-[8px] font-extrabold text-slate-600 uppercase tracking-tight block mt-0.5">
+                          <span className="text-[7.5px] font-extrabold text-slate-600 uppercase tracking-tight block mt-0.5">
                             Principal Signature
                           </span>
                         </div>
 
-                        <div className="text-[7.5px] font-mono text-slate-400 tracking-widest">
+                        <div className="text-[7px] font-mono text-slate-400 tracking-widest">
                           *{s.admission_no}*
                         </div>
                       </div>
@@ -909,7 +989,375 @@ export default function IdCardGenerator() {
                 </div>
               );
 
-              // Card Horizontal Element
+              // ================================================================
+              // TEMPLATE 2: ROYAL HERITAGE / CBSE CLASSIC (Formal Table & Crest)
+              // ================================================================
+              const CardRoyalCBSE = (
+                <div
+                  className="id-card id-card-royal-cbse relative mx-auto w-full max-w-[340px] rounded-2xl border-2 border-amber-600/70 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-amber-700 print:break-inside-avoid print:w-[325px] print:h-[500px]"
+                  style={{ minHeight: "500px" }}
+                >
+                  {/* Top Lanyard Slot Guide Mark */}
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 w-9 h-1.5 rounded-full bg-amber-950/60 border border-white/50 pointer-events-none" />
+
+                  {/* Header: Formal Classic Header with Gold Ribbon */}
+                  <div
+                    className="pt-4 pb-2 px-3 text-center text-white relative shadow-sm border-b-2 border-amber-400"
+                    style={{
+                      backgroundColor: themeColor,
+                      backgroundImage: `linear-gradient(135deg, ${themeColor} 0%, #1e1b4b 100%)`,
+                      WebkitPrintColorAdjust: "exact",
+                      printColorAdjust: "exact",
+                    }}
+                  >
+                    {/* Micro Top Crest Line */}
+                    <div className="text-[7.5px] font-bold text-amber-300 uppercase tracking-widest pb-1 border-b border-white/15 flex items-center justify-between">
+                      <span>★ AFFILIATED &amp; RECOGNIZED ★</span>
+                      <span>CBSE / STATE BOARD</span>
+                    </div>
+
+                    <div className="mt-1 flex items-center justify-center gap-2">
+                      {orgSettings?.logo_url ? (
+                        <img
+                          src={orgSettings.logo_url}
+                          alt=""
+                          className="h-10 w-10 rounded-full object-contain bg-white p-0.5 border-2 border-amber-400 shadow-xs"
+                        />
+                      ) : (
+                        <div className="grid h-10 w-10 place-items-center rounded-full bg-white text-slate-900 font-bold text-xs border-2 border-amber-400 shadow-xs">
+                          <GraduationCap size={22} className="text-amber-600" />
+                        </div>
+                      )}
+                      <div className="text-left flex-1 min-w-0">
+                        <h4 className="font-serif font-black text-xs sm:text-sm uppercase tracking-wide leading-tight text-white truncate">
+                          {orgName}
+                        </h4>
+                        <p className="text-[8px] text-amber-100 font-medium truncate">
+                          {orgSettings?.address || "Official Educational Campus"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Gold Title Ribbon */}
+                    <div className="mt-1 bg-amber-500/30 border border-amber-300/50 rounded py-0.5 px-2 text-[8px] font-black uppercase tracking-widest text-amber-200 flex items-center justify-between">
+                      <span>STUDENT IDENTITY CARD</span>
+                      <span>SESSION: {sessionYear}</span>
+                    </div>
+                  </div>
+
+                  {/* Card Middle: Photo + Name + Formal CBSE Table */}
+                  <div className="p-3 relative flex-1 flex flex-col justify-between">
+                    {/* Subtle Background Watermark */}
+                    <div className="absolute inset-0 grid place-items-center opacity-[0.04] pointer-events-none">
+                      <GraduationCap size={150} />
+                    </div>
+
+                    {/* Top Row: Photo & Main Credentials */}
+                    <div className="flex items-center gap-3">
+                      {/* Photo with Gold Frame */}
+                      <div className="shrink-0 relative h-23 w-20 rounded-lg border-2 border-amber-600/90 shadow-sm overflow-hidden bg-slate-100 grid place-items-center ring-1 ring-amber-400">
+                        {s.photo_url ? (
+                          <img src={s.photo_url} alt={fullName} className="h-full w-full object-cover" />
+                        ) : (
+                          <div
+                            className="h-full w-full grid place-items-center text-xl font-bold text-white"
+                            style={{ backgroundColor: themeColor }}
+                          >
+                            {initials || "ST"}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Name and Quick Badges */}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[7.5px] font-bold text-amber-800 uppercase tracking-widest block">
+                          CANDIDATE NAME
+                        </span>
+                        <h3 className="font-serif text-sm font-black text-slate-900 leading-tight uppercase truncate">
+                          {fullName}
+                        </h3>
+
+                        <div className="mt-1 space-y-1 text-[9.5px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-slate-500">Class:</span>
+                            <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
+                              {className} {sectionName ? `(${sectionName})` : ""}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <span className="font-semibold text-slate-500">Roll: </span>
+                              <span className="font-mono font-bold text-amber-900 bg-amber-50 px-1 rounded border border-amber-200">
+                                {rollNo}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="font-semibold text-slate-500">Adm: </span>
+                              <span className="font-mono font-bold text-slate-800">{s.admission_no}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Formal CBSE Data Table (Complete 11 Fields) */}
+                    <div className="mt-2 rounded-lg border border-slate-200 overflow-hidden text-[9px]">
+                      <table className="w-full text-left">
+                        <tbody>
+                          <tr className="border-b border-slate-200 bg-slate-50/70">
+                            <td className="px-2 py-0.8 font-semibold text-slate-500 w-[36%]">Father/Guardian:</td>
+                            <td className="px-2 py-0.8 font-bold text-slate-900 truncate">
+                              {s.father_name || s.guardian_name || "—"}
+                            </td>
+                          </tr>
+                          <tr className="border-b border-slate-200">
+                            <td className="px-2 py-0.8 font-semibold text-slate-500">Date of Birth:</td>
+                            <td className="px-2 py-0.8 font-bold text-slate-900">
+                              {s.date_of_birth || "—"}
+                              <span className="ml-2 font-semibold text-slate-400">Blood:</span>
+                              <span className="ml-1 text-red-700 font-extrabold bg-red-50 px-1 rounded border border-red-200">
+                                {s.blood_group || "O+"}
+                              </span>
+                            </td>
+                          </tr>
+                          <tr className="border-b border-slate-200 bg-slate-50/70">
+                            <td className="px-2 py-0.8 font-semibold text-slate-500">Admission Date:</td>
+                            <td className="px-2 py-0.8 font-bold text-slate-900">
+                              {s.admission_date || "—"}
+                            </td>
+                          </tr>
+                          <tr className="border-b border-slate-200">
+                            <td className="px-2 py-0.8 font-semibold text-slate-500">Emergency Phone:</td>
+                            <td className="px-2 py-0.8 font-mono font-bold text-slate-900">
+                              {s.phone || s.guardian_phone || "—"}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="px-2 py-0.8 font-semibold text-slate-500 align-top">Address:</td>
+                            <td className="px-2 py-0.8 text-slate-700 line-clamp-1 truncate font-medium">
+                              {s.address || "Recorded in school register"}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Fee Stamp */}
+                    {printFeeStamp && hasFeeDues && (
+                      <div className="mt-1 rounded bg-amber-50 border border-amber-300 p-0.5 text-center text-[8px] font-bold text-amber-800">
+                        ⚠️ Fee Dues: ₹{sFee.dueAmount}
+                      </div>
+                    )}
+
+                    {/* Bottom Footer: Formal Seal & Principal Signature + QR */}
+                    <div className="mt-1.5 pt-1.5 border-t border-amber-200 flex items-center justify-between">
+                      {/* Left QR */}
+                      <div
+                        onClick={() => setInspectStudent(s)}
+                        className="cursor-pointer flex items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-200"
+                        title="Click to test QR Code"
+                      >
+                        <QRCodeImage value={qrData} className="h-16 w-16 object-contain rounded" size={260} />
+                        <div className="text-[6.5px] text-slate-500 leading-tight">
+                          <span className="font-bold text-amber-900 block">OFFICIAL QR</span>
+                          <span>Gate Attendance</span>
+                        </div>
+                      </div>
+
+                      {/* Center Seal */}
+                      <div className="h-10 w-10 rounded-full border border-dashed border-amber-600/70 grid place-items-center text-[6px] font-black text-amber-800 uppercase tracking-tighter text-center leading-none p-0.5">
+                        SCHOOL SEAL
+                      </div>
+
+                      {/* Right Authorized Sign */}
+                      <div className="text-center w-22">
+                        <div className="h-6 border-b border-slate-400 flex items-end justify-center pb-0.5">
+                          <span className="text-[11px] text-purple-900 font-serif italic font-bold">
+                            Signatory
+                          </span>
+                        </div>
+                        <span className="text-[7px] font-bold text-slate-700 uppercase tracking-tight block mt-0.5">
+                          Principal
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+
+              // ================================================================
+              // TEMPLATE 3: CYBER METRO / TECH MINIMAL (Sleek Modern Executive)
+              // ================================================================
+              const CardCyberMetro = (
+                <div
+                  className="id-card id-card-cyber-metro relative mx-auto w-full max-w-[340px] rounded-3xl border-2 border-slate-800 bg-slate-900 text-white shadow-2xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-800 print:break-inside-avoid print:w-[325px] print:h-[500px]"
+                  style={{ minHeight: "500px" }}
+                >
+                  {/* Top Lanyard Slot Guide Mark */}
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 w-9 h-1.5 rounded-full bg-slate-700 border border-white/40 pointer-events-none" />
+
+                  {/* Header with Holographic Stripe */}
+                  <div className="pt-4 pb-2 px-3.5 relative bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border-b border-indigo-500/30">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {orgSettings?.logo_url ? (
+                          <img
+                            src={orgSettings.logo_url}
+                            alt=""
+                            className="h-8 w-8 rounded-lg object-contain bg-white/10 p-0.5 border border-white/20"
+                          />
+                        ) : (
+                          <div className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-600 text-white font-bold text-xs shadow-xs">
+                            <GraduationCap size={18} />
+                          </div>
+                        )}
+                        <div className="truncate">
+                          <h4 className="font-black text-xs uppercase tracking-wider text-white truncate">
+                            {orgName}
+                          </h4>
+                          <p className="text-[8px] text-cyan-300 font-mono tracking-widest uppercase">
+                            SMART METRO PASS • {sessionYear}
+                          </p>
+                        </div>
+                      </div>
+                      {/* Microchip Graphic Icon */}
+                      <div className="h-6 w-8 rounded border border-amber-400/80 bg-gradient-to-br from-amber-300 to-amber-600 p-0.5 flex flex-col justify-between shadow-xs">
+                        <div className="h-1 border-b border-amber-800/40" />
+                        <div className="h-1 border-b border-amber-800/40" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* White Interior Body Container */}
+                  <div className="flex-1 bg-white text-slate-800 p-3.5 flex flex-col justify-between relative">
+                    {/* Student Profile Row */}
+                    <div className="flex items-center gap-3">
+                      {/* High-Tech Photo Frame with Crosshairs */}
+                      <div className="relative shrink-0 h-22 w-20 rounded-xl border-2 border-indigo-600 overflow-hidden bg-slate-100 shadow-sm">
+                        {s.photo_url ? (
+                          <img src={s.photo_url} alt={fullName} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full grid place-items-center text-xl font-bold bg-slate-900 text-white">
+                            {initials || "ST"}
+                          </div>
+                        )}
+                        <span className="absolute bottom-0 inset-x-0 bg-slate-900/90 text-cyan-300 font-mono text-[7px] text-center font-bold uppercase py-0.2">
+                          VERIFIED
+                        </span>
+                      </div>
+
+                      {/* Name and Badges */}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[8px] font-mono text-indigo-600 font-black tracking-widest uppercase block">
+                          STUDENT PASS
+                        </span>
+                        <h3 className="text-base font-black text-slate-900 uppercase tracking-tight truncate leading-tight">
+                          {fullName}
+                        </h3>
+
+                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span className="rounded bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 text-[9px] font-extrabold text-indigo-900">
+                            {className} {sectionName ? `(${sectionName})` : ""}
+                          </span>
+                          <span className="rounded bg-cyan-50 border border-cyan-300 px-1.5 py-0.2 text-[9px] font-mono font-bold text-cyan-900">
+                            ROLL: {rollNo}
+                          </span>
+                        </div>
+
+                        <div className="mt-1 text-[8px] font-mono text-slate-400">
+                          ID: {s.admission_no}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Modern Grid Tiles (All Details Required) */}
+                    <div className="mt-2 grid grid-cols-2 gap-1.5 text-[9px]">
+                      <div className="p-1.5 rounded-lg bg-slate-50 border border-slate-200/80">
+                        <span className="text-[7.5px] text-slate-400 font-semibold block uppercase">Father / Guardian</span>
+                        <span className="font-bold text-slate-900 truncate block">
+                          {s.father_name || s.guardian_name || "—"}
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded-lg bg-slate-50 border border-slate-200/80">
+                        <span className="text-[7.5px] text-slate-400 font-semibold block uppercase">Emergency Phone</span>
+                        <span className="font-bold font-mono text-slate-900 truncate block">
+                          {s.phone || s.guardian_phone || "—"}
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded-lg bg-slate-50 border border-slate-200/80">
+                        <span className="text-[7.5px] text-slate-400 font-semibold block uppercase">DOB &bull; Adm Date</span>
+                        <span className="font-bold text-slate-900 truncate block">
+                          {s.date_of_birth || "—"} &bull; {s.admission_date ? s.admission_date.slice(0, 10) : "—"}
+                        </span>
+                      </div>
+                      <div className="p-1.5 rounded-lg bg-slate-50 border border-slate-200/80">
+                        <span className="text-[7.5px] text-slate-400 font-semibold block uppercase">Blood Group</span>
+                        <span className="font-extrabold text-red-600 bg-red-50 px-1 rounded inline-block">
+                          {s.blood_group || "O+"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Address tile */}
+                    <div className="mt-1 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200/80 text-[8.5px] text-slate-600 flex items-start gap-1">
+                      <MapPin size={10} className="shrink-0 text-slate-400 mt-0.5" />
+                      <span className="truncate line-clamp-1 font-medium">
+                        {s.address || "Registered Address with Institution"}
+                      </span>
+                    </div>
+
+                    {/* Fee Warning Stamp */}
+                    {printFeeStamp && hasFeeDues && (
+                      <div className="mt-1 rounded bg-amber-50 border border-amber-300 p-0.5 text-center text-[8px] font-bold text-amber-800">
+                        ⚠️ Fee Dues: ₹{sFee.dueAmount}
+                      </div>
+                    )}
+
+                    {/* Faux Barcode Strip */}
+                    <div className="mt-1.5 pt-1 border-t border-dashed border-slate-200 flex items-center justify-between text-[7px] font-mono text-slate-400">
+                      <span className="tracking-widest">||| | |||| | ||| |||| | |||||</span>
+                      <span>AUTH #{s.admission_no}</span>
+                      <span className="tracking-widest">||||| | ||| | ||</span>
+                    </div>
+
+                    {/* Bottom Gate QR + Authority Sign Hub */}
+                    <div className="mt-1.5 pt-1.5 border-t border-slate-200 flex items-center justify-between gap-2">
+                      <div
+                        onClick={() => setInspectStudent(s)}
+                        className="cursor-pointer bg-slate-900 text-white p-1 rounded-xl flex items-center gap-1.5 shadow-sm"
+                        title="Click to test QR Code"
+                      >
+                        <QRCodeImage value={qrData} className="h-15 w-15 object-contain rounded-lg bg-white p-0.5" size={260} />
+                        <div className="pr-1 text-left">
+                          <span className="text-[7.5px] font-black uppercase text-cyan-300 block">GATE SCAN</span>
+                          <span className="text-[6.5px] text-slate-300 block">Fast-Pass QR</span>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 text-right">
+                        <div className="h-6 border-b border-slate-400 flex items-end justify-center pb-0.5">
+                          <span className="text-[11px] text-indigo-900 font-serif italic font-bold">
+                            Authorized
+                          </span>
+                        </div>
+                        <span className="text-[7px] font-black text-slate-700 uppercase tracking-wider block mt-0.5">
+                          Principal Signature
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+
+              // Selected Front Card based on active template
+              const CardFront =
+                cardTemplate === "royal_cbse"
+                  ? CardRoyalCBSE
+                  : cardTemplate === "cyber_metro"
+                  ? CardCyberMetro
+                  : CardModernWave;
+
+              // Card Horizontal Element (Enhanced with all 11 fields)
               const CardHorizontal = (
                 <div
                   className="id-card-horizontal relative mx-auto w-full max-w-[460px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[440px] print:h-[265px]"
@@ -942,7 +1390,7 @@ export default function IdCardGenerator() {
                           </div>
                         )}
                         <div>
-                          <h4 className="font-black text-xs uppercase tracking-wide leading-tight">
+                          <h4 className="font-black text-xs uppercase tracking-wide leading-tight truncate">
                             {orgName}
                           </h4>
                           <p className="text-[8.5px] text-white/80 font-medium line-clamp-1">
@@ -960,10 +1408,10 @@ export default function IdCardGenerator() {
                   </div>
 
                   {/* Card Body: 3-Column Layout (Photo | Bio Info | Large QR Scan) */}
-                  <div className="p-3.5 flex items-center justify-between gap-3">
+                  <div className="p-3 flex items-center justify-between gap-3">
                     {/* Left: Photo Frame */}
                     <div className="shrink-0 flex flex-col items-center">
-                      <div className="relative h-24 w-24 rounded-2xl border-2 border-white shadow-md overflow-hidden bg-slate-100 ring-2 ring-slate-200">
+                      <div className="relative h-24 w-22 rounded-2xl border-2 border-white shadow-md overflow-hidden bg-slate-100 ring-2 ring-slate-200">
                         {s.photo_url ? (
                           <img
                             src={s.photo_url}
@@ -979,45 +1427,50 @@ export default function IdCardGenerator() {
                           </div>
                         )}
                       </div>
-                      <span className="mt-1.5 rounded-md bg-purple-50 px-2 py-0.5 text-[9px] font-bold text-purple-900 font-mono border border-purple-200">
+                      <span className="mt-1 rounded-md bg-purple-50 px-1.5 py-0.2 text-[8.5px] font-bold text-purple-900 font-mono border border-purple-200">
                         ADM: {s.admission_no}
                       </span>
                     </div>
 
-                    {/* Middle: Student Details */}
-                    <div className="flex-1 min-w-0 text-[10px] space-y-1">
+                    {/* Middle: Student Details (All 11 Fields) */}
+                    <div className="flex-1 min-w-0 text-[9.5px] space-y-0.8">
                       <h3 className="text-sm font-black text-slate-900 leading-tight uppercase tracking-tight truncate">
                         {fullName}
                       </h3>
-                      <div className="inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-800">
-                        Class: {className} {sectionName ? `(${sectionName})` : ""}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="rounded bg-slate-100 px-1.5 py-0.2 text-[8.5px] font-bold text-slate-800">
+                          Class: {className} {sectionName ? `(${sectionName})` : ""}
+                        </span>
+                        <span className="rounded bg-amber-50 px-1.5 py-0.2 text-[8.5px] font-mono font-bold text-amber-900 border border-amber-200">
+                          Roll: {rollNo}
+                        </span>
                       </div>
 
-                      <div className="pt-1 space-y-0.5 text-slate-600">
-                        {s.father_name && (
-                          <div className="truncate">
-                            <span className="font-semibold text-slate-400">Father: </span>
-                            <span className="font-bold text-slate-800">{s.father_name}</span>
-                          </div>
-                        )}
-                        {s.date_of_birth && (
+                      <div className="pt-0.5 space-y-0.5 text-slate-600">
+                        <div className="truncate">
+                          <span className="font-semibold text-slate-400">Father/Guardian: </span>
+                          <span className="font-bold text-slate-800">{s.father_name || s.guardian_name || "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
                           <div>
                             <span className="font-semibold text-slate-400">DOB: </span>
-                            <span className="font-bold text-slate-800">{s.date_of_birth}</span>
+                            <span className="font-bold text-slate-800">{s.date_of_birth || "—"}</span>
                           </div>
-                        )}
-                        {s.phone && (
-                          <div>
-                            <span className="font-semibold text-slate-400">Contact: </span>
-                            <span className="font-bold text-slate-800 font-mono">{s.phone}</span>
-                          </div>
-                        )}
-                        {s.blood_group && (
                           <div>
                             <span className="font-semibold text-slate-400">Blood: </span>
-                            <span className="font-bold text-red-600">{s.blood_group}</span>
+                            <span className="font-bold text-red-600">{s.blood_group || "O+"}</span>
                           </div>
-                        )}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-slate-400">Adm Date: </span>
+                          <span className="font-bold text-slate-800">{s.admission_date || "—"}</span>
+                          <span className="ml-2 font-semibold text-slate-400">Phone: </span>
+                          <span className="font-mono font-bold text-slate-800">{s.phone || s.guardian_phone || "—"}</span>
+                        </div>
+                        <div className="truncate text-[8.5px]">
+                          <span className="font-semibold text-slate-400">Addr: </span>
+                          <span className="font-medium text-slate-700">{s.address || "Recorded in register"}</span>
+                        </div>
                       </div>
                     </div>
 
@@ -1030,19 +1483,19 @@ export default function IdCardGenerator() {
                       >
                         <QRCodeImage
                           value={qrData}
-                          className="h-24 w-24 object-contain rounded-lg"
-                          size={360}
+                          className="h-20 w-20 object-contain rounded-lg"
+                          size={320}
                         />
-                        <span className="mt-0.5 block text-center text-[7.5px] font-black uppercase text-slate-700">
+                        <span className="mt-0.5 block text-center text-[7px] font-black uppercase text-slate-700">
                           GATE SCAN
                         </span>
                       </div>
 
-                      <div className="mt-1 text-center">
+                      <div className="mt-0.5 text-center">
                         <span className="text-[9px] text-purple-800 font-serif italic font-bold block">
                           Authorized
                         </span>
-                        <span className="text-[7px] font-extrabold text-slate-400 uppercase tracking-tighter">
+                        <span className="text-[6.5px] font-extrabold text-slate-400 uppercase tracking-tighter">
                           Principal Sign
                         </span>
                       </div>
@@ -1057,66 +1510,86 @@ export default function IdCardGenerator() {
                 </div>
               );
 
-              // Card Back Element
+              // Card Back Element (Complete details & guidelines)
               const CardBack = (
                 <div
-                  className="id-card-back relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[500px] p-5 text-xs"
+                  className="id-card-back relative mx-auto w-full max-w-[340px] rounded-3xl border border-slate-300 bg-white shadow-xl overflow-hidden flex flex-col justify-between print:shadow-none print:border-slate-400 print:break-inside-avoid print:w-[325px] print:h-[500px] p-4 text-xs"
                   style={{ minHeight: "500px" }}
                 >
                   <div>
                     {/* Header */}
-                    <div className="text-center border-b border-slate-200 pb-2.5">
+                    <div className="text-center border-b border-slate-200 pb-2">
                       <h4 className="font-extrabold text-xs uppercase text-slate-900 tracking-wider">
                         {orgName}
                       </h4>
-                      <span className="text-[9px] text-purple-700 font-bold uppercase tracking-wider block mt-0.5">
-                        Card Holder Guidelines &bull; Terms
+                      <span className="text-[8.5px] text-purple-700 font-bold uppercase tracking-wider block mt-0.5">
+                        Card Holder Guidelines &bull; Terms of Use
                       </span>
                     </div>
 
+                    {/* Student Identification Banner */}
+                    <div className="my-2 rounded-xl bg-purple-50/70 border border-purple-200/80 p-2 text-[9.5px]">
+                      <div className="flex justify-between font-bold text-slate-900">
+                        <span>{fullName}</span>
+                        <span className="font-mono text-purple-800">Roll: {rollNo}</span>
+                      </div>
+                      <div className="mt-0.5 flex justify-between text-[8.5px] text-slate-600">
+                        <span>Class: {className} {sectionName ? `(${sectionName})` : ""}</span>
+                        <span className="font-mono">Adm: {s.admission_no}</span>
+                      </div>
+                    </div>
+
                     {/* Rules List */}
-                    <div className="mt-3.5 space-y-2 text-[10px] text-slate-600 leading-relaxed">
+                    <div className="space-y-1.5 text-[9.5px] text-slate-600 leading-snug">
                       <p>
-                        1. <strong>Mandatory Attendance:</strong> Student must carry this card daily and scan at the gate QR kiosk upon arrival for automated attendance.
+                        1. <strong>Mandatory Attendance:</strong> Student must carry this card daily and scan at the gate kiosk upon entry.
                       </p>
                       <p>
-                        2. <strong>Non-Transferable:</strong> This card is issued exclusively for <strong>{fullName}</strong> and cannot be transferred or lent to anyone.
+                        2. <strong>Non-Transferable:</strong> This card is issued exclusively for <strong>{fullName}</strong> and is non-transferable.
                       </p>
                       <p>
-                        3. <strong>Loss or Damage:</strong> In case of loss or damage, immediately inform the school administration office for a replacement card.
+                        3. <strong>Loss or Damage:</strong> In case of loss or damage, immediately inform the administrative office for a reissue.
                       </p>
                       <p>
-                        4. <strong>Live Verification:</strong> Parents can scan the front QR code from any smartphone to view live attendance records and fee dues status.
+                        4. <strong>Live Verification:</strong> Parents and authorities can scan the QR code to verify attendance and fee status.
                       </p>
                     </div>
 
                     {/* Giant Gate Attendance Fast-Pass QR */}
-                    <div className="mt-4 flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
-                      <span className="text-[9px] font-black uppercase tracking-wider text-slate-700 mb-1">
+                    <div className="mt-3 flex flex-col items-center justify-center p-2 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+                      <span className="text-[8.5px] font-black uppercase tracking-wider text-slate-700 mb-0.5">
                         GATE SCANNER PASS
                       </span>
                       <QRCodeImage
                         value={qrData}
-                        className="h-28 w-28 object-contain rounded-xl bg-white p-1 border border-slate-200 shadow-xs"
-                        size={400}
+                        className="h-24 w-24 object-contain rounded-xl bg-white p-1 border border-slate-200 shadow-xs"
+                        size={360}
                       />
-                      <span className="text-[8px] text-slate-400 font-mono mt-1">
-                        Adm No: {s.admission_no}
+                      <span className="text-[7.5px] text-slate-400 font-mono mt-0.5">
+                        Adm No: {s.admission_no} &bull; Blood: {s.blood_group || "O+"}
                       </span>
                     </div>
                   </div>
 
                   {/* Contact & Return Notice */}
-                  <div className="border-t border-slate-200 pt-3">
-                    <div className="rounded-xl bg-slate-50 p-2.5 text-[10px] text-slate-700 space-y-1">
+                  <div className="border-t border-slate-200 pt-2 text-[9px] text-slate-700 space-y-1">
+                    <div className="rounded-xl bg-slate-50 p-2 space-y-0.5">
+                      <p className="font-bold text-slate-900">Student Residence &amp; Emergency:</p>
+                      <p className="line-clamp-1">{s.address || "Address in school register"}</p>
+                      <p className="font-mono text-purple-900 font-bold">
+                        Emergency Contact: {s.phone || s.guardian_phone || "—"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-2 space-y-0.5">
                       <p className="font-bold text-slate-900">If found, please return to:</p>
-                      <p>{orgSettings?.address || orgName}</p>
+                      <p className="truncate">{orgSettings?.address || orgName}</p>
                       {orgSettings?.phone && (
                         <p className="font-mono">Helpline: {orgSettings.phone}</p>
                       )}
                     </div>
 
-                    <div className="mt-2 text-center text-[9px] text-slate-400 font-mono">
+                    <div className="text-center text-[8px] text-slate-400 font-mono pt-1">
                       VALID FOR ACADEMIC SESSION {sessionYear}
                     </div>
                   </div>
@@ -1516,13 +1989,15 @@ export default function IdCardGenerator() {
           }
 
           .id-card,
+          .id-card-modern-wave,
+          .id-card-royal-cbse,
+          .id-card-cyber-metro,
           .id-card-horizontal,
           .id-card-back,
           .dragon-pair-card {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
             box-shadow: none !important;
-            border: 1px solid #cbd5e1 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
@@ -1530,13 +2005,21 @@ export default function IdCardGenerator() {
 
           /* Force all colored headers and badges to print in full color */
           .id-card [style*="background"],
+          .id-card-modern-wave [style*="background"],
+          .id-card-royal-cbse [style*="background"],
+          .id-card-cyber-metro [style*="background"],
           .id-card-horizontal [style*="background"],
           .id-card-back [style*="background"],
           .bg-purple-50,
           .bg-emerald-100,
           .bg-amber-100,
+          .bg-amber-50,
           .bg-red-50,
-          .bg-slate-100 {
+          .bg-slate-100,
+          .bg-slate-900,
+          .bg-indigo-950,
+          .bg-cyan-50,
+          .bg-indigo-50 {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
