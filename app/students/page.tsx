@@ -16,6 +16,7 @@ import { compressAvatarPhoto, compressDocumentScan } from "@/lib/imageCompressio
 type Student = {
   id: string;
   admission_no: string;
+  admission_date?: string | null;
   first_name: string;
   last_name: string | null;
   phone: string | null;
@@ -85,10 +86,10 @@ export default function Students() {
 
   const downloadTemplate = () => {
     const csvContent = "data:text/csv;charset=utf-8," + 
-      "Admission_No,First_Name,Last_Name,Class,Section,Father_Name,Mother_Name,Phone,Date_Of_Birth,Gender,Address\n" +
-      "ADM-101,Aarav,Sharma,Class 1,A,Rajesh Sharma,Pooja Sharma,9876543210,2017-05-12,male,MG Road Patna\n" +
-      "ADM-102,Fatima,Khan,Class 1,A,Tariq Khan,Zainab Khan,9876543211,2017-08-20,female,Civil Lines Gaya\n" +
-      "ADM-103,Mohammad,Ali,Class 2,B,Farooq Ali,Nasreen Begum,9876543212,2016-03-15,male,Near Jama Masjid\n";
+      "Admission_No,Admission_Date,First_Name,Last_Name,Class,Section,Father_Name,Mother_Name,Phone,Date_Of_Birth,Gender,Address\n" +
+      "ADM-101,2026-04-01,Aarav,Sharma,Class 1,A,Rajesh Sharma,Pooja Sharma,9876543210,2017-05-12,male,MG Road Patna\n" +
+      "ADM-102,2026-04-01,Fatima,Khan,Class 1,A,Tariq Khan,Zainab Khan,9876543211,2017-08-20,female,Civil Lines Gaya\n" +
+      "ADM-103,2026-04-02,Mohammad,Ali,Class 2,B,Farooq Ali,Nasreen Begum,9876543212,2016-03-15,male,Near Jama Masjid\n";
     const encoded = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encoded);
@@ -129,6 +130,7 @@ export default function Students() {
 
           // Match or create admission number if blank
           const admNo = row.admission_no || row.roll_no || row.admission || `ADM-${Date.now().toString().slice(-4)}-${i}`;
+          const admDate = row.admission_date || row.date_of_admission || row.adm_date || new Date().toISOString().slice(0, 10);
           const firstName = row.first_name || row.name || cols[1];
           const lastName = row.last_name || cols[2] || "";
           const className = row.class || row.standard || cols[3] || "Class 1";
@@ -136,6 +138,7 @@ export default function Students() {
 
           parsed.push({
             admission_no: admNo,
+            admission_date: admDate,
             first_name: firstName,
             last_name: lastName || null,
             class_name: className,
@@ -189,6 +192,7 @@ export default function Students() {
         return {
           organization_id: org,
           admission_no: r.admission_no,
+          admission_date: r.admission_date || new Date().toISOString().slice(0, 10),
           first_name: r.first_name,
           last_name: r.last_name,
           class_id: matchedClassId,
@@ -220,6 +224,7 @@ export default function Students() {
 
   const [form, setForm] = useState({
     admission_no: "",
+    admission_date: new Date().toISOString().slice(0, 10),
     first_name: "",
     last_name: "",
     class_id: "",
@@ -250,7 +255,7 @@ export default function Students() {
       s
         .from("students")
         .select(
-          "id,admission_no,first_name,last_name,class_id,section_id,phone,email,status,father_name,mother_name,guardian_name,guardian_phone,aadhaar_number,photo_url,aadhaar_document_url,birth_certificate_url,address,date_of_birth,gender"
+          "id,admission_no,admission_date,first_name,last_name,class_id,section_id,phone,email,status,father_name,mother_name,guardian_name,guardian_phone,aadhaar_number,photo_url,aadhaar_document_url,birth_certificate_url,address,date_of_birth,gender"
         )
         .eq("organization_id", org)
         .order("created_at", { ascending: false }),
@@ -290,6 +295,7 @@ export default function Students() {
   const reset = () => {
     setForm({
       admission_no: "",
+      admission_date: new Date().toISOString().slice(0, 10),
       first_name: "",
       last_name: "",
       class_id: "",
@@ -350,6 +356,7 @@ export default function Students() {
       const payload = {
         organization_id: org,
         ...form,
+        admission_date: form.admission_date || new Date().toISOString().slice(0, 10),
         class_id: form.class_id || null,
         section_id: form.section_id || null,
         last_name: form.last_name || null,
@@ -403,6 +410,7 @@ export default function Students() {
     setEditing(r);
     setForm({
       admission_no: r.admission_no,
+      admission_date: r.admission_date || new Date().toISOString().slice(0, 10),
       first_name: r.first_name,
       last_name: r.last_name || "",
       class_id: r.class_id || "",
@@ -518,6 +526,7 @@ export default function Students() {
                 const autoAdm = `ADM-${new Date().getFullYear()}-${String(nextNum).padStart(3, "0")}`;
                 setForm({
                   admission_no: autoAdm,
+                  admission_date: new Date().toISOString().slice(0, 10),
                   first_name: "",
                   last_name: "",
                   class_id: classes[0]?.id || "",
@@ -600,7 +609,14 @@ export default function Students() {
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.id} className="border-t">
-                  <td className="px-5 py-4 font-medium">{r.admission_no}</td>
+                  <td className="px-5 py-4 font-medium">
+                    <span className="font-semibold text-slate-900">{r.admission_no}</span>
+                    {r.admission_date && (
+                      <span className="block text-[11px] font-normal text-slate-400">
+                        Adm: {r.admission_date}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-5 py-4">
                     {r.first_name} {r.last_name || ""}
                   </td>
@@ -716,6 +732,31 @@ export default function Students() {
                   onChange={(e) => setForm({ ...form, admission_no: e.target.value })}
                   className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm font-mono outline-none focus:border-purple-600"
                   placeholder="e.g. ADM-2026-001"
+                />
+              </label>
+
+              <label className="text-sm font-medium">
+                <span className="flex items-center justify-between">
+                  <span>Date of Admission *</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm((prev) => ({
+                        ...prev,
+                        admission_date: new Date().toISOString().slice(0, 10),
+                      }));
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-purple-600"
+                  >
+                    <span>Today</span>
+                  </button>
+                </span>
+                <input
+                  type="date"
+                  required
+                  value={form.admission_date}
+                  onChange={(e) => setForm({ ...form, admission_date: e.target.value })}
+                  className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-purple-600"
                 />
               </label>
               <label className="text-sm font-medium">

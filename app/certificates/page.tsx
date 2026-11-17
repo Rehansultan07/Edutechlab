@@ -17,6 +17,7 @@ type Student = {
   father_name: string | null;
   mother_name: string | null;
   date_of_birth: string | null;
+  admission_date?: string | null;
   class_id?: string | null;
   section_id?: string | null;
   address: string | null;
@@ -68,7 +69,7 @@ export default function CertificatesPage() {
       const [stRes, clRes, orgRes, setRes] = await Promise.all([
         supabase
           .from("students")
-          .select("id,admission_no,first_name,last_name,father_name,mother_name,date_of_birth,class_id,section_id,address,gender")
+          .select("id,admission_no,admission_date,first_name,last_name,father_name,mother_name,date_of_birth,class_id,section_id,address,gender")
           .eq("organization_id", orgId)
           .order("first_name"),
         supabase.from("classes").select("id,name").eq("organization_id", orgId).order("sort_order"),
@@ -363,27 +364,31 @@ export default function CertificatesPage() {
                   </p>
                   <div className="rounded-xl border border-slate-200 bg-white p-4 font-sans text-xs space-y-1.5 leading-6">
                     <div className="flex justify-between border-b border-slate-100 pb-1">
-                      <span className="text-slate-500 font-semibold">1. Date of Birth:</span>
+                      <span className="text-slate-500 font-semibold">1. Date of Admission:</span>
+                      <span className="font-bold text-slate-900">{currentStudent.admission_date || "Recorded in Admission Register"}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-100 pb-1">
+                      <span className="text-slate-500 font-semibold">2. Date of Birth:</span>
                       <span className="font-bold text-slate-900">{currentStudent.date_of_birth || "Recorded in Admission Register"}</span>
                     </div>
                     <div className="flex justify-between border-b border-slate-100 pb-1">
-                      <span className="text-slate-500 font-semibold">2. Class in which student last studied:</span>
+                      <span className="text-slate-500 font-semibold">3. Class in which student last studied:</span>
                       <span className="font-bold text-slate-900">{studentClassName} ({academicSession})</span>
                     </div>
                     <div className="flex justify-between border-b border-slate-100 pb-1">
-                      <span className="text-slate-500 font-semibold">3. School / Institute Dues Status:</span>
+                      <span className="text-slate-500 font-semibold">4. School / Institute Dues Status:</span>
                       <span className="font-bold text-emerald-700">{duesCleared}</span>
                     </div>
                     <div className="flex justify-between border-b border-slate-100 pb-1">
-                      <span className="text-slate-500 font-semibold">4. Date on which student left:</span>
+                      <span className="text-slate-500 font-semibold">5. Date on which student left:</span>
                       <span className="font-bold text-slate-900">{leavingDate}</span>
                     </div>
                     <div className="flex justify-between border-b border-slate-100 pb-1">
-                      <span className="text-slate-500 font-semibold">5. Reason for leaving school:</span>
+                      <span className="text-slate-500 font-semibold">6. Reason for leaving school:</span>
                       <span className="font-bold text-slate-900">{reason}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500 font-semibold">6. General Conduct & Character:</span>
+                      <span className="text-slate-500 font-semibold">7. General Conduct & Character:</span>
                       <span className="font-bold text-slate-900">{conduct}</span>
                     </div>
                   </div>
