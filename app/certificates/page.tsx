@@ -8,6 +8,7 @@ import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
 import FeatureGate from "@/components/FeatureGate";
 import { fetchInstitutionFeatures } from "@/lib/features";
+import { resolveStorageUrl } from "@/lib/storage";
 
 type Student = {
   id: string;
@@ -85,7 +86,12 @@ export default function CertificatesPage() {
       }
       if (clRes.data) setClasses(clRes.data);
       if (orgRes.data?.name) setOrgName(orgRes.data.name);
-      if (setRes.data) setOrgSettings(setRes.data);
+      if (setRes.data) {
+        const resolvedLogo = setRes.data.logo_url
+          ? await resolveStorageUrl(supabase, setRes.data.logo_url)
+          : null;
+        setOrgSettings({ ...setRes.data, logo_url: resolvedLogo });
+      }
       setLoading(false);
     })();
   }, [orgId, hasAccess]);

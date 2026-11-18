@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
 import { compressAvatarPhoto } from "@/lib/imageCompression";
+import { resolveStorageUrl } from "@/lib/storage";
 
 export default function Settings() {
   const s = createClient();
@@ -18,6 +19,7 @@ export default function Settings() {
   const [loginId, setLoginId] = useState("");
   const [adminName, setAdminName] = useState("");
   const [logo, setLogo] = useState<File | null>(null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState("");
   const [form, setForm] = useState({
     name: "",
     type: "school",
@@ -94,6 +96,10 @@ export default function Settings() {
         attendance_cutoff_time: (st as any)?.attendance_cutoff_time || "09:30",
         auto_mark_absent: (st as any)?.auto_mark_absent !== false,
       });
+      if (st?.logo_url) {
+        const resolved = await resolveStorageUrl(s, st.logo_url);
+        setLogoPreviewUrl(resolved);
+      }
     })();
   }, []);
 
@@ -163,6 +169,10 @@ export default function Settings() {
 
       if (a.error || b.error || c.error) throw a.error || b.error || c.error;
       setForm({ ...form, logo_url: logoUrl });
+      if (logoUrl) {
+        const resolved = await resolveStorageUrl(s, logoUrl);
+        setLogoPreviewUrl(resolved);
+      }
       setLogo(null);
       setSaved("Settings saved successfully.");
     } catch (e: any) {
@@ -286,9 +296,9 @@ export default function Settings() {
           These settings control this institute's own marksheet and receipt identity.
         </p>
         <div className="mt-5 flex items-center gap-4">
-          {form.logo_url ? (
+          {logoPreviewUrl ? (
             <div className="h-20 w-20 rounded-xl border bg-white p-2 text-xs">
-              <img src={form.logo_url} alt="Institute logo" className="h-full w-full object-contain" />
+              <img src={logoPreviewUrl} alt="Institute logo" className="h-full w-full object-contain" />
             </div>
           ) : (
             <div className="grid h-20 w-20 place-items-center rounded-xl border bg-slate-50 text-xs text-slate-400">
@@ -302,7 +312,13 @@ export default function Settings() {
               <input
                 type="file"
                 accept="image/*"
-                onChange={(e) => setLogo(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  const picked = e.target.files?.[0] || null;
+                  setLogo(picked);
+                  if (picked) {
+                    setLogoPreviewUrl(URL.createObjectURL(picked));
+                  }
+                }}
                 className="hidden"
               />
             </label>
