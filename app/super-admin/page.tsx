@@ -136,7 +136,21 @@ type PaymentRequest = {
   coupon_code?: string | null;
   original_amount?: number | null;
   discount_amount?: number | null;
+  wallet_discount?: number | null;
   created_at: string;
+};
+
+type SchoolWalletAdminItem = {
+  organization_id: string;
+  name: string;
+  referral_code: string;
+  created_at: string;
+  is_active: boolean;
+  balance: number;
+  total_earned: number;
+  total_spent: number;
+  referred_count: number;
+  referred_by_code: string | null;
 };
 
 type PlatformCouponItem = {
@@ -288,8 +302,41 @@ export default function SuperAdminPage() {
   });
 
   const [activeTab, setActiveTab] = useState<
-    "institutions" | "requests" | "revenue" | "agents" | "coupons" | "pricing" | "features"
+    "institutions" | "requests" | "revenue" | "agents" | "coupons" | "wallets" | "pricing" | "features"
   >("institutions");
+
+  // School Wallets & Referral Management States
+  const [schoolWallets, setSchoolWallets] = useState<SchoolWalletAdminItem[]>([]);
+  const [walletStats, setWalletStats] = useState<{
+    total_balance: number;
+    total_earned: number;
+    total_spent: number;
+    total_schools: number;
+  } | null>(null);
+  const [referralBonusRate, setReferralBonusRate] = useState<number>(500);
+  const [loadingWallets, setLoadingWallets] = useState(false);
+  const [walletSearch, setWalletSearch] = useState("");
+  const [copiedSchoolCode, setCopiedSchoolCode] = useState("");
+
+  // Wallet Adjustment Modal
+  const [showAdjustWalletModal, setShowAdjustWalletModal] = useState(false);
+  const [adjustTargetSchool, setAdjustTargetSchool] = useState<SchoolWalletAdminItem | null>(null);
+  const [adjustForm, setAdjustForm] = useState<{
+    amount: number;
+    type: "credit" | "debit";
+    notes: string;
+  }>({
+    amount: 500,
+    type: "credit",
+    notes: "",
+  });
+  const [savingWalletAdjust, setSavingWalletAdjust] = useState(false);
+  const [walletAdjustError, setWalletAdjustError] = useState("");
+
+  // Update Platform Referral Reward Modal
+  const [showBonusRateModal, setShowBonusRateModal] = useState(false);
+  const [newBonusRate, setNewBonusRate] = useState<number>(500);
+  const [savingBonusRate, setSavingBonusRate] = useState(false);
 
   // Coupons & Promo Codes Engine States
   const [coupons, setCoupons] = useState<PlatformCouponItem[]>([]);
@@ -599,6 +646,23 @@ export default function SuperAdminPage() {
         }
       } catch {
         // Silently ignore if migration 0022 hasn't been executed yet
+      }
+
+      // Safely fetch School Wallets (if migration 0024 is applied)
+      try {
+        const { data: walletDash } = await supabase.rpc("admin_list_school_wallets", {
+          p_master_code: MASTER_ACCESS_CODE,
+        });
+        if (walletDash?.success && walletDash.wallets) {
+          setSchoolWallets(walletDash.wallets as SchoolWalletAdminItem[]);
+          setWalletStats(walletDash.stats || null);
+          if (walletDash.bonus_rate_per_school) {
+            setReferralBonusRate(Number(walletDash.bonus_rate_per_school));
+            setNewBonusRate(Number(walletDash.bonus_rate_per_school));
+          }
+        }
+      } catch {
+        // Silently ignore if migration 0024 hasn't been executed yet
       }
 
       if (statsRes.data) {
@@ -1190,6 +1254,101 @@ Login to your school dashboard, go to Subscription & Billing, enter *${coupon.co
       navigator.clipboard.writeText(promoText);
       setCopiedCouponKey(`promo_${coupon.id}`);
       setTimeout(() => setCopiedCouponKey(""), 2500);
+    }
+  };
+
+  // School Wallets & Referral Management Handlers
+  const loadSchoolWallets = async () => {
+    setLoadingWallets(true);
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("admin_list_school_wallets", {
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+      if (!rpcErr && data?.success) {
+        setSchoolWallets(data.wallets || []);
+        setWalletStats(data.stats || null);
+        if (data.bonus_rate_per_school) {
+          setReferralBonusRate(Number(data.bonus_rate_per_school));
+          setNewBonusRate(Number(data.bonus_rate_per_school));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load school wallets", e);
+    } finally {
+      setLoadingWallets(false);
+    }
+  };
+
+  const handleOpenAdjustWalletModal = (school: SchoolWalletAdminItem) => {
+    setAdjustTargetSchool(school);
+    setAdjustForm({
+      amount: 500,
+      type: "credit",
+      notes: "",
+    });
+    setWalletAdjustError("");
+    setShowAdjustWalletModal(true);
+  };
+
+  const handleAdjustSchoolWallet = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!adjustTargetSchool) return;
+
+    if (Number(adjustForm.amount) <= 0) {
+      setWalletAdjustError("Amount must be greater than zero.");
+      return;
+    }
+
+    setSavingWalletAdjust(true);
+    setWalletAdjustError("");
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("admin_adjust_school_wallet", {
+        p_org_id: adjustTargetSchool.organization_id,
+        p_amount: Number(adjustForm.amount),
+        p_type: adjustForm.type,
+        p_notes: adjustForm.notes.trim() || null,
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+
+      if (rpcErr) throw rpcErr;
+
+      setSuccess(data?.message || `Wallet for "${adjustTargetSchool.name}" adjusted successfully.`);
+      setShowAdjustWalletModal(false);
+      setAdjustTargetSchool(null);
+      await loadSchoolWallets();
+    } catch (err: any) {
+      setWalletAdjustError(err.message || "Failed to adjust wallet balance.");
+    } finally {
+      setSavingWalletAdjust(false);
+    }
+  };
+
+  const handleUpdateBonusRate = async (e: FormEvent) => {
+    e.preventDefault();
+    if (newBonusRate < 0) return;
+    setSavingBonusRate(true);
+    try {
+      const { data, error: rpcErr } = await supabase.rpc("admin_update_school_referral_reward", {
+        p_bonus_amount: Number(newBonusRate),
+        p_master_code: MASTER_ACCESS_CODE,
+      });
+      if (rpcErr) throw rpcErr;
+      setReferralBonusRate(Number(newBonusRate));
+      setShowBonusRateModal(false);
+      setSuccess(data?.message || `Referral reward set to ₹${newBonusRate} per school.`);
+      await loadSchoolWallets();
+    } catch (err: any) {
+      alert(err.message || "Failed to update referral reward amount.");
+    } finally {
+      setSavingBonusRate(false);
+    }
+  };
+
+  const copySchoolReferralCode = (code: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(code);
+      setCopiedSchoolCode(code);
+      setTimeout(() => setCopiedSchoolCode(""), 2000);
     }
   };
 
@@ -2772,6 +2931,26 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
         </button>
 
         <button
+          onClick={() => {
+            setActiveTab("wallets");
+            loadSchoolWallets();
+          }}
+          className={`relative flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
+            activeTab === "wallets"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <Wallet size={16} />
+          School Wallets &amp; Referrals ({schoolWallets.length})
+          {walletStats?.total_balance ? (
+            <span className="rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-bold text-white">
+              ₹{Math.round(walletStats.total_balance).toLocaleString("en-IN")}
+            </span>
+          ) : null}
+        </button>
+
+        <button
           onClick={() => setActiveTab("pricing")}
           className={`flex items-center gap-2 border-b-2 px-5 py-3 whitespace-nowrap transition ${
             activeTab === "pricing"
@@ -3181,6 +3360,11 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                             <Ticket size={10} /> {pay.coupon_code} (-₹{pay.discount_amount || 0})
                           </div>
                         )}
+                        {pay.wallet_discount && Number(pay.wallet_discount) > 0 ? (
+                          <div className="mt-1 inline-flex items-center gap-1 rounded bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">
+                            <Wallet size={10} /> Wallet: -₹{pay.wallet_discount}
+                          </div>
+                        ) : null}
                         <span
                           className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
                             cat === "joining_fee"
@@ -4117,6 +4301,253 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                         );
                       })
                   )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB: SCHOOL VIRTUAL WALLETS & REFERRAL SYSTEM                 */}
+      {/* ============================================================== */}
+      {activeTab === "wallets" && (
+        <section className="mt-6 space-y-6">
+          {/* Header Controls */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-purple-600 p-2 text-white shadow-xs">
+                  <Wallet size={18} />
+                </span>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">
+                    School Virtual Wallets &amp; Referrals
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Track all school wallets, referral earnings, redemption on subscriptions, and manual credit adjustments.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNewBonusRate(referralBonusRate);
+                  setShowBonusRateModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3.5 py-2 text-xs font-bold text-purple-700 hover:bg-purple-100 transition shadow-xs"
+              >
+                <Gift size={14} />
+                Reward Rate: ₹{referralBonusRate} / School
+              </button>
+
+              <button
+                type="button"
+                onClick={loadSchoolWallets}
+                disabled={loadingWallets}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition shadow-xs disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={loadingWallets ? "animate-spin" : ""} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* 4 Overview Metric Cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Card 1: Live Outstanding Balances */}
+            <div className="rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50 to-indigo-50/50 p-5 shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-purple-700">
+                Total Live Wallet Balance
+              </span>
+              <p className="mt-2 text-3xl font-black text-slate-900 font-mono">
+                ₹{Number(walletStats?.total_balance || 0).toLocaleString("en-IN")}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Credits held in school virtual wallets ready to be redeemed
+              </p>
+            </div>
+
+            {/* Card 2: Total Referral Credits Distributed */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Total Referral Rewards Given
+              </span>
+              <p className="mt-2 text-3xl font-black text-emerald-600 font-mono">
+                ₹{Number(walletStats?.total_earned || 0).toLocaleString("en-IN")}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Lifetime referral bonuses credited to schools
+              </p>
+            </div>
+
+            {/* Card 3: Total Redeemed on Subscriptions */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Total Credits Redeemed
+              </span>
+              <p className="mt-2 text-3xl font-black text-purple-700 font-mono">
+                ₹{Number(walletStats?.total_spent || 0).toLocaleString("en-IN")}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Deducted by schools on subscription checkout
+              </p>
+            </div>
+
+            {/* Card 4: Total Participating Schools */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Schools with Wallets
+              </span>
+              <p className="mt-2 text-3xl font-black text-slate-900 font-mono">
+                {schoolWallets.length}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Every school has unique code &amp; virtual ledger
+              </p>
+            </div>
+          </div>
+
+          {/* Search & Filter Bar */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="Search by school name or referral code (e.g. SCH-MU9QAU)..."
+                value={walletSearch}
+                onChange={(e) => setWalletSearch(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 py-2 text-xs font-medium outline-none focus:border-purple-600 focus:bg-white transition"
+              />
+            </div>
+          </div>
+
+          {/* School Wallets Table */}
+          <div className="rounded-3xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">
+                  Institution Wallets Ledger ({schoolWallets.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Click "Adjust Balance" to manually add incentive credits or correct balance.
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                  <tr>
+                    <th className="px-5 py-3.5">School Name</th>
+                    <th className="px-5 py-3.5">Referral Code</th>
+                    <th className="px-5 py-3.5">Wallet Balance</th>
+                    <th className="px-5 py-3.5">Total Earned</th>
+                    <th className="px-5 py-3.5">Total Redeemed</th>
+                    <th className="px-5 py-3.5 text-center">Schools Referred</th>
+                    <th className="px-5 py-3.5">Joined Via</th>
+                    <th className="px-5 py-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {schoolWallets
+                    .filter((w) => {
+                      if (!walletSearch.trim()) return true;
+                      const q = walletSearch.toLowerCase();
+                      return (
+                        w.name.toLowerCase().includes(q) ||
+                        (w.referral_code && w.referral_code.toLowerCase().includes(q)) ||
+                        (w.referred_by_code && w.referred_by_code.toLowerCase().includes(q))
+                      );
+                    })
+                    .map((school) => (
+                      <tr key={school.organization_id} className="hover:bg-slate-50/70 transition">
+                        <td className="px-5 py-4 font-bold text-slate-900">
+                          <div className="flex items-center gap-2">
+                            <Building2 size={16} className="text-purple-600 shrink-0" />
+                            <div>
+                              <span>{school.name}</span>
+                              <div className="text-[10px] font-normal text-slate-400">
+                                Registered:{" "}
+                                {new Date(school.created_at).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <button
+                            type="button"
+                            onClick={() => copySchoolReferralCode(school.referral_code)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-mono font-bold text-purple-800 hover:bg-purple-100 transition"
+                            title="Click to copy referral code"
+                          >
+                            <span>{school.referral_code || "—"}</span>
+                            {copiedSchoolCode === school.referral_code ? (
+                              <Check size={12} className="text-emerald-600" />
+                            ) : (
+                              <Copy size={12} className="text-purple-600" />
+                            )}
+                          </button>
+                        </td>
+
+                        <td className="px-5 py-4 font-mono font-black text-sm text-slate-900">
+                          {Number(school.balance || 0) > 0 ? (
+                            <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                              ₹{Number(school.balance).toLocaleString("en-IN")}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-normal">₹0</span>
+                          )}
+                        </td>
+
+                        <td className="px-5 py-4 font-mono font-bold text-slate-700">
+                          ₹{Number(school.total_earned || 0).toLocaleString("en-IN")}
+                        </td>
+
+                        <td className="px-5 py-4 font-mono text-purple-700 font-medium">
+                          ₹{Number(school.total_spent || 0).toLocaleString("en-IN")}
+                        </td>
+
+                        <td className="px-5 py-4 text-center">
+                          {school.referred_count > 0 ? (
+                            <span className="inline-flex items-center justify-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-black text-purple-800">
+                              {school.referred_count} schools
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">0</span>
+                          )}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          {school.referred_by_code ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] font-mono font-medium text-slate-700">
+                              {school.referred_by_code}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">Direct</span>
+                          )}
+                        </td>
+
+                        <td className="px-5 py-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAdjustWalletModal(school)}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-purple-300 hover:text-purple-700 hover:bg-purple-50 transition shadow-xs"
+                          >
+                            <Sliders size={13} />
+                            Adjust Balance
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -6071,6 +6502,12 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                       <span>(Saved ₹{Number(approvingPay.discount_amount || 0).toLocaleString("en-IN")})</span>
                     </div>
                   )}
+                  {approvingPay.wallet_discount && Number(approvingPay.wallet_discount) > 0 ? (
+                    <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-900 font-semibold ml-2">
+                      <Wallet size={13} className="text-emerald-600" />
+                      <span>Wallet Credits Redeemed: <strong className="font-mono text-emerald-800">₹{Number(approvingPay.wallet_discount).toLocaleString("en-IN")}</strong></span>
+                    </div>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -7494,6 +7931,200 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
           </div>
         );
       })()}
+
+      {/* MODAL: ADJUST SCHOOL WALLET BALANCE */}
+      {showAdjustWalletModal && adjustTargetSchool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 p-5 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-purple-600 p-2 text-white">
+                  <Sliders size={16} />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Adjust School Virtual Wallet
+                  </h3>
+                  <p className="text-[11px] text-slate-500">{adjustTargetSchool.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdjustWalletModal(false)}
+                className="rounded-xl p-1 text-slate-400 hover:bg-slate-200 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdjustSchoolWallet} className="p-6 space-y-4">
+              {walletAdjustError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>{walletAdjustError}</span>
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-purple-100 bg-purple-50/50 p-3 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>Current Available Balance:</span>
+                  <span className="font-mono font-bold text-purple-900">
+                    ₹{Number(adjustTargetSchool.balance || 0).toLocaleString("en-IN")}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-500 mt-1">
+                  <span>School Referral Code:</span>
+                  <span className="font-mono font-semibold text-slate-800">
+                    {adjustTargetSchool.referral_code}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Action Type
+                </label>
+                <div className="mt-1.5 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustForm({ ...adjustForm, type: "credit" })}
+                    className={`rounded-xl border py-2 text-xs font-bold transition ${
+                      adjustForm.type === "credit"
+                        ? "border-emerald-600 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-600"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    + Add Credit Bonus
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustForm({ ...adjustForm, type: "debit" })}
+                    className={`rounded-xl border py-2 text-xs font-bold transition ${
+                      adjustForm.type === "debit"
+                        ? "border-rose-600 bg-rose-50 text-rose-800 ring-1 ring-rose-600"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    - Debit / Deduct
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Amount (₹)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
+                  value={adjustForm.amount}
+                  onChange={(e) =>
+                    setAdjustForm({ ...adjustForm, amount: Math.max(1, Number(e.target.value) || 0) })
+                  }
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-base font-bold font-mono outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Note / Reason
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Special promotional reward or manual bonus"
+                  value={adjustForm.notes}
+                  onChange={(e) => setAdjustForm({ ...adjustForm, notes: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs outline-none focus:border-purple-600"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAdjustWalletModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingWalletAdjust}
+                  className="rounded-xl bg-purple-600 px-5 py-2 text-xs font-bold text-white hover:bg-purple-500 disabled:opacity-50 shadow-sm"
+                >
+                  {savingWalletAdjust ? "Saving..." : "Confirm Adjustment"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: UPDATE PLATFORM REFERRAL BONUS RATE */}
+      {showBonusRateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 p-5 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-purple-600 p-2 text-white">
+                  <Gift size={16} />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    School Referral Reward Setting
+                  </h3>
+                  <p className="text-[11px] text-slate-500">Global Platform Incentive Rate</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBonusRateModal(false)}
+                className="rounded-xl p-1 text-slate-400 hover:bg-slate-200 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateBonusRate} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Referral Reward Amount per Activated School (₹)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={50}
+                  required
+                  value={newBonusRate}
+                  onChange={(e) => setNewBonusRate(Math.max(0, Number(e.target.value) || 0))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-base font-bold font-mono outline-none focus:border-purple-600"
+                />
+                <p className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
+                  When any referred school's subscription payment is approved by Super Admin, this amount is automatically credited to the referring school's virtual wallet.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowBonusRateModal(false)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingBonusRate}
+                  className="rounded-xl bg-purple-600 px-5 py-2 text-xs font-bold text-white hover:bg-purple-500 disabled:opacity-50 shadow-sm"
+                >
+                  {savingBonusRate ? "Updating..." : "Save Reward Amount"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

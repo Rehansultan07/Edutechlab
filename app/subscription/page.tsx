@@ -26,6 +26,12 @@ import {
   Percent,
   Gift,
   X,
+  Wallet,
+  Share2,
+  Building2,
+  TrendingUp,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
@@ -76,16 +82,55 @@ type SubscriptionData = {
   } | null;
 };
 
+type SchoolWalletData = {
+  organization_id: string;
+  school_name: string;
+  referral_code: string;
+  bonus_rate_per_school: number;
+  wallet: {
+    balance: number;
+    total_earned: number;
+    total_spent: number;
+    updated_at: string;
+  };
+  referred_schools_count: number;
+  referred_schools: Array<{
+    id: string;
+    name: string;
+    created_at: string;
+    status: string;
+    is_trial: boolean;
+    bonus_earned: number;
+    is_rewarded: boolean;
+  }>;
+  transactions: Array<{
+    id: string;
+    amount: number;
+    transaction_type: string;
+    referred_org_name: string | null;
+    description: string | null;
+    created_at: string;
+  }>;
+};
+
 export default function SubscriptionPage() {
   const supabase = createClient();
   const { loading: authLoading, orgId, hasAccess, can, isAdmin } = useUserAccess([
     "settings.manage",
   ]);
 
+  const [activeTab, setActiveTab] = useState<"subscription" | "referral">("subscription");
   const [loading, setLoading] = useState(true);
   const [subData, setSubData] = useState<SubscriptionData | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Virtual Wallet & Referral States
+  const [walletData, setWalletData] = useState<SchoolWalletData | null>(null);
+  const [loadingWallet, setLoadingWallet] = useState(false);
+  const [useWalletBalance, setUseWalletBalance] = useState(false);
+  const [copiedRefCode, setCopiedRefCode] = useState(false);
+  const [copiedRefLink, setCopiedRefLink] = useState(false);
 
   // Plan Selection & Calculation
   const [targetStudents, setTargetStudents] = useState<number>(100);
@@ -134,11 +179,62 @@ export default function SubscriptionPage() {
     }
   };
 
+  const loadWallet = async () => {
+    if (!orgId) return;
+    try {
+      setLoadingWallet(true);
+      const { data, error: wErr } = await supabase.rpc("get_school_referral_and_wallet_data", {
+        p_org_id: orgId,
+      });
+      if (!wErr && data) {
+        setWalletData(data as SchoolWalletData);
+      }
+    } catch (e) {
+      console.error("Failed to load school wallet data", e);
+    } finally {
+      setLoadingWallet(false);
+    }
+  };
+
+  const refreshAllData = async () => {
+    await Promise.all([loadSubscription(), loadWallet()]);
+  };
+
   useEffect(() => {
     if (orgId) {
       loadSubscription();
+      loadWallet();
     }
   }, [orgId]);
+
+  const getReferralUrl = () => {
+    if (typeof window !== "undefined" && walletData?.referral_code) {
+      return `${window.location.origin}/register?ref=${walletData.referral_code}`;
+    }
+    return `https://edutechlab.vercel.app/register?ref=${walletData?.referral_code || ""}`;
+  };
+
+  const handleCopyRefCode = () => {
+    if (!walletData?.referral_code) return;
+    navigator.clipboard.writeText(walletData.referral_code);
+    setCopiedRefCode(true);
+    setTimeout(() => setCopiedRefCode(false), 2000);
+  };
+
+  const handleCopyRefLink = () => {
+    const url = getReferralUrl();
+    navigator.clipboard.writeText(url);
+    setCopiedRefLink(true);
+    setTimeout(() => setCopiedRefLink(false), 2000);
+  };
+
+  const getWhatsAppShareUrl = () => {
+    const code = walletData?.referral_code || "";
+    const schoolName = walletData?.school_name || "हमारे स्कूल";
+    const url = getReferralUrl();
+    const msg = `🏫 *EduTechLab School ERP Software Recommendation*\n\nनमस्ते! क्या आप अपने स्कूल के लिए एक आधुनिक, सुरक्षित और आसान School Management System ढूंढ रहे हैं?\n\nहमने (${schoolName}) ने EduTechLab अपनाया है—यहाँ Student Admission, Fees Collection, Daily Attendance, WhatsApp SMS Alerts, Exam Results और ID Cards बहुत आसानी से मैनेज होते हैं।\n\n👉 आप भी हमारे रेफरल लिंक से रजिस्टर करें और Free Demo शुरू करें:\n🔗 *Register Link:* ${url}\n🔑 *Referral Code:* ${code}\n\n(Note: सॉफ्टवेयर बहुत फास्ट है और मोबाइल-फ्रेंडली है!)`;
+    return `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+  };
 
   // Pricing calculation based on Standard (₹5/child) vs Pro (₹7/child) + Optional Joining Fee
   const monthlyPlanPrice = useMemo(() => {
@@ -154,7 +250,11 @@ export default function SubscriptionPage() {
     return monthlyPlanPrice;
   }, [paymentCategory, joiningFeeAmount, monthlyPlanPrice]);
 
-  const effectivePrice = appliedCoupon ? appliedCoupon.final_amount : calculatedPrice;
+  const priceAfterCoupon = appliedCoupon ? appliedCoupon.final_amount : calculatedPrice;
+  const walletBalance = Number(walletData?.wallet.balance || 0);
+  const maxWalletDeduction = Math.min(walletBalance, priceAfterCoupon);
+  const appliedWalletDeduction = useWalletBalance ? maxWalletDeduction : 0;
+  const effectivePrice = Math.max(0, priceAfterCoupon - appliedWalletDeduction);
 
   // Validate & Apply Coupon Code Handler
   const handleApplyCoupon = async (codeToValidate?: string) => {
@@ -226,12 +326,15 @@ export default function SubscriptionPage() {
     e.preventDefault();
     if (!orgId) return;
 
-    if (!utrNumber.trim()) {
+    let finalUtr = utrNumber.trim();
+    if (!finalUtr && effectivePrice === 0 && appliedWalletDeduction > 0) {
+      finalUtr = `WALLET-REDEEM-${Date.now().toString().slice(-6)}`;
+    } else if (!finalUtr) {
       setError("Please enter the UTR or Transaction Reference Number from your payment app.");
       return;
     }
 
-    if (effectivePrice <= 0 && calculatedPrice > 0 && !appliedCoupon) {
+    if (effectivePrice <= 0 && appliedWalletDeduction <= 0 && calculatedPrice > 0) {
       setError("Payable amount must be greater than ₹0.");
       return;
     }
@@ -277,9 +380,10 @@ export default function SubscriptionPage() {
           : "MONTHLY";
 
       const couponTag = appliedCoupon ? ` | Coupon: ${appliedCoupon.code} (-₹${appliedCoupon.discount_amount})` : "";
-      const formattedUtr = `${utrNumber.trim()} [Plan: ${selectedPlan.toUpperCase()} | ${categoryTag}${couponTag}]`;
+      const walletTag = appliedWalletDeduction > 0 ? ` | Wallet: -₹${appliedWalletDeduction}` : "";
+      const formattedUtr = `${finalUtr} [Plan: ${selectedPlan.toUpperCase()} | ${categoryTag}${couponTag}${walletTag}]`;
 
-      // Invoke enhanced RPC (with coupon support and fallback)
+      // Invoke enhanced RPC (with coupon support & wallet deduction)
       let { error: submitErr } = await supabase.rpc("submit_subscription_payment", {
         p_org_id: orgId,
         p_student_limit: targetStudents,
@@ -288,13 +392,18 @@ export default function SubscriptionPage() {
         p_screenshot_url: screenshotUrl || null,
         p_payment_category: paymentCategory,
         p_joining_fee_portion: cleanJoiningPortion,
-        p_notes: appliedCoupon ? `Coupon ${appliedCoupon.code} applied (saved ₹${appliedCoupon.discount_amount})` : null,
+        p_notes: appliedCoupon
+          ? `Coupon ${appliedCoupon.code} applied (saved ₹${appliedCoupon.discount_amount})`
+          : appliedWalletDeduction > 0
+          ? `Wallet balance applied: ₹${appliedWalletDeduction}`
+          : null,
         p_coupon_code: appliedCoupon?.code || null,
         p_discount_amount: appliedCoupon?.discount_amount || 0,
         p_original_amount: calculatedPrice,
+        p_wallet_deduction: appliedWalletDeduction,
       });
 
-      if (submitErr && (submitErr.code === "PGRST202" || submitErr.message?.includes("p_coupon_code"))) {
+      if (submitErr && (submitErr.code === "PGRST202" || submitErr.message?.includes("p_coupon_code") || submitErr.message?.includes("p_wallet_deduction"))) {
         const legacyRes = await supabase.rpc("submit_subscription_payment", {
           p_org_id: orgId,
           p_student_limit: targetStudents,
@@ -309,10 +418,14 @@ export default function SubscriptionPage() {
 
       if (submitErr) throw submitErr;
 
-      setSuccess("Payment details submitted successfully! Your payment will be verified and subscription activated shortly.");
+      setSuccess(
+        effectivePrice === 0
+          ? "Subscription renewal request submitted via Virtual Wallet credits! Will be activated shortly."
+          : "Payment details submitted successfully! Your payment will be verified and subscription activated shortly."
+      );
       setUtrNumber("");
       setProofFile(null);
-      await loadSubscription();
+      await refreshAllData();
     } catch (err: any) {
       setError(err.message || "Failed to submit payment proof.");
     } finally {
@@ -392,14 +505,49 @@ export default function SubscriptionPage() {
         </div>
 
         <button
-          onClick={loadSubscription}
+          onClick={refreshAllData}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
         >
           <RefreshCw size={14} /> Refresh Status
         </button>
       </div>
 
-      {/* Institution Paused Notice Banner */}
+      {/* Top Tab Bar: Subscription Plan vs School Refer & Earn (Virtual Wallet) */}
+      <div className="mb-6 flex border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveTab("subscription")}
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-bold transition ${
+            activeTab === "subscription"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <CreditCard size={16} />
+          Plan &amp; Capacity
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("referral")}
+          className={`flex items-center gap-2 border-b-2 px-5 py-3 text-sm font-bold transition relative ${
+            activeTab === "referral"
+              ? "border-purple-600 text-purple-700"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <Wallet size={16} />
+          School Refer &amp; Earn (Virtual Wallet)
+          {walletBalance > 0 && (
+            <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-white">
+              ₹{walletBalance.toLocaleString("en-IN")}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeTab === "subscription" && (
+        <>
+          {/* Institution Paused Notice Banner */}
       {subData?.is_paused && (
         <div className="mb-6 rounded-3xl border-2 border-amber-300 bg-amber-50/95 p-5 sm:p-6 shadow-md backdrop-blur-sm">
           <div className="flex flex-col sm:flex-row items-start gap-4">
@@ -938,6 +1086,52 @@ export default function SubscriptionPage() {
                 )}
               </div>
 
+              {/* VIRTUAL WALLET BALANCE REDEMPTION */}
+              {walletBalance > 0 && (
+                <div className="border-t border-slate-200 pt-3">
+                  <div
+                    className={`rounded-2xl border p-3.5 transition ${
+                      useWalletBalance
+                        ? "border-purple-300 bg-purple-50/80 shadow-xs"
+                        : "border-slate-200 bg-slate-100/60"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <label className="flex items-start gap-2.5 cursor-pointer flex-1">
+                        <input
+                          type="checkbox"
+                          checked={useWalletBalance}
+                          onChange={(e) => setUseWalletBalance(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        <div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-slate-800">
+                            <Wallet size={14} className="text-purple-600" />
+                            <span>Redeem Referral Wallet Balance</span>
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-800">
+                              ₹{walletBalance.toLocaleString("en-IN")} Available
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-slate-500">
+                            Earned by referring schools. Apply credits directly for an instant discount on this payment.
+                          </p>
+                        </div>
+                      </label>
+                      {useWalletBalance && (
+                        <div className="text-right">
+                          <span className="text-xs font-black font-mono text-purple-700">
+                            -₹{appliedWalletDeduction.toLocaleString("en-IN")}
+                          </span>
+                          <div className="text-[10px] font-bold text-purple-600 uppercase">
+                            Deducted
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {appliedCoupon && (
                 <div className="flex justify-between text-slate-500 text-xs">
                   <span>Gross Order Amount:</span>
@@ -949,6 +1143,20 @@ export default function SubscriptionPage() {
                 <div className="flex justify-between text-emerald-700 text-xs font-bold">
                   <span>Coupon Discount ({appliedCoupon.code}):</span>
                   <span className="font-mono">-₹{appliedCoupon.discount_amount.toLocaleString("en-IN")}</span>
+                </div>
+              )}
+
+              {appliedWalletDeduction > 0 && (
+                <div className="flex justify-between text-purple-700 text-xs font-bold">
+                  <span>Wallet Credits Applied:</span>
+                  <span className="font-mono">-₹{appliedWalletDeduction.toLocaleString("en-IN")}</span>
+                </div>
+              )}
+
+              {effectivePrice === 0 && (
+                <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-2.5 text-center text-xs font-bold text-emerald-800 flex items-center justify-center gap-1.5">
+                  <Sparkles size={14} className="text-emerald-600" />
+                  <span>100% Free! Covered entirely by your School Referral Wallet.</span>
                 </div>
               )}
 
@@ -1028,136 +1236,163 @@ export default function SubscriptionPage() {
             </div>
           </div>
 
-          {/* QR Code Card */}
-          <div className="mt-5 flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            {/* Mode Switcher if custom static QR was uploaded */}
-            {subData?.pricing.upi_qr_url && (
-              <div className="mb-4 flex items-center justify-center gap-1 rounded-xl bg-slate-200/80 p-1 text-[11px] font-bold">
-                <button
-                  type="button"
-                  onClick={() => setQrMode("dynamic")}
-                  className={`rounded-lg px-3 py-1.5 transition ${
-                    qrMode === "dynamic"
-                      ? "bg-white text-purple-700 shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  ⚡ Dynamic QR (Auto ₹{effectivePrice})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQrMode("uploaded")}
-                  className={`rounded-lg px-3 py-1.5 transition ${
-                    qrMode === "uploaded"
-                      ? "bg-white text-purple-700 shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  🖼️ Static PhonePe QR
-                </button>
+          {/* QR Code Card or Zero-Pay Referral Credit Card */}
+          {effectivePrice === 0 ? (
+            <div className="mt-5 rounded-2xl border-2 border-emerald-300 bg-emerald-50/70 p-6 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 mb-3 shadow-xs">
+                <Sparkles size={28} />
               </div>
-            )}
-
-            <div className="relative overflow-hidden rounded-2xl border-2 border-purple-200/60 bg-white p-3 shadow-md">
-              <img
-                src={displayedQrUrl}
-                alt="UPI Payment QR Code"
-                className="h-48 w-48 object-contain"
-              />
-              {qrMode === "dynamic" && (
-                <div className="mt-2 text-center">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-700 ring-1 ring-emerald-200">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Exact Amount ₹{effectivePrice} Pre-Filled
-                  </span>
+              <h3 className="text-base font-extrabold text-emerald-950">
+                100% Free with Referral Credits!
+              </h3>
+              <p className="mt-1 text-xs text-emerald-800 leading-relaxed">
+                Your available school wallet balance (₹{walletBalance}) fully covers this subscription amount (₹{appliedWalletDeduction}). No external UPI payment required!
+              </p>
+              <div className="mt-4 rounded-xl bg-white border border-emerald-200 p-3 text-xs text-slate-700 font-medium">
+                Click <strong className="text-emerald-700">"Confirm &amp; Renew via Wallet"</strong> below to submit your renewal immediately.
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              {/* Mode Switcher if custom static QR was uploaded */}
+              {subData?.pricing.upi_qr_url && (
+                <div className="mb-4 flex items-center justify-center gap-1 rounded-xl bg-slate-200/80 p-1 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setQrMode("dynamic")}
+                    className={`rounded-lg px-3 py-1.5 transition ${
+                      qrMode === "dynamic"
+                        ? "bg-white text-purple-700 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    ⚡ Dynamic QR (Auto ₹{effectivePrice})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQrMode("uploaded")}
+                    className={`rounded-lg px-3 py-1.5 transition ${
+                      qrMode === "uploaded"
+                        ? "bg-white text-purple-700 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    🖼️ Static PhonePe QR
+                  </button>
                 </div>
               )}
-            </div>
 
-            <p className="mt-3 text-xs font-semibold text-slate-800 text-center">
-              Scan with PhonePe, Google Pay, Paytm, or any UPI App
-            </p>
-            <p className="text-[11px] text-slate-500 text-center">
-              Auto Locked Amount: <strong className="text-purple-700 font-bold">₹{effectivePrice}</strong> •{" "}
-              {paymentCategory === "joining_fee"
-                ? "One-Time Joining Fee"
-                : paymentCategory === "combined"
-                ? `Joining + ${selectedPlan.toUpperCase()} (${targetStudents} Students)`
-                : `Plan: ${selectedPlan.toUpperCase()} (${targetStudents} Students)`}
-            </p>
+              <div className="relative overflow-hidden rounded-2xl border-2 border-purple-200/60 bg-white p-3 shadow-md">
+                <img
+                  src={displayedQrUrl}
+                  alt="UPI Payment QR Code"
+                  className="h-48 w-48 object-contain"
+                />
+                {qrMode === "dynamic" && (
+                  <div className="mt-2 text-center">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-700 ring-1 ring-emerald-200">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Exact Amount ₹{effectivePrice} Pre-Filled
+                    </span>
+                  </div>
+                )}
+              </div>
 
-            {/* Mobile 1-Tap UPI Intent Button */}
-            <a
-              href={upiIntentUrl}
-              className="mt-3.5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-purple-600/20 hover:bg-purple-700 active:scale-[0.98] transition"
-            >
-              <CreditCard size={15} />
-              Open UPI App to Pay ₹{effectivePrice}
-            </a>
-            <p className="mt-1 text-center text-[10px] text-slate-400">
-              (Phone me tap karne par direct UPI app me ₹{effectivePrice} pre-filled open hoga)
-            </p>
+              <p className="mt-3 text-xs font-semibold text-slate-800 text-center">
+                Scan with PhonePe, Google Pay, Paytm, or any UPI App
+              </p>
+              <p className="text-[11px] text-slate-500 text-center">
+                Auto Locked Amount: <strong className="text-purple-700 font-bold">₹{effectivePrice}</strong> •{" "}
+                {paymentCategory === "joining_fee"
+                  ? "One-Time Joining Fee"
+                  : paymentCategory === "combined"
+                  ? `Joining + ${selectedPlan.toUpperCase()} (${targetStudents} Students)`
+                  : `Plan: ${selectedPlan.toUpperCase()} (${targetStudents} Students)`}
+              </p>
 
-            {/* UPI ID with 1-click copy */}
-            <div className="mt-3 flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs">
-              <span className="font-mono text-slate-700 truncate">
-                {upiId}
-              </span>
-              <button
-                type="button"
-                onClick={handleCopyUpi}
-                className="ml-2 inline-flex items-center gap-1 font-semibold text-purple-600 hover:text-purple-700"
+              {/* Mobile 1-Tap UPI Intent Button */}
+              <a
+                href={upiIntentUrl}
+                className="mt-3.5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-purple-600/20 hover:bg-purple-700 active:scale-[0.98] transition"
               >
-                {copiedUpi ? <Check size={14} /> : <Copy size={14} />}
-                {copiedUpi ? "Copied" : "Copy UPI"}
-              </button>
+                <CreditCard size={15} />
+                Open UPI App to Pay ₹{effectivePrice}
+              </a>
+              <p className="mt-1 text-center text-[10px] text-slate-400">
+                (Phone me tap karne par direct UPI app me ₹{effectivePrice} pre-filled open hoga)
+              </p>
+
+              {/* UPI ID with 1-click copy */}
+              <div className="mt-3 flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs">
+                <span className="font-mono text-slate-700 truncate">
+                  {upiId}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyUpi}
+                  className="ml-2 inline-flex items-center gap-1 font-semibold text-purple-600 hover:text-purple-700"
+                >
+                  {copiedUpi ? <Check size={14} /> : <Copy size={14} />}
+                  {copiedUpi ? "Copied" : "Copy UPI"}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Payment Proof Form */}
           <form onSubmit={handleSubmitPayment} className="mt-6 space-y-4">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
-                UTR / Transaction Reference No. <span className="text-red-500">*</span>
+                UTR / Transaction Reference No. {effectivePrice > 0 && <span className="text-red-500">*</span>}
               </label>
               <input
                 type="text"
-                required
-                placeholder="12-digit UPI UTR No. (e.g. 423456789012)"
+                required={effectivePrice > 0}
+                placeholder={
+                  effectivePrice === 0
+                    ? "Auto-generated: WALLET-REDEEM (Leave blank)"
+                    : "12-digit UPI UTR No. (e.g. 423456789012)"
+                }
                 value={utrNumber}
                 onChange={(e) => setUtrNumber(e.target.value)}
                 className="mt-1.5 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-xs font-mono outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
-                Payment Screenshot
-              </label>
-              <div className="mt-1.5 flex items-center gap-3">
-                <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs font-medium text-slate-600 hover:bg-slate-100">
-                  <Upload size={14} />
-                  <span>{proofFile ? proofFile.name : "Upload Payment Slip / Screenshot"}</span>
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    className="hidden"
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setProofFile(e.target.files[0]);
-                      }
-                    }}
-                  />
+            {effectivePrice > 0 && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
+                  Payment Screenshot
                 </label>
+                <div className="mt-1.5 flex items-center gap-3">
+                  <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs font-medium text-slate-600 hover:bg-slate-100">
+                    <Upload size={14} />
+                    <span>{proofFile ? proofFile.name : "Upload Payment Slip / Screenshot"}</span>
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      className="hidden"
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setProofFile(e.target.files[0]);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
-            </div>
+            )}
 
             <button
               type="submit"
               disabled={uploading}
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-[#171625] py-3.5 text-sm font-semibold text-white shadow-md transition hover:bg-slate-800 disabled:opacity-50"
             >
-              {uploading ? "Submitting Proof..." : `Submit Payment Proof (₹${calculatedPrice})`}
+              {uploading
+                ? "Submitting..."
+                : effectivePrice === 0
+                ? `Confirm & Renew via Wallet (₹0 Due)`
+                : `Submit Payment Proof (₹${effectivePrice})`}
               {!uploading && <FileCheck size={16} />}
             </button>
           </form>
@@ -1167,6 +1402,371 @@ export default function SubscriptionPage() {
           </p>
         </div>
       </section>
+        </>
+      )}
+
+      {/* REFERRAL & VIRTUAL WALLET TAB CONTENT */}
+      {activeTab === "referral" && (
+        <div className="space-y-8">
+          {/* Top 4 Wallet Metric Cards */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Card 1: Live Wallet Balance */}
+            <div className="rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50 to-indigo-50/50 p-5 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-purple-700">
+                  Virtual Wallet Balance
+                </span>
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-800">
+                  Live Credits
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className="text-3xl font-black text-slate-900 font-mono">
+                  ₹{Number(walletData?.wallet.balance || 0).toLocaleString("en-IN")}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Usable directly on subscription renewals
+              </p>
+              {Number(walletData?.wallet.balance || 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("subscription");
+                    setUseWalletBalance(true);
+                  }}
+                  className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-purple-700 hover:text-purple-900 hover:underline"
+                >
+                  Apply to Subscription <ArrowUpRight size={13} />
+                </button>
+              )}
+            </div>
+
+            {/* Card 2: Total Referral Bonus */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Total Credits Earned
+              </span>
+              <div className="mt-2 text-3xl font-black text-emerald-600 font-mono">
+                ₹{Number(walletData?.wallet.total_earned || 0).toLocaleString("en-IN")}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Lifetime reward earnings from referrals
+              </p>
+            </div>
+
+            {/* Card 3: Total Redeemed */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Total Savings Redeemed
+              </span>
+              <div className="mt-2 text-3xl font-black text-purple-700 font-mono">
+                ₹{Number(walletData?.wallet.total_spent || 0).toLocaleString("en-IN")}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Subtracted from your subscription bills
+              </p>
+            </div>
+
+            {/* Card 4: Schools Referred */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Schools Referred
+              </span>
+              <div className="mt-2 text-3xl font-black text-slate-900 font-mono">
+                {walletData?.referred_schools_count || 0}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                ₹{walletData?.bonus_rate_per_school || 500} reward per active school
+              </p>
+            </div>
+          </div>
+
+          {/* School Referral Hub & 1-Click WhatsApp Sharing Box */}
+          <div className="overflow-hidden rounded-3xl border border-purple-200 bg-gradient-to-br from-[#171625] to-[#25233d] p-6 text-white shadow-xl sm:p-8">
+            <div className="grid gap-8 lg:grid-cols-12 items-center">
+              <div className="lg:col-span-7">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-purple-200 backdrop-blur-sm">
+                  <Sparkles size={13} className="text-[#58dfcc]" />
+                  <span>School Refer &amp; Earn Program</span>
+                </div>
+                <h2 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl text-white">
+                  Refer Schools. Earn ₹{walletData?.bonus_rate_per_school || 500} per School.
+                </h2>
+                <p className="mt-2 text-xs leading-relaxed text-slate-300 sm:text-sm">
+                  Jab bhi koi doosra school aapke referral code se EduTechLab join karega aur apna subscription activate karega, aapke Virtual Wallet me turant ₹{walletData?.bonus_rate_per_school || 500} credit ho jayenge. Is wallet balance se aap apna monthly software renewal 100% Free kar sakte hain!
+                </p>
+
+                {/* Referral Code & URL Copy Controls */}
+                <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                  {/* Referral Code Box */}
+                  <div className="flex-1 rounded-2xl border border-white/15 bg-white/5 p-3 backdrop-blur-md">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">
+                      Your School Referral Code
+                    </span>
+                    <div className="mt-1 flex items-center justify-between">
+                      <span className="font-mono text-xl font-black tracking-wider text-[#58dfcc]">
+                        {walletData?.referral_code || "SCH-LOADING"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyRefCode}
+                        className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 transition active:scale-95"
+                      >
+                        {copiedRefCode ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                        {copiedRefCode ? "Copied" : "Copy Code"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Share Link Box */}
+                  <div className="flex-1 rounded-2xl border border-white/15 bg-white/5 p-3 backdrop-blur-md">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">
+                      Direct Registration Link
+                    </span>
+                    <div className="mt-1 flex items-center justify-between">
+                      <span className="text-xs font-mono text-white/80 truncate max-w-[180px]">
+                        {getReferralUrl()}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyRefLink}
+                        className="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 transition active:scale-95"
+                      >
+                        {copiedRefLink ? <Check size={14} className="text-emerald-400" /> : <Share2 size={14} />}
+                        {copiedRefLink ? "Copied" : "Copy Link"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 1-Click WhatsApp Share CTA */}
+                <div className="mt-5">
+                  <a
+                    href={getWhatsAppShareUrl()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex w-full sm:w-auto items-center justify-center gap-2.5 rounded-2xl bg-emerald-500 px-6 py-3.5 text-sm font-extrabold text-slate-950 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 active:scale-95 transition"
+                  >
+                    <MessageCircle size={18} className="fill-slate-950" />
+                    Share on WhatsApp (Direct Message)
+                  </a>
+                  <p className="mt-2 text-[11px] text-white/50">
+                    Pre-typed WhatsApp message with your referral link and school name ready to send in 1 tap.
+                  </p>
+                </div>
+              </div>
+
+              {/* Right Side: How it works step cards */}
+              <div className="lg:col-span-5 rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-md">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#58dfcc]">
+                  How School Referral Works (3 Steps)
+                </h3>
+                <div className="mt-4 space-y-4 text-xs">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-purple-500/20 text-purple-300 font-bold font-mono">
+                      1
+                    </div>
+                    <div>
+                      <strong className="text-white">Share Your Link / Code</strong>
+                      <p className="mt-0.5 text-slate-300 text-[11px]">
+                        Send your link to fellow school owners, principals, or coaching heads.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300 font-bold font-mono">
+                      2
+                    </div>
+                    <div>
+                      <strong className="text-white">School Registers &amp; Subscribes</strong>
+                      <p className="mt-0.5 text-slate-300 text-[11px]">
+                        They register using your code. As soon as their subscription is approved, ₹{walletData?.bonus_rate_per_school || 500} credits into your wallet!
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[#58dfcc]/20 text-[#58dfcc] font-bold font-mono">
+                      3
+                    </div>
+                    <div>
+                      <strong className="text-white">Redeem on Your Renewal</strong>
+                      <p className="mt-0.5 text-slate-300 text-[11px]">
+                        Select "Use Virtual Wallet" at checkout to deduct your credits and enjoy 100% Free monthly software renewals!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Referred Schools List */}
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs sm:p-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Referred Schools ({walletData?.referred_schools.length || 0})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Institutions that registered on EduTechLab using your school referral code
+                </p>
+              </div>
+            </div>
+
+            {walletData?.referred_schools && walletData.referred_schools.length > 0 ? (
+              <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">School Name</th>
+                      <th className="px-4 py-3">Registration Date</th>
+                      <th className="px-4 py-3">Subscription Status</th>
+                      <th className="px-4 py-3 text-right">Referral Reward</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {walletData.referred_schools.map((school) => (
+                      <tr key={school.id} className="hover:bg-slate-50/60 transition">
+                        <td className="px-4 py-3.5 font-bold text-slate-900 flex items-center gap-2">
+                          <Building2 size={15} className="text-purple-600 shrink-0" />
+                          <span>{school.name}</span>
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-600">
+                          {new Date(school.created_at).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {school.status === "active" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                              <CheckCircle2 size={11} /> Active Subscription
+                            </span>
+                          ) : school.is_trial ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-0.5 text-[10px] font-bold text-purple-700">
+                              <Sparkles size={11} /> Free Trial
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-medium text-slate-600 uppercase">
+                              {school.status}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-bold font-mono">
+                          {school.is_rewarded ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-black text-emerald-800">
+                              +₹{school.bonus_earned.toLocaleString("en-IN")} Credited
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-800">
+                              <Clock size={11} /> Awaiting Subscription Activation
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-8 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-100 text-purple-600 mb-3">
+                  <Share2 size={22} />
+                </div>
+                <h4 className="text-sm font-bold text-slate-800">No schools referred yet</h4>
+                <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+                  Apne dost school principals ko WhatsApp par referral code bhejein. Jaise hi wo join karenge, wo yahan show honge aur aapko wallet credits milenge.
+                </p>
+                <a
+                  href={getWhatsAppShareUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-500 transition"
+                >
+                  <MessageCircle size={14} /> Send WhatsApp Invitation
+                </a>
+              </div>
+            )}
+          </div>
+
+          {/* Wallet Ledger & Transaction History */}
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs sm:p-8">
+            <h3 className="text-base font-bold text-slate-900">
+              Virtual Wallet Ledger &amp; History
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Transparent record of all referral reward credits, subscription redemption debits, and adjustments
+            </p>
+
+            {walletData?.transactions && walletData.transactions.length > 0 ? (
+              <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Date &amp; Time</th>
+                      <th className="px-4 py-3">Transaction Type</th>
+                      <th className="px-4 py-3">Description</th>
+                      <th className="px-4 py-3 text-right">Amount (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-sans">
+                    {walletData.transactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-50/60 transition">
+                        <td className="px-4 py-3 text-slate-500 font-mono text-[11px]">
+                          {new Date(tx.created_at).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </td>
+                        <td className="px-4 py-3">
+                          {tx.transaction_type === "referral_bonus" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase text-emerald-700">
+                              <Gift size={10} /> Referral Bonus
+                            </span>
+                          ) : tx.transaction_type === "subscription_discount" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-black uppercase text-purple-700">
+                              <CreditCard size={10} /> Subscription Discount
+                            </span>
+                          ) : tx.transaction_type === "refund" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-black uppercase text-blue-700">
+                              <RefreshCw size={10} /> Refund
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-700">
+                              Adjustment
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {tx.description || tx.referred_org_name || "Wallet Transaction"}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-black text-sm">
+                          {tx.amount > 0 ? (
+                            <span className="text-emerald-600">+₹{tx.amount.toLocaleString("en-IN")}</span>
+                          ) : (
+                            <span className="text-purple-700">-₹{Math.abs(tx.amount).toLocaleString("en-IN")}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 text-center text-xs text-slate-500">
+                No wallet transactions recorded yet.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

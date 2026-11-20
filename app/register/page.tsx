@@ -38,6 +38,7 @@ export default function RegisterPage() {
   const [verifiedPartner, setVerifiedPartner] = useState<{
     code: string;
     name: string;
+    type?: "agent" | "school";
   } | null>(null);
   const [checkingRef, setCheckingRef] = useState(false);
   const [refError, setRefError] = useState("");
@@ -84,7 +85,7 @@ export default function RegisterPage() {
         p_code: clean,
       });
       if (!rpcErr && data?.valid) {
-        setVerifiedPartner({ code: data.agent_code, name: data.agent_name });
+        setVerifiedPartner({ code: data.agent_code, name: data.agent_name, type: data.type });
         setRefError("");
       } else {
         setVerifiedPartner(null);
@@ -240,8 +241,8 @@ export default function RegisterPage() {
                 </div>
                 {verifiedPartner && (
                   <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-800">
-                    Registered via Sales Partner: <strong>{verifiedPartner.name}</strong> (
-                    {verifiedPartner.code})
+                    {verifiedPartner.type === "school" ? "Referred by School:" : "Registered via Sales Partner:"}{" "}
+                    <strong>{verifiedPartner.name}</strong> ({verifiedPartner.code})
                   </div>
                 )}
                 <Link
@@ -377,10 +378,10 @@ export default function RegisterPage() {
                   />
                 </div>
 
-                {/* Partner / Sales Agent Referral Code */}
+                {/* Partner / School Referral Code */}
                 <div className="sm:col-span-2 rounded-2xl border border-purple-100 bg-purple-50/50 p-4">
                   <label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-purple-900">
-                    <Tag size={13} /> Partner / Sales Agent Referral Code (Optional)
+                    <Tag size={13} /> Partner or School Referral Code (Optional)
                   </label>
                   <div className="mt-2 flex gap-2">
                     <input
@@ -390,7 +391,7 @@ export default function RegisterPage() {
                       onBlur={() => {
                         if (form.referralCode.trim()) verifyCode(form.referralCode);
                       }}
-                      placeholder="e.g. RAHUL01 (Leave blank if direct)"
+                      placeholder="e.g. SCH-XXXXXX or AGENT01 (Leave blank if direct)"
                       className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-mono font-bold uppercase outline-none transition focus:border-[#6657e8] focus:ring-4 focus:ring-[#6657e8]/10"
                     />
                     <button
@@ -404,8 +405,9 @@ export default function RegisterPage() {
                   </div>
                   {verifiedPartner && (
                     <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
-                      <CheckCircle2 size={14} /> Partner Verified: {verifiedPartner.name} (
-                      {verifiedPartner.code})
+                      <CheckCircle2 size={14} />{" "}
+                      {verifiedPartner.type === "school" ? "Referring School:" : "Partner Verified:"}{" "}
+                      {verifiedPartner.name} ({verifiedPartner.code})
                     </p>
                   )}
                   {refError && <p className="mt-2 text-xs text-amber-700">{refError}</p>}
@@ -484,7 +486,7 @@ export default function RegisterPage() {
                 {form.referralCode.trim() && (
                   <div className="sm:col-span-2">
                     <Review
-                      label="Partner Referral Code"
+                      label={verifiedPartner?.type === "school" ? "Referring School" : "Partner Referral Code"}
                       value={
                         verifiedPartner
                           ? `${verifiedPartner.code} (${verifiedPartner.name})`
