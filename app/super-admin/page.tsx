@@ -314,6 +314,8 @@ export default function SuperAdminPage() {
     total_schools: number;
   } | null>(null);
   const [referralBonusRate, setReferralBonusRate] = useState<number>(500);
+  const [referralCommissionPercent, setReferralCommissionPercent] = useState<number>(10);
+  const [referralRewardType, setReferralRewardType] = useState<string>("percentage");
   const [loadingWallets, setLoadingWallets] = useState(false);
   const [walletSearch, setWalletSearch] = useState("");
   const [copiedSchoolCode, setCopiedSchoolCode] = useState("");
@@ -336,6 +338,8 @@ export default function SuperAdminPage() {
   // Update Platform Referral Reward Modal
   const [showBonusRateModal, setShowBonusRateModal] = useState(false);
   const [newBonusRate, setNewBonusRate] = useState<number>(500);
+  const [newCommissionPercent, setNewCommissionPercent] = useState<number>(10);
+  const [newRewardType, setNewRewardType] = useState<string>("percentage");
   const [savingBonusRate, setSavingBonusRate] = useState(false);
 
   // Coupons & Promo Codes Engine States
@@ -656,6 +660,14 @@ export default function SuperAdminPage() {
         if (walletDash?.success && walletDash.wallets) {
           setSchoolWallets(walletDash.wallets as SchoolWalletAdminItem[]);
           setWalletStats(walletDash.stats || null);
+          if (walletDash.referral_percentage !== undefined) {
+            setReferralCommissionPercent(Number(walletDash.referral_percentage));
+            setNewCommissionPercent(Number(walletDash.referral_percentage));
+          }
+          if (walletDash.reward_type) {
+            setReferralRewardType(walletDash.reward_type);
+            setNewRewardType(walletDash.reward_type);
+          }
           if (walletDash.bonus_rate_per_school) {
             setReferralBonusRate(Number(walletDash.bonus_rate_per_school));
             setNewBonusRate(Number(walletDash.bonus_rate_per_school));
@@ -1267,6 +1279,14 @@ Login to your school dashboard, go to Subscription & Billing, enter *${coupon.co
       if (!rpcErr && data?.success) {
         setSchoolWallets(data.wallets || []);
         setWalletStats(data.stats || null);
+        if (data.referral_percentage !== undefined) {
+          setReferralCommissionPercent(Number(data.referral_percentage));
+          setNewCommissionPercent(Number(data.referral_percentage));
+        }
+        if (data.reward_type) {
+          setReferralRewardType(data.reward_type);
+          setNewRewardType(data.reward_type);
+        }
         if (data.bonus_rate_per_school) {
           setReferralBonusRate(Number(data.bonus_rate_per_school));
           setNewBonusRate(Number(data.bonus_rate_per_school));
@@ -1325,20 +1345,23 @@ Login to your school dashboard, go to Subscription & Billing, enter *${coupon.co
 
   const handleUpdateBonusRate = async (e: FormEvent) => {
     e.preventDefault();
-    if (newBonusRate < 0) return;
     setSavingBonusRate(true);
     try {
       const { data, error: rpcErr } = await supabase.rpc("admin_update_school_referral_reward", {
-        p_bonus_amount: Number(newBonusRate),
+        p_percentage: Number(newCommissionPercent),
+        p_reward_type: newRewardType,
+        p_flat_amount: Number(newBonusRate),
         p_master_code: MASTER_ACCESS_CODE,
       });
       if (rpcErr) throw rpcErr;
+      setReferralCommissionPercent(Number(newCommissionPercent));
+      setReferralRewardType(newRewardType);
       setReferralBonusRate(Number(newBonusRate));
       setShowBonusRateModal(false);
-      setSuccess(data?.message || `Referral reward set to ₹${newBonusRate} per school.`);
+      setSuccess(data?.message || `School referral commission settings updated!`);
       await loadSchoolWallets();
     } catch (err: any) {
-      alert(err.message || "Failed to update referral reward amount.");
+      alert(err.message || "Failed to update referral reward settings.");
     } finally {
       setSavingBonusRate(false);
     }
@@ -4335,13 +4358,17 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
               <button
                 type="button"
                 onClick={() => {
+                  setNewCommissionPercent(referralCommissionPercent);
+                  setNewRewardType(referralRewardType);
                   setNewBonusRate(referralBonusRate);
                   setShowBonusRateModal(true);
                 }}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3.5 py-2 text-xs font-bold text-purple-700 hover:bg-purple-100 transition shadow-xs"
               >
-                <Gift size={14} />
-                Reward Rate: ₹{referralBonusRate} / School
+                <Percent size={14} />
+                {referralRewardType === "percentage"
+                  ? `Commission: ${referralCommissionPercent}% / Renewal`
+                  : `Reward: ₹${referralBonusRate} / School`}
               </button>
 
               <button
@@ -8061,20 +8088,20 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
         </div>
       )}
 
-      {/* MODAL: UPDATE PLATFORM REFERRAL BONUS RATE */}
+      {/* MODAL: UPDATE PLATFORM REFERRAL BONUS & COMMISSION SETTINGS */}
       {showBonusRateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 p-5 bg-slate-50">
               <div className="flex items-center gap-2">
                 <span className="rounded-xl bg-purple-600 p-2 text-white">
-                  <Gift size={16} />
+                  <Percent size={16} />
                 </span>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    School Referral Reward Setting
+                    School Referral Commission Settings
                   </h3>
-                  <p className="text-[11px] text-slate-500">Global Platform Incentive Rate</p>
+                  <p className="text-[11px] text-slate-500">School-to-School Referral Incentives</p>
                 </div>
               </div>
               <button
@@ -8088,22 +8115,78 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
 
             <form onSubmit={handleUpdateBonusRate} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Referral Reward Amount per Activated School (₹)
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Commission Model
                 </label>
-                <input
-                  type="number"
-                  min={0}
-                  step={50}
-                  required
-                  value={newBonusRate}
-                  onChange={(e) => setNewBonusRate(Math.max(0, Number(e.target.value) || 0))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-base font-bold font-mono outline-none focus:border-purple-600"
-                />
-                <p className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
-                  When any referred school's subscription payment is approved by Super Admin, this amount is automatically credited to the referring school's virtual wallet.
-                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewRewardType("percentage")}
+                    className={`rounded-xl border p-2.5 text-center text-xs font-bold transition ${
+                      newRewardType === "percentage"
+                        ? "border-purple-600 bg-purple-50 text-purple-700 shadow-xs"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    Monthly % Commission (Recurring)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewRewardType("flat")}
+                    className={`rounded-xl border p-2.5 text-center text-xs font-bold transition ${
+                      newRewardType === "flat"
+                        ? "border-purple-600 bg-purple-50 text-purple-700 shadow-xs"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    Flat ₹ Reward (One-Time)
+                  </button>
+                </div>
               </div>
+
+              {newRewardType === "percentage" ? (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Monthly Recurring Commission Rate (%)
+                  </label>
+                  <div className="relative mt-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      required
+                      value={newCommissionPercent}
+                      onChange={(e) => setNewCommissionPercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                      className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-base font-bold font-mono outline-none focus:border-purple-600"
+                    />
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">
+                      %
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
+                    Jab bhi referred school apna <strong>monthly subscription pay karega</strong>, unki payment ka <strong>{newCommissionPercent}%</strong> automatically referring school ke virtual wallet me credit hoga!
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Flat Reward Amount per School (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={50}
+                    required
+                    value={newBonusRate}
+                    onChange={(e) => setNewBonusRate(Math.max(0, Number(e.target.value) || 0))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-base font-bold font-mono outline-none focus:border-purple-600"
+                  />
+                  <p className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
+                    One-time flat ₹ credit to referring school's virtual wallet upon first subscription payment approval.
+                  </p>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
@@ -8118,7 +8201,7 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                   disabled={savingBonusRate}
                   className="rounded-xl bg-purple-600 px-5 py-2 text-xs font-bold text-white hover:bg-purple-500 disabled:opacity-50 shadow-sm"
                 >
-                  {savingBonusRate ? "Updating..." : "Save Reward Amount"}
+                  {savingBonusRate ? "Updating..." : "Save Commission Settings"}
                 </button>
               </div>
             </form>

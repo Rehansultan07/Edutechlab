@@ -86,6 +86,8 @@ type SchoolWalletData = {
   organization_id: string;
   school_name: string;
   referral_code: string;
+  referral_percentage?: number;
+  reward_type?: string;
   bonus_rate_per_school: number;
   wallet: {
     balance: number;
@@ -101,6 +103,7 @@ type SchoolWalletData = {
     status: string;
     is_trial: boolean;
     bonus_earned: number;
+    rewards_count?: number;
     is_rewarded: boolean;
   }>;
   transactions: Array<{
@@ -1477,7 +1480,9 @@ export default function SubscriptionPage() {
                 {walletData?.referred_schools_count || 0}
               </div>
               <p className="mt-1 text-[11px] text-slate-500">
-                ₹{walletData?.bonus_rate_per_school || 500} reward per active school
+                {walletData?.reward_type === "flat"
+                  ? `₹${walletData?.bonus_rate_per_school || 500} reward per active school`
+                  : `${walletData?.referral_percentage || 10}% recurring commission on renewals`}
               </p>
             </div>
           </div>
@@ -1491,10 +1496,10 @@ export default function SubscriptionPage() {
                   <span>School Refer &amp; Earn Program</span>
                 </div>
                 <h2 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl text-white">
-                  Refer Schools. Earn ₹{walletData?.bonus_rate_per_school || 500} per School.
+                  Refer Schools. Earn {walletData?.referral_percentage || 10}% Monthly Recurring Commission.
                 </h2>
                 <p className="mt-2 text-xs leading-relaxed text-slate-300 sm:text-sm">
-                  Jab bhi koi doosra school aapke referral code se EduTechLab join karega aur apna subscription activate karega, aapke Virtual Wallet me turant ₹{walletData?.bonus_rate_per_school || 500} credit ho jayenge. Is wallet balance se aap apna monthly software renewal 100% Free kar sakte hain!
+                  Jab bhi aapka refer kiya hua school apna monthly subscription renew karega, unki har payment ka {walletData?.referral_percentage || 10}% commission seedhe aapke Virtual Wallet me add hoga! Is balance se aap apna software subscription 100% Free me renew kar sakte hain!
                 </p>
 
                 {/* Referral Code & URL Copy Controls */}
@@ -1582,7 +1587,7 @@ export default function SubscriptionPage() {
                     <div>
                       <strong className="text-white">School Registers &amp; Subscribes</strong>
                       <p className="mt-0.5 text-slate-300 text-[11px]">
-                        They register using your code. As soon as their subscription is approved, ₹{walletData?.bonus_rate_per_school || 500} credits into your wallet!
+                        They register using your code. Jab bhi wo apna monthly subscription pay karenge, har payment ka {walletData?.referral_percentage || 10}% commission aapke wallet me automatically add hoga!
                       </p>
                     </div>
                   </div>
@@ -1658,9 +1663,16 @@ export default function SubscriptionPage() {
                         </td>
                         <td className="px-4 py-3.5 text-right font-bold font-mono">
                           {school.is_rewarded ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-black text-emerald-800">
-                              +₹{school.bonus_earned.toLocaleString("en-IN")} Credited
-                            </span>
+                            <div className="flex flex-col items-end">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-black text-emerald-800">
+                                +₹{school.bonus_earned.toLocaleString("en-IN")} Credited
+                              </span>
+                              {school.rewards_count && school.rewards_count > 1 ? (
+                                <span className="text-[10px] text-slate-400 mt-0.5 font-sans font-medium">
+                                  {school.rewards_count} monthly renewals
+                                </span>
+                              ) : null}
+                            </div>
                           ) : (
                             <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-800">
                               <Clock size={11} /> Awaiting Subscription Activation
