@@ -1462,7 +1462,7 @@ Login to your school dashboard, go to Subscription & Billing, enter *${coupon.co
 
       const activeCount = Object.values(currentFeatures).filter(Boolean).length;
       setSuccess(
-        `Features for "${managingFeaturesInst.name}" updated successfully! (${activeCount}/13 modules active)`
+        `Features for "${managingFeaturesInst.name}" updated successfully! (${activeCount}/14 modules active)`
       );
       setManagingFeaturesInst(null);
     } catch (err: any) {
@@ -3155,7 +3155,7 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                               title="Configure and allocate active features for this school"
                             >
                               <Sliders size={12} />
-                              Features ({Object.values(inst.enabled_features || getDefaultFeaturesMap()).filter(Boolean).length}/13)
+                              Features ({Object.values(inst.enabled_features || getDefaultFeaturesMap()).filter(Boolean).length}/14)
                             </button>
 
                             {/* Grant / Manage Free Trial Button */}
@@ -5008,9 +5008,9 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                 </div>
                 <div className="rounded-xl border border-white/60 bg-white/80 px-4 py-2 text-center backdrop-blur shadow-sm">
                   <span className="block text-xl font-extrabold text-emerald-600">
-                    {institutions.filter(i => Object.values(i.enabled_features || getDefaultFeaturesMap()).filter(Boolean).length === 13).length}
+                    {institutions.filter(i => Object.values(i.enabled_features || getDefaultFeaturesMap()).filter(Boolean).length === 14).length}
                   </span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Full Enterprise (13/13)</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Full Enterprise (14/14)</span>
                 </div>
               </div>
             </div>
@@ -5058,6 +5058,7 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                     <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Expenses & Kharcha Tracker">Expenses</th>
                     <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Exams & Report Cards">Exams</th>
                     <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Digital Noticeboard">Notices</th>
+                    <th className="px-3 py-3.5 whitespace-nowrap text-center" title="A4 Official Notice & Letterhead Pad">Letter Pad</th>
                     <th className="px-3 py-3.5 whitespace-nowrap text-center" title="Staff Role Permissions">Staff</th>
                     <th className="px-4 py-3.5 whitespace-nowrap text-right sticky right-0 bg-slate-50 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                       Action
@@ -5078,14 +5079,14 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                               <span className="text-[10px] font-mono text-slate-400 font-normal">/{inst.slug}</span>
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                          <td className="px-3 py-3.5 text-center whitespace-nowrap">
                             <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                              activeCount === 13 ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-purple-50 text-purple-700 border border-purple-200"
+                              activeCount === 14 ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-purple-50 text-purple-700 border border-purple-200"
                             }`}>
-                              {activeCount} / 13
+                              {activeCount} / 14
                             </span>
                           </td>
-                          {(["students","id_cards","certificates","academics","timetable","homework","teachers","attendance","fees","expenses","exams","notices","staff"] as FeatureKey[]).map((k) => {
+                          {(["students","id_cards","certificates","academics","timetable","homework","teachers","attendance","fees","expenses","exams","notices","official_notices","staff"] as FeatureKey[]).map((k) => {
                             const isEn = feat[k] !== false;
                             return (
                               <td key={k} className="px-3 py-3 text-center whitespace-nowrap">
@@ -5979,7 +5980,7 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-bold text-slate-900">Feature Allocation Controller</h3>
                     <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-[10px] font-extrabold text-indigo-800 uppercase tracking-wider">
-                      {Object.values(currentFeatures).filter(Boolean).length} / 13 Active
+                      {Object.values(currentFeatures).filter(Boolean).length} / 14 Active
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium">
@@ -6007,21 +6008,21 @@ For any assistance or setup guidance, we are just a message away! 🚀`;
                   className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition shadow-sm"
                 >
                   <Sparkles size={13} />
-                  Full Enterprise (13/13)
+                  Full Enterprise (14/14)
                 </button>
                 <button
                   type="button"
                   onClick={() => handleApplyPreset("academic_standard")}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 transition shadow-sm"
                 >
-                  Standard School (9/13)
+                  Standard School (10/14)
                 </button>
                 <button
                   type="button"
                   onClick={() => handleApplyPreset("basic_lite")}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 transition shadow-sm"
                 >
-                  Basic Lite (5/13)
+                  Basic Lite (6/14)
                 </button>
                 <button
                   type="button"

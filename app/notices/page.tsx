@@ -4,7 +4,8 @@ import FeatureGate from "@/components/FeatureGate";
 import { fetchInstitutionFeatures } from "@/lib/features";
 
 import { useEffect, useState } from "react";
-import { Plus, Bell, Trash2, X, ArrowLeft, Pencil } from "lucide-react";
+import Link from "next/link";
+import { Plus, Bell, Trash2, X, ArrowLeft, Pencil, FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUserAccess } from "@/lib/auth/permissions";
 import AccessDenied from "@/components/auth/AccessDenied";
@@ -127,19 +128,28 @@ export default function Notices() {
           <h1 className="mt-1 text-3xl font-bold">Notices</h1>
           <p className="mt-2 text-sm text-slate-500">Create, edit and manage institute announcements.</p>
         </div>
-        {canManage && (
-          <button
-            onClick={() => {
-              setEdit(null);
-              setForm({ title: "", body: "" });
-              setOpen(true);
-            }}
-            className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/official-notices"
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
           >
-            <Plus size={17} />
-            Create notice
-          </button>
-        )}
+            <FileText size={17} />
+            Official A4 Letter Pad Notice
+          </Link>
+          {canManage && (
+            <button
+              onClick={() => {
+                setEdit(null);
+                setForm({ title: "", body: "" });
+                setOpen(true);
+              }}
+              className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+            >
+              <Plus size={17} />
+              Create notice
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}

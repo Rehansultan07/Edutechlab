@@ -11,7 +11,8 @@ export type FeatureKey =
   | "expenses"
   | "exams"
   | "notices"
-  | "staff";
+  | "staff"
+  | "official_notices";
 
 export interface FeatureDefinition {
   key: FeatureKey;
@@ -101,6 +102,14 @@ export const PLATFORM_FEATURES: FeatureDefinition[] = [
     category: "Administration & Security",
     description: "Publish circulars and school announcements visible across the school portal.",
     path: "/notices",
+    defaultEnabled: true,
+  },
+  {
+    key: "official_notices",
+    name: "A4 Official Notice & Letter Pad",
+    category: "Administration & Security",
+    description: "Create and print official A4 letter pad notices with prefilled school logo, school details, seal stamp, and authorized signature blocks.",
+    path: "/official-notices",
     defaultEnabled: true,
   },
   {
@@ -203,13 +212,13 @@ export async function fetchInstitutionFeatures(
 
 export const PRESET_BUNDLES = {
   all: {
-    label: "Enterprise Full Suite (13/13)",
+    label: "Enterprise Full Suite (14/14)",
     description: "All platform modules and power pack features enabled.",
     features: getDefaultFeaturesMap(),
   },
   academic_standard: {
-    label: "Standard School Pack (9/13)",
-    description: "Essential academic routine, fees, attendance, students, notices, and exams.",
+    label: "Standard School Pack (10/14)",
+    description: "Essential academic routine, fees, attendance, students, notices, exams, and official letter pad.",
     features: {
       students: true,
       id_cards: true,
@@ -224,10 +233,11 @@ export const PRESET_BUNDLES = {
       exams: true,
       notices: true,
       staff: false,
+      official_notices: true,
     } as EnabledFeaturesMap,
   },
   basic_lite: {
-    label: "Basic Lite Pack (5/13)",
+    label: "Basic Lite Pack (6/14)",
     description: "Minimal starter pack for coaching centers or primary schools.",
     features: {
       students: true,
@@ -243,6 +253,7 @@ export const PRESET_BUNDLES = {
       exams: false,
       notices: true,
       staff: false,
+      official_notices: false,
     } as EnabledFeaturesMap,
   },
 };

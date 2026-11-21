@@ -38,6 +38,7 @@ import {
   Layers,
   UserCheck,
   UserX,
+  FileSpreadsheet,
 } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -69,6 +70,7 @@ const ROUTE_FEATURE_MAP: Record<string, FeatureKey> = {
   "/expenses": "expenses",
   "/exams": "exams",
   "/notices": "notices",
+  "/official-notices": "official_notices",
   "/staff": "staff",
 };
 
@@ -86,6 +88,7 @@ const nav = [
   ["School Expenses", "/expenses", Receipt, ["settings.manage"]],
   ["Exams & Results", "/exams", FileText, ["exams.view", "exams.manage", "results.manage"]],
   ["Notices", "/notices", Bell, ["notices.manage"]],
+  ["Official Letter Pad", "/official-notices", FileSpreadsheet, ["notices.manage", "settings.manage"]],
   ["Staff & Permissions", "/staff", ShieldCheck, ["staff.manage"]],
   ["Subscription", "/subscription", CreditCard, ["settings.manage"]],
 ] as const;
